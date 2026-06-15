@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CalciteChip } from '@esri/calcite-components-react';
+import { CalciteButton, CalciteChip } from '@esri/calcite-components-react';
 import { useAppStore } from '@/store/useAppStore';
 import { tokens } from '@/theme/tokens';
 
@@ -23,6 +23,10 @@ export function HeaderBar() {
   const connection = useAppStore((s) => s.connection);
   const lastUpdate = useAppStore((s) => s.lastUpdate);
   const mode = useAppStore((s) => s.mode);
+  const authConfigured = useAppStore((s) => s.authConfigured);
+  const user = useAppStore((s) => s.user);
+  const signIn = useAppStore((s) => s.signIn);
+  const signOut = useAppStore((s) => s.signOut);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -92,6 +96,24 @@ export function HeaderBar() {
         >
           {istClock(now)}
         </span>
+
+        {authConfigured &&
+          (user ? (
+            <CalciteButton
+              scale="s"
+              kind="neutral"
+              appearance="outline"
+              iconStart="sign-out"
+              title={`Signed in as ${user.fullName}`}
+              onClick={() => signOut()}
+            >
+              {user.username}
+            </CalciteButton>
+          ) : (
+            <CalciteButton scale="s" iconStart="sign-in" onClick={() => void signIn()}>
+              Sign in
+            </CalciteButton>
+          ))}
       </div>
     </header>
   );

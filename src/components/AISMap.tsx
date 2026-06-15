@@ -31,7 +31,12 @@ import { navStatusColor, tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
 import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
 
+// In live mode, centre on the configured AIS region (which has real coverage);
+// in mock mode, centre on Nhava Sheva. Driven by env so it switches to JNPA
+// the moment a covering feed is configured.
 const JNPA_CENTER = '72.95,18.95';
+const initialCenter = env.dataMode === 'live' ? env.liveRegion.center : JNPA_CENTER;
+const initialZoom = env.dataMode === 'live' ? env.liveRegion.zoom : 12;
 
 /** Icons shown in the map legend. */
 const LEGEND_SPRITES = [
@@ -169,6 +174,13 @@ export function AISMap() {
   const vesselLayerRef = useRef<GraphicsLayer | null>(null);
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
   const [ready, setReady] = useState(false);
+  /**
+   * When the configured WebMap can't load (commonly a private item with no
+   * sign-in), we fall back to a public basemap so the map + live vessels still
+   * render. `mapWarning` surfaces why.
+   */
+  const [webMapFailed, setWebMapFailed] = useState(false);
+  const [mapWarning, setMapWarning] = useState<string | null>(null);
   const [visible, setVisible] = useState<Record<LayerKey, boolean>>({
     vessels: true,
     berths: true,
@@ -177,15 +189,31 @@ export function AISMap() {
   });
 
   const vessels = useAppStore((s) => s.vessels);
+  const user = useAppStore((s) => s.user);
+  const authConfigured = useAppStore((s) => s.authConfigured);
+  const signIn = useAppStore((s) => s.signIn);
 
-  // Initialise programmatic layers once the view is ready.
+  // Whether to bind the WebMap: only if configured AND not already failed.
+  const useWebMap = Boolean(env.webMapId) && !webMapFailed;
+
+  // Initialise programmatic layers once the view is ready; handle load errors.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
     const onReady = (evt: Event) => {
-      const map = (evt as ArcgisViewReadyEvent).target.map;
+      const target = (evt as ArcgisViewReadyEvent).target;
+      const map = target.map;
       if (!map) return;
+
+      // In live mode a WebMap may default to a different extent than the AIS
+      // coverage region — recentre the view so the real vessels are visible.
+      if (env.dataMode === 'live' && target.view) {
+        const [lon, lat] = env.liveRegion.center.split(',').map(Number);
+        void target.view.goTo({ center: [lon, lat], zoom: env.liveRegion.zoom }).catch(() => {
+          /* view animation can be interrupted; non-fatal */
+        });
+      }
 
       const vesselLayer = new GraphicsLayer({ title: 'Vessel Tracks' });
       const berthLayer = new GraphicsLayer({ title: 'Berth Overlay' });
@@ -203,9 +231,28 @@ export function AISMap() {
       setReady(true);
     };
 
+    // If the WebMap item fails to load (private item / no auth / bad id), drop
+    // it and fall back to a public basemap so vessels still render.
+    const onLoadError = (evt: Event) => {
+      const detail = (evt as CustomEvent).detail;
+      const msg = detail?.error?.message ?? detail?.message ?? String(detail ?? 'unknown');
+      if (env.webMapId && !webMapFailed) {
+        setWebMapFailed(true);
+        setMapWarning(
+          authConfigured && !user
+            ? 'Your WebMap is private — sign in to load it. Showing a public basemap for now.'
+            : `WebMap "${env.webMapId}" failed to load (${msg}). Showing a public basemap.`
+        );
+      }
+    };
+
     host.addEventListener('arcgisViewReadyChange', onReady as EventListener);
-    return () => host.removeEventListener('arcgisViewReadyChange', onReady as EventListener);
-  }, []);
+    host.addEventListener('arcgisLoadError', onLoadError as EventListener);
+    return () => {
+      host.removeEventListener('arcgisViewReadyChange', onReady as EventListener);
+      host.removeEventListener('arcgisLoadError', onLoadError as EventListener);
+    };
+  }, [webMapFailed, authConfigured, user]);
 
   // Re-render vessel graphics whenever the live set changes.
   useEffect(() => {
@@ -221,18 +268,97 @@ export function AISMap() {
     if (berthLayerRef.current) berthLayerRef.current.visible = visible.berths;
   }, [visible]);
 
+  // After a successful sign-in, retry loading the previously-failed WebMap.
+  useEffect(() => {
+    if (user && webMapFailed) {
+      setWebMapFailed(false);
+      setMapWarning(null);
+      setReady(false);
+    }
+  }, [user, webMapFailed]);
+
   const toggle = (k: LayerKey) => setVisible((v) => ({ ...v, [k]: !v[k] }));
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 320 }}>
-      {/* The ArcGIS web component. item-id binds the shared WebMap when set. */}
+      {/* The ArcGIS web component. item-id binds the shared WebMap when set and
+          loadable; on failure we re-mount (via key) with a public basemap. */}
       <arcgis-map
+        key={useWebMap ? 'webmap' : 'basemap'}
         ref={hostRef as never}
-        {...(env.webMapId ? { 'item-id': env.webMapId } : { basemap: 'arcgis/navigation' })}
-        center={JNPA_CENTER}
-        zoom={12}
+        {...(useWebMap
+          ? { 'item-id': env.webMapId }
+          : { basemap: 'arcgis/imagery-standard' })}
+        center={initialCenter}
+        zoom={initialZoom}
         style={{ width: '100%', height: '100%', display: 'block' }}
       />
+
+      {/* WebMap load warning + sign-in prompt (e.g. private item, no auth). */}
+      {mapWarning && (
+        <div
+          role="alert"
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            left: 8,
+            maxWidth: 360,
+            background: tokens.panel,
+            color: tokens.text,
+            border: `1px solid ${tokens.warn}`,
+            borderRadius: 4,
+            padding: '8px 10px',
+            fontSize: 11,
+            lineHeight: 1.4,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+          }}
+        >
+          <div>{mapWarning}</div>
+          {authConfigured && !user && (
+            <button
+              type="button"
+              onClick={() => void signIn()}
+              style={{
+                marginTop: 6,
+                background: tokens.accent,
+                color: '#fff',
+                border: 'none',
+                borderRadius: 3,
+                padding: '4px 10px',
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              Sign in to ArcGIS
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Coverage stand-in banner — only when the live region isn't JNPA. */}
+      {env.dataMode === 'live' && env.liveRegion.isStandIn && (
+        <div
+          role="note"
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            maxWidth: 320,
+            background: tokens.warn,
+            color: '#1a1a1a',
+            border: `1px solid ${tokens.border}`,
+            borderRadius: 4,
+            padding: '6px 10px',
+            fontSize: 11,
+            lineHeight: 1.35,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+          }}
+        >
+          <strong>Live AIS — {env.liveRegion.label}.</strong> Free public AIS has no
+          coverage over JNPA/Indian waters, so real-time vessels are shown here as a
+          coverage demo. Switch to JNPA geography once a Velocity/licensed feed is configured.
+        </div>
+      )}
 
       {/* Layer toggles + legend overlay */}
       <div

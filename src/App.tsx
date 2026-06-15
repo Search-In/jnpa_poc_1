@@ -23,7 +23,11 @@ import { useAppStore } from '@/store/useAppStore';
 import { tokens } from '@/theme/tokens';
 
 export function App() {
-  useEffect(() => useAppStore.getState().start(), []);
+  useEffect(() => {
+    // Restore any existing OAuth session before the map loads private items.
+    void useAppStore.getState().restoreSession();
+    return useAppStore.getState().start();
+  }, []);
 
   return (
     <CalciteShell style={{ height: '100vh' }}>

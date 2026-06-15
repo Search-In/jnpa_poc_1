@@ -47,20 +47,24 @@ import { openAisStream } from './aisstream';
 
 const H = 3_600_000;
 
-function require_(url: string, name: string): string {
-  if (!url) {
-    throw new Error(
-      `[ArcGISAdapter] ${name} is not configured. Set the matching VITE_* var in .env, ` +
-        `or run in mock mode (VITE_DATA_MODE=mock).`
-    );
-  }
-  return url;
-}
-
 function resolveWindow(window: TimeWindow | undefined, now: number): { from: number; to: number } {
   const to = window?.to ?? now;
   const from = window?.from ?? to - (window?.lastHours ?? 24) * H;
   return { from, to };
+}
+
+/**
+ * Format an epoch-ms instant as an ArcGIS SQL date literal:
+ * `TIMESTAMP 'YYYY-MM-DD HH:MM:SS'` (UTC). Feature Service date fields reject a
+ * bare epoch-ms integer in a WHERE clause, so all date filters use this form.
+ */
+function sqlDate(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const s =
+    `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+  return `TIMESTAMP '${s}'`;
 }
 
 /** Map a Feature Service graphic's attributes onto a domain Vessel. */
@@ -126,6 +130,7 @@ export class ArcGISAdapter implements DataAdapter {
       onState?.('connecting');
       return openAisStream({
         token: env.aisStreamToken,
+        bbox: env.liveRegion.bbox,
         onState,
         onVessel: (v) => {
           this.vesselCache.set(v.MMSI, v);
@@ -168,8 +173,17 @@ export class ArcGISAdapter implements DataAdapter {
   }
 
   // ── Feature Layer queries ──────────────────────────────────────────────────
+  /**
+   * Query a Hosted Feature Layer. If its URL is **not configured**, returns an
+   * empty set so the app can go live incrementally (real AIS vessels first,
+   * operational layers as they are published) — the dependent widgets render
+   * their empty state rather than erroring. A *configured* URL that fails still
+   * throws, so genuine outages surface loudly.
+   */
   private async queryAll(url: string, name: string, where = '1=1'): Promise<Graphic[]> {
-    const layer = new FeatureLayer({ url: require_(url, name) });
+    void name; // retained for call-site clarity / future error messages
+    if (!url) return [];
+    const layer = new FeatureLayer({ url });
     const result = await layer.queryFeatures({
       where,
       outFields: ['*'],
@@ -197,7 +211,7 @@ export class ArcGISAdapter implements DataAdapter {
 
   async getBerthPlan(window?: TimeWindow): Promise<BerthingPlanEntry[]> {
     const { from, to } = resolveWindow(window, this.now());
-    const where = `PLANNED_END >= ${from} AND PLANNED_START <= ${to}`;
+    const where = `PLANNED_END >= ${sqlDate(from)} AND PLANNED_START <= ${sqlDate(to)}`;
     const features = await this.queryAll(env.fs.berthingPlan, 'VITE_FS_BERTHING_PLAN_URL', where);
     return features.map((f) => {
       const a = f.attributes as Record<string, unknown>;
@@ -232,7 +246,7 @@ export class ArcGISAdapter implements DataAdapter {
 
   async getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]> {
     const { from, to } = resolveWindow(window, this.now());
-    const where = `TS >= ${from} AND TS <= ${to}`;
+    const where = `TS >= ${sqlDate(from)} AND TS <= ${sqlDate(to)}`;
     const features = await this.queryAll(env.fs.kpiSnapshots, 'VITE_FS_KPI_SNAPSHOTS_URL', where);
     return features
       .map((f) => f.attributes as Record<string, unknown>)
@@ -263,7 +277,7 @@ export class ArcGISAdapter implements DataAdapter {
     // empty set if the vessels FS URL is not configured.
     if (!env.fs.vessels) return [];
     const { from, to } = resolveWindow(window, this.now());
-    const where = `TIMESTAMP >= ${from} AND TIMESTAMP <= ${to} AND ETA IS NOT NULL`;
+    const where = `TIMESTAMP >= ${sqlDate(from)} AND TIMESTAMP <= ${sqlDate(to)} AND ETA IS NOT NULL`;
     const features = await this.queryAll(env.fs.vessels, 'VITE_FS_VESSELS_URL', where);
     return features.map((f) => {
       const a = f.attributes as Record<string, unknown>;

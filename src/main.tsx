@@ -10,6 +10,7 @@ import { defineCustomElements as defineCalcite } from '@esri/calcite-components/
 import { defineCustomElements as defineMapComponents } from '@arcgis/map-components/loader';
 
 import { tokens } from './theme/tokens';
+import { configureAuth } from './arcgis/identity';
 import { App } from './App';
 import './index.css';
 
@@ -29,6 +30,9 @@ function applyTheme(): void {
 defineCalcite({ resourcesUrl: 'https://js.arcgis.com/calcite-components/3.3.3/assets' });
 defineMapComponents({ resourcesUrl: 'https://js.arcgis.com/4.34/map-components/' });
 applyTheme();
+// Register OAuth early (no-op if VITE_OAUTH_APPID is unset) so any private
+// org-item request triggers the sign-in flow instead of a silent 403.
+configureAuth();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

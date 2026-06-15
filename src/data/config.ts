@@ -17,11 +17,52 @@ export interface AppEnv {
   };
   aisStreamToken: string;
   weatherFeedUrl: string;
+  /**
+   * Live AIS region. JNPA/Indian waters have no free public AIS coverage, so
+   * the demo can re-centre on a region that does (default: Rotterdam) to show
+   * genuine real-time vessels. All env-overridable; clear to JNPA geography the
+   * moment a covering feed (Velocity/licensed) is configured.
+   */
+  liveRegion: {
+    /** [[swLat, swLon], [neLat, neLon]] AIS subscription box. */
+    bbox: number[][];
+    /** Map center "lon,lat". */
+    center: string;
+    zoom: number;
+    /** Human label shown in the UI when not using JNPA geography. */
+    label: string;
+    /** True when the region is a coverage stand-in (not JNPA). */
+    isStandIn: boolean;
+  };
 }
 
 function str(v: string | undefined, fallback = ''): string {
   return v ?? fallback;
 }
+
+function num(v: string | undefined, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) && v !== undefined && v !== '' ? n : fallback;
+}
+
+/** Parse "swLat,swLon,neLat,neLon" → [[swLat,swLon],[neLat,neLon]]; else fallback. */
+function parseBbox(v: string | undefined, fallback: number[][]): number[][] {
+  if (!v) return fallback;
+  const p = v.split(',').map(Number);
+  if (p.length === 4 && p.every((x) => Number.isFinite(x))) {
+    return [
+      [p[0], p[1]],
+      [p[2], p[3]],
+    ];
+  }
+  return fallback;
+}
+
+// Rotterdam — densest live AISStream coverage as of build time. Override via env.
+const ROTTERDAM_BBOX = [
+  [51.85, 3.9],
+  [52.05, 4.5],
+];
 
 export const env: AppEnv = {
   dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live') ?? 'mock',
@@ -39,4 +80,12 @@ export const env: AppEnv = {
   },
   aisStreamToken: str(import.meta.env.VITE_AISSTREAM_TOKEN),
   weatherFeedUrl: str(import.meta.env.VITE_WEATHER_FEED_URL),
+  liveRegion: {
+    bbox: parseBbox(import.meta.env.VITE_AIS_BBOX, ROTTERDAM_BBOX),
+    center: str(import.meta.env.VITE_MAP_CENTER, '4.15,51.95'),
+    zoom: num(import.meta.env.VITE_MAP_ZOOM, 11),
+    label: str(import.meta.env.VITE_LIVE_REGION_LABEL, 'Rotterdam (live AIS coverage demo)'),
+    // Stand-in unless the operator explicitly says this region IS the target.
+    isStandIn: str(import.meta.env.VITE_LIVE_REGION_IS_TARGET) !== 'true',
+  },
 };

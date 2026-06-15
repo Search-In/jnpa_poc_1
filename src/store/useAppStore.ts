@@ -8,6 +8,13 @@ import { create } from 'zustand';
 import type { Vessel } from '@/types/domain';
 import type { KpiBundle } from '@/types/kpi';
 import { getAdapter, type ConnectionState, type Unsubscribe } from '@/data';
+import {
+  type AuthUser,
+  checkSignInStatus,
+  isAuthConfigured,
+  signIn as oauthSignIn,
+  signOut as oauthSignOut,
+} from '@/arcgis/identity';
 
 interface AppState {
   mode: 'mock' | 'live';
@@ -18,9 +25,17 @@ interface AppState {
   kpis: KpiBundle | null;
   kpiError: string | null;
 
+  /** Auth state for private org items. */
+  authConfigured: boolean;
+  user: AuthUser | null;
+  authError: string | null;
+
   /** Begin streaming + initial KPI load. Returns a teardown function. */
   start: () => Unsubscribe;
   refreshKpis: () => Promise<void>;
+  restoreSession: () => Promise<void>;
+  signIn: () => Promise<void>;
+  signOut: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -30,6 +45,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastUpdate: null,
   kpis: null,
   kpiError: null,
+  authConfigured: isAuthConfigured(),
+  user: null,
+  authError: null,
 
   start: () => {
     const adapter = getAdapter();
@@ -44,6 +62,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       unsub();
       clearInterval(timer);
     };
+  },
+
+  restoreSession: async () => {
+    if (!isAuthConfigured()) return;
+    const user = await checkSignInStatus();
+    set({ user });
+  },
+
+  signIn: async () => {
+    try {
+      const user = await oauthSignIn();
+      set({ user, authError: null });
+    } catch (err) {
+      set({ authError: err instanceof Error ? err.message : String(err) });
+    }
+  },
+
+  signOut: () => {
+    oauthSignOut();
+    set({ user: null });
   },
 
   refreshKpis: async () => {

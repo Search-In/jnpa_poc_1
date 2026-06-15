@@ -15,7 +15,12 @@ import type { ConnectionListener } from './types';
 
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 
-/** Nhava Sheva approaches bounding box: [[swLat, swLon], [neLat, neLon]]. */
+/**
+ * Default Nhava Sheva approaches box, [[swLat, swLon], [neLat, neLon]]. Used
+ * only when no box is passed. NOTE: free public AIS (AISStream) currently has
+ * no receiver coverage over Indian waters, so the live demo passes a
+ * coverage-rich box from `env.liveRegion.bbox` (see src/data/config.ts).
+ */
 export const JNPA_BBOX: number[][] = [
   [18.85, 72.85],
   [19.05, 73.05],
