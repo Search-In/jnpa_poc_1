@@ -29,8 +29,21 @@ import { env } from '@/data/config';
 import type { Berth, Vessel } from '@/types/domain';
 import { navStatusColor, tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
+import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
 
 const JNPA_CENTER = '72.95,18.95';
+
+/** Icons shown in the map legend. */
+const LEGEND_SPRITES = [
+  { label: 'Container', sprite: VESSEL_SPRITES.container },
+  { label: 'Bulk carrier', sprite: VESSEL_SPRITES.bulk },
+  { label: 'Tanker', sprite: VESSEL_SPRITES.tanker },
+  { label: 'Tug', sprite: CRAFT_SPRITES.tug },
+  { label: 'Pilot', sprite: CRAFT_SPRITES.pilot },
+  { label: 'Mooring', sprite: CRAFT_SPRITES.mooring },
+  { label: 'Anchored', sprite: GLYPHS.anchor },
+  { label: 'Berth', sprite: GLYPHS.berth },
+];
 
 interface ArcgisMapElement extends HTMLElement {
   view?: MapView;
@@ -41,53 +54,112 @@ interface ArcgisViewReadyEvent extends CustomEvent {
   target: ArcgisMapElement;
 }
 
-function vesselSymbol(status: Vessel['NAV_STATUS']) {
+const VESSEL_POPUP = {
+  title: '{VESSEL_NAME} ({VESSEL_TYPE})',
+  content: [
+    {
+      type: 'fields' as const,
+      fieldInfos: [
+        { fieldName: 'MMSI', label: 'MMSI' },
+        { fieldName: 'NAV_STATUS', label: 'Status' },
+        { fieldName: 'SOG', label: 'SOG (kn)' },
+        { fieldName: 'COG', label: 'COG (°)' },
+        { fieldName: 'HEADING', label: 'Heading (°)' },
+        { fieldName: 'BERTH_ID', label: 'Berth' },
+      ],
+    },
+  ],
+};
+
+/** Status halo drawn behind the sprite so NAV_STATUS stays readable. */
+function haloSymbol(status: Vessel['NAV_STATUS']) {
   return {
     type: 'simple-marker' as const,
     color: navStatusColor[status] ?? tokens.accent,
-    size: 9,
+    size: 16,
     outline: { color: '#ffffff', width: 1 },
   };
 }
 
-function vesselToGraphic(v: Vessel): Graphic {
-  return new Graphic({
-    geometry: new Point({ longitude: v.LON, latitude: v.LAT }),
-    symbol: vesselSymbol(v.NAV_STATUS),
-    attributes: { ...v },
-    popupTemplate: {
-      title: '{VESSEL_NAME} ({VESSEL_TYPE})',
-      content: [
-        {
-          type: 'fields',
-          fieldInfos: [
-            { fieldName: 'MMSI', label: 'MMSI' },
-            { fieldName: 'NAV_STATUS', label: 'Status' },
-            { fieldName: 'SOG', label: 'SOG (kn)' },
-            { fieldName: 'COG', label: 'COG (°)' },
-            { fieldName: 'HEADING', label: 'Heading (°)' },
-            { fieldName: 'BERTH_ID', label: 'Berth' },
-          ],
-        },
-      ],
-    },
-  });
+/** The realistic top-down vessel sprite, rotated to the vessel's heading. */
+function spriteSymbol(v: Vessel) {
+  const sprite = spriteForVesselType(v.VESSEL_TYPE);
+  // ArcGIS picture-marker `angle` is clockwise from north — same convention as
+  // AIS heading — and our sprites are drawn bow-up, so heading maps 1:1.
+  const angle = v.HEADING || v.COG || 0;
+  return {
+    type: 'picture-marker' as const,
+    url: sprite.url,
+    width: sprite.width,
+    height: sprite.height,
+    angle,
+  };
 }
 
-function berthToGraphic(b: Berth): Graphic {
-  return new Graphic({
-    geometry: new Polygon({ rings: [b.GEOM], spatialReference: { wkid: 4326 } }),
+/**
+ * A vessel renders as up to two stacked graphics: a status halo, the rotated
+ * sprite, and (when anchored) an anchor glyph instead of a heading sprite.
+ * Returns them as an array so the caller can add them all to the layer.
+ */
+function vesselToGraphics(v: Vessel): Graphic[] {
+  const geometry = new Point({ longitude: v.LON, latitude: v.LAT });
+  const attributes = { ...v };
+  const halo = new Graphic({ geometry, attributes, symbol: haloSymbol(v.NAV_STATUS) });
+
+  if (v.NAV_STATUS === 'anchored') {
+    const anchor = new Graphic({
+      geometry,
+      attributes,
+      symbol: {
+        type: 'picture-marker',
+        url: GLYPHS.anchor.url,
+        width: GLYPHS.anchor.width,
+        height: GLYPHS.anchor.height,
+      },
+      popupTemplate: VESSEL_POPUP,
+    });
+    return [halo, anchor];
+  }
+
+  const sprite = new Graphic({
+    geometry,
+    attributes,
+    symbol: spriteSymbol(v),
+    popupTemplate: VESSEL_POPUP,
+  });
+  return [halo, sprite];
+}
+
+/** Berth renders as a footprint polygon plus a quay/bollard marker at centroid. */
+function berthToGraphics(b: Berth): Graphic[] {
+  const polygon = new Polygon({ rings: [b.GEOM], spatialReference: { wkid: 4326 } });
+  const attributes = { ...b };
+  const popupTemplate = {
+    title: '{BERTH_NAME} — {TERMINAL}',
+    content: 'Status: {STATUS} · Length {LENGTH_M} m · Draft {DRAFT_M} m',
+  };
+  const footprint = new Graphic({
+    geometry: polygon,
+    attributes,
     symbol: {
       type: 'simple-fill',
       color: [0, 121, 193, 0.15],
       outline: { color: tokens.accent, width: 1.5 },
     },
-    attributes: { ...b },
-    popupTemplate: {
-      title: '{BERTH_NAME} — {TERMINAL}',
-      content: 'Status: {STATUS} · Length {LENGTH_M} m · Draft {DRAFT_M} m',
-    },
+    popupTemplate,
   });
+  const marker = new Graphic({
+    geometry: polygon.centroid ?? new Point({ longitude: b.GEOM[0][0], latitude: b.GEOM[0][1] }),
+    attributes,
+    symbol: {
+      type: 'picture-marker',
+      url: GLYPHS.berth.url,
+      width: GLYPHS.berth.width,
+      height: GLYPHS.berth.height,
+    },
+    popupTemplate,
+  });
+  return [footprint, marker];
 }
 
 type LayerKey = 'vessels' | 'berths' | 'weather' | 'channel';
@@ -123,7 +195,7 @@ export function AISMap() {
 
       void getAdapter()
         .getBerths()
-        .then((berths) => berthLayer.addMany(berths.map(berthToGraphic)))
+        .then((berths) => berthLayer.addMany(berths.flatMap(berthToGraphics)))
         .catch(() => {
           /* berths optional on the map; KPI widgets surface load errors */
         });
@@ -140,7 +212,7 @@ export function AISMap() {
     const layer = vesselLayerRef.current;
     if (!layer || !ready) return;
     layer.removeAll();
-    layer.addMany(vessels.map(vesselToGraphic));
+    layer.addMany(vessels.flatMap(vesselToGraphics));
   }, [vessels, ready]);
 
   // Apply layer visibility toggles.
@@ -196,6 +268,20 @@ export function AISMap() {
             <div key={status} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
               <span style={{ color: tokens.textMuted, textTransform: 'capitalize' }}>{status}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop: `1px solid ${tokens.border}`, marginTop: 6, paddingTop: 6 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: tokens.text }}>Vessel type</div>
+          {LEGEND_SPRITES.map(({ label, sprite }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <img
+                src={sprite.url}
+                alt=""
+                aria-hidden
+                style={{ width: 12, height: 'auto', maxHeight: 18 }}
+              />
+              <span style={{ color: tokens.textMuted }}>{label}</span>
             </div>
           ))}
         </div>

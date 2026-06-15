@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 84" width="40" height="84">
+  <!-- Top-down pilot launch — fast, slim, orange/white PILOT livery. Bow up. -->
+  <defs>
+    <linearGradient id="hullPilot" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d35400"/>
+      <stop offset="0.5" stop-color="#e67e22"/>
+      <stop offset="1" stop-color="#a84300"/>
+    </linearGradient>
+  </defs>
+  <!-- slim planing hull, sharp bow -->
+  <path d="M20 3
+           C 28 12, 31 22, 31 34
+           L 31 72 C 31 77, 28 80, 24 80 L 16 80
+           C 12 80, 9 77, 9 72 L 9 34
+           C 9 22, 12 12, 20 3 Z"
+        fill="url(#hullPilot)" stroke="#7e3400" stroke-width="1.3"/>
+  <!-- white deck stripe -->
+  <path d="M20 14 C 26 20, 28 27, 28 36 L 12 36 C 12 27, 14 20, 20 14 Z" fill="#fdfefe"/>
+  <!-- wheelhouse -->
+  <rect x="13" y="40" width="14" height="18" rx="2" fill="#2c3e50" stroke="#7e3400" stroke-width="0.9"/>
+  <rect x="15" y="42" width="10" height="8" rx="1" fill="#85c1e9"/>
+  <!-- "PILOT" hint band aft -->
+  <rect x="12" y="62" width="16" height="6" rx="1" fill="#fdfefe"/>
+  <rect x="13" y="63" width="14" height="4" fill="#d35400"/>
+</svg>

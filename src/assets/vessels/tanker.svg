@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 160" width="64" height="160">
+  <!-- Top-down tanker with manifold + pipework. Bow up (heading 0°). -->
+  <defs>
+    <linearGradient id="hullT" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2c3e50"/>
+      <stop offset="0.5" stop-color="#3f5870"/>
+      <stop offset="1" stop-color="#22303f"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 3
+           C 44 14, 50 28, 50 44
+           L 50 150
+           C 50 154, 47 156, 42 156
+           L 22 156
+           C 17 156, 14 154, 14 150
+           L 14 44
+           C 14 28, 20 14, 32 3 Z"
+        fill="url(#hullT)" stroke="#172029" stroke-width="1.5"/>
+  <!-- deck -->
+  <path d="M32 12 C 40 20, 45 30, 45 46 L 45 138 L 19 138 L 19 46 C 19 30, 24 20, 32 12 Z"
+        fill="#586d80"/>
+  <!-- central cargo pipe / catwalk -->
+  <rect x="30.5" y="46" width="3" height="92" fill="#9fb0c0"/>
+  <!-- tank lids -->
+  <g fill="#43586b" stroke="#1f2b36" stroke-width="0.8">
+    <circle cx="25" cy="58" r="3.5"/><circle cx="39" cy="58" r="3.5"/>
+    <circle cx="25" cy="78" r="3.5"/><circle cx="39" cy="78" r="3.5"/>
+    <circle cx="25" cy="98" r="3.5"/><circle cx="39" cy="98" r="3.5"/>
+    <circle cx="25" cy="118" r="3.5"/><circle cx="39" cy="118" r="3.5"/>
+  </g>
+  <!-- manifold (amidships) -->
+  <rect x="22" y="86" width="20" height="6" rx="1" fill="#e0a020" stroke="#1f2b36" stroke-width="0.6"/>
+  <!-- aft superstructure -->
+  <rect x="19" y="138" width="26" height="14" rx="2" fill="#d7dbe0" stroke="#172029" stroke-width="0.8"/>
+  <rect x="24" y="140" width="16" height="8" fill="#aeb6bf"/>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 160" width="64" height="160">
+  <!-- Top-down bulk carrier with hatch covers. Bow up (heading 0°). -->
+  <defs>
+    <linearGradient id="hullB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5a4a32"/>
+      <stop offset="0.5" stop-color="#7d6845"/>
+      <stop offset="1" stop-color="#473a28"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 3
+           C 44 14, 50 28, 50 44
+           L 50 150
+           C 50 154, 47 156, 42 156
+           L 22 156
+           C 17 156, 14 154, 14 150
+           L 14 44
+           C 14 28, 20 14, 32 3 Z"
+        fill="url(#hullB)" stroke="#2b2317" stroke-width="1.5"/>
+  <!-- main deck -->
+  <path d="M32 12 C 40 20, 45 30, 45 46 L 45 138 L 19 138 L 19 46 C 19 30, 24 20, 32 12 Z"
+        fill="#9a8a6a"/>
+  <!-- hatch covers (cargo holds) -->
+  <g fill="#5f5239" stroke="#3a3122" stroke-width="0.9">
+    <rect x="22" y="50" width="20" height="18" rx="1.5"/>
+    <rect x="22" y="72" width="20" height="18" rx="1.5"/>
+    <rect x="22" y="94" width="20" height="18" rx="1.5"/>
+    <rect x="22" y="116" width="20" height="16" rx="1.5"/>
+  </g>
+  <!-- deck cranes -->
+  <g fill="#cdd2d8" stroke="#2b2317" stroke-width="0.7">
+    <circle cx="32" cy="70" r="3"/>
+    <rect x="31" y="70" width="2" height="14"/>
+    <circle cx="32" cy="114" r="3"/>
+    <rect x="31" y="114" width="2" height="14"/>
+  </g>
+  <!-- aft superstructure -->
+  <rect x="19" y="138" width="26" height="14" rx="2" fill="#d7dbe0" stroke="#2b2317" stroke-width="0.8"/>
+  <rect x="24" y="140" width="16" height="8" fill="#aeb6bf"/>
+</svg>
