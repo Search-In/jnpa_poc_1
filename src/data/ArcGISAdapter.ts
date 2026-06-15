@@ -128,13 +128,31 @@ export class ArcGISAdapter implements DataAdapter {
     }
     if (env.aisStreamToken) {
       onState?.('connecting');
+      // Ship name + type arrive in separate ShipStaticData frames, in any order
+      // relative to positions — remember them per MMSI and merge both ways.
+      const staticByMmsi = new Map<string, { name: string; type: string }>();
       return openAisStream({
         token: env.aisStreamToken,
         bbox: env.liveRegion.bbox,
         onState,
         onVessel: (v) => {
+          const s = staticByMmsi.get(v.MMSI);
+          if (s) {
+            v.VESSEL_TYPE = s.type;
+            v.VESSEL_NAME = s.name || v.VESSEL_NAME;
+          }
           this.vesselCache.set(v.MMSI, v);
           onBatch([...this.vesselCache.values()]);
+        },
+        onStatic: (s) => {
+          staticByMmsi.set(s.MMSI, { name: s.VESSEL_NAME, type: s.VESSEL_TYPE });
+          const existing = this.vesselCache.get(s.MMSI);
+          if (existing) {
+            existing.VESSEL_TYPE = s.VESSEL_TYPE;
+            existing.VESSEL_NAME = s.VESSEL_NAME || existing.VESSEL_NAME;
+            this.vesselCache.set(s.MMSI, existing);
+            onBatch([...this.vesselCache.values()]);
+          }
         },
       });
     }

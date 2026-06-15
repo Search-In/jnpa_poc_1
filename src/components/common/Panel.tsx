@@ -12,17 +12,27 @@ export function Panel({
   actions,
   children,
   minHeight = 120,
+  height,
 }: {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
   minHeight?: number;
+  /** Fixed panel height. When set, the body becomes a bounded scroll viewport. */
+  height?: number;
 }) {
   return (
     <section
       className="app-region"
       aria-label={title}
-      style={{ display: 'flex', flexDirection: 'column', minHeight, overflow: 'hidden' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        // A fixed height wins over content so the body can scroll internally;
+        // otherwise minHeight is just a floor and the panel grows with content.
+        ...(height ? { height } : { minHeight }),
+        overflow: 'hidden',
+      }}
     >
       <div
         style={{

@@ -29,6 +29,8 @@ export const JNPA_BBOX: number[][] = [
 export interface AisStreamOptions {
   token: string;
   onVessel: (v: Vessel) => void;
+  /** Ship name/type from ShipStaticData, merged into the cache by MMSI. */
+  onStatic?: (s: VesselStatic) => void;
   onState?: ConnectionListener;
   /** Override the bounding box (defaults to JNPA approaches). */
   bbox?: number[][];
@@ -47,6 +49,26 @@ export function mapNavStatus(code: number | undefined): NavStatus {
     default:
       return 'underway';
   }
+}
+
+/**
+ * AIS "Type of ship and cargo" code → a human VESSEL_TYPE the sprite registry
+ * understands. Ranges follow the ITU-R M.1371 spec (the first digit is the
+ * category). Returns 'Unknown' when not yet known (static data not yet seen).
+ */
+export function mapVesselType(code: number | undefined): string {
+  if (code === undefined || code === 0) return 'Unknown';
+  if (code === 50) return 'Pilot Vessel';
+  if (code === 52) return 'Tug';
+  if (code === 30) return 'Fishing';
+  if (code === 31 || code === 32) return 'Tug'; // towing
+  if (code >= 60 && code <= 69) return 'Passenger Ship';
+  // 70–79 is "cargo" (AIS doesn't separate container vs general); in a container
+  // port the overwhelming majority are container ships, so use that sprite.
+  if (code >= 70 && code <= 79) return 'Container Ship';
+  if (code >= 80 && code <= 89) return 'Tanker';
+  if (code >= 40 && code <= 49) return 'High-Speed Craft';
+  return 'Unknown';
 }
 
 /**
@@ -92,9 +114,42 @@ export function mapAisMessage(msg: unknown): Vessel | null {
   };
 }
 
+/** Static-data update: ship name + type, keyed by MMSI, merged into the cache. */
+export interface VesselStatic {
+  MMSI: string;
+  VESSEL_NAME: string;
+  VESSEL_TYPE: string;
+}
+
+/**
+ * Extract ship name + type from an AISStream `ShipStaticData` message (which
+ * carries the AIS ship-type code that `PositionReport` lacks). Returns null for
+ * other message types.
+ */
+export function mapStaticData(msg: unknown): VesselStatic | null {
+  const m = msg as {
+    MessageType?: string;
+    MetaData?: { MMSI?: number; ShipName?: string };
+    Message?: { ShipStaticData?: { Name?: string; Type?: number } };
+  };
+  if (m.MessageType !== 'ShipStaticData') return null;
+  const sd = m.Message?.ShipStaticData;
+  const md = m.MetaData;
+  if (!sd || !md?.MMSI) return null;
+  const name = (sd.Name ?? md.ShipName ?? '').trim();
+  return {
+    MMSI: String(md.MMSI),
+    VESSEL_NAME: name || `MMSI ${md.MMSI}`,
+    VESSEL_TYPE: mapVesselType(sd.Type),
+  };
+}
+
 /** Open the stream; returns an unsubscribe that closes the socket. */
 export function openAisStream(opts: AisStreamOptions): () => void {
   const ws = new WebSocket(AISSTREAM_URL);
+  // AISStream pushes JSON, but browsers may deliver frames as Blob/ArrayBuffer
+  // rather than string. Prefer arraybuffer so we can decode synchronously.
+  ws.binaryType = 'arraybuffer';
   const bbox = opts.bbox ?? JNPA_BBOX;
 
   ws.onopen = () => {
@@ -102,19 +157,41 @@ export function openAisStream(opts: AisStreamOptions): () => void {
       JSON.stringify({
         APIKey: opts.token,
         BoundingBoxes: [bbox],
-        FilterMessageTypes: ['PositionReport'],
+        // Subscribe to BOTH: PositionReport gives live position; ShipStaticData
+        // gives the ship name + type code (needed to pick the right sprite).
+        FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
       })
     );
     opts.onState?.('connected');
   };
-  ws.onmessage = (event) => {
+
+  const handleText = (text: string) => {
     try {
-      const vessel = mapAisMessage(JSON.parse(event.data as string));
-      if (vessel) opts.onVessel(vessel);
+      const parsed = JSON.parse(text);
+      const vessel = mapAisMessage(parsed);
+      if (vessel) {
+        opts.onVessel(vessel);
+        return;
+      }
+      const stat = mapStaticData(parsed);
+      if (stat) opts.onStatic?.(stat);
     } catch {
       // Ignore malformed frames; the stream is best-effort.
     }
   };
+
+  ws.onmessage = (event) => {
+    const data = event.data as string | ArrayBuffer | Blob;
+    if (typeof data === 'string') {
+      handleText(data);
+    } else if (data instanceof ArrayBuffer) {
+      handleText(new TextDecoder().decode(data));
+    } else {
+      // Blob fallback (some browsers ignore binaryType): decode asynchronously.
+      void (data as Blob).text().then(handleText).catch(() => {});
+    }
+  };
+
   ws.onerror = () => opts.onState?.('error');
   ws.onclose = () => opts.onState?.('closed');
 

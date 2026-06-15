@@ -49,12 +49,13 @@ export function App() {
         {/* KPI strip — full width */}
         <KpiStrip />
 
-        {/* Map (wide) + vessel feed (rail) */}
+        {/* Map (wide) + vessel feed (rail). Fixed-height row so the feed scrolls
+            internally instead of expanding the page. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 12 }}>
-          <Panel title="Live AIS Map — Nhava Sheva approaches" minHeight={420}>
+          <Panel title="Live AIS Map — Nhava Sheva approaches" height={460}>
             <AISMap />
           </Panel>
-          <Panel title="Vessel Feed (priority order)" minHeight={420}>
+          <Panel title="Vessel Feed (priority order)" height={460}>
             <VesselFeed />
           </Panel>
         </div>

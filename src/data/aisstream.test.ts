@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapAisMessage, mapNavStatus } from './aisstream';
+import { mapAisMessage, mapNavStatus, mapVesselType, mapStaticData } from './aisstream';
 
 describe('mapNavStatus', () => {
   it('maps known AIS status codes', () => {
@@ -9,6 +9,35 @@ describe('mapNavStatus', () => {
     expect(mapNavStatus(8)).toBe('underway');
     expect(mapNavStatus(99)).toBe('underway');
     expect(mapNavStatus(undefined)).toBe('underway');
+  });
+});
+
+describe('mapVesselType', () => {
+  it('maps AIS ship-type codes to categories', () => {
+    expect(mapVesselType(70)).toBe('Container Ship'); // cargo range
+    expect(mapVesselType(79)).toBe('Container Ship');
+    expect(mapVesselType(80)).toBe('Tanker');
+    expect(mapVesselType(89)).toBe('Tanker');
+    expect(mapVesselType(52)).toBe('Tug');
+    expect(mapVesselType(50)).toBe('Pilot Vessel');
+    expect(mapVesselType(60)).toBe('Passenger Ship');
+    expect(mapVesselType(0)).toBe('Unknown');
+    expect(mapVesselType(undefined)).toBe('Unknown');
+  });
+});
+
+describe('mapStaticData', () => {
+  it('extracts name + type from ShipStaticData', () => {
+    const s = mapStaticData({
+      MessageType: 'ShipStaticData',
+      MetaData: { MMSI: 244000000, ShipName: ' STENA  ' },
+      Message: { ShipStaticData: { Name: 'STENA GERMANICA', Type: 81 } },
+    });
+    expect(s).toEqual({ MMSI: '244000000', VESSEL_NAME: 'STENA GERMANICA', VESSEL_TYPE: 'Tanker' });
+  });
+
+  it('returns null for non-static messages', () => {
+    expect(mapStaticData({ MessageType: 'PositionReport' })).toBeNull();
   });
 });
 
