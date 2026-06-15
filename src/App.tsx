@@ -1,84 +1,26 @@
 /**
  * App shell — Calcite light theme. Wires the store lifecycle (vessel stream +
- * KPI refresh) and lays out the dashboard regions. Widget components are filled
- * in after the "show structure before widgets" review gate; until then each
- * region renders a labelled placeholder so the layout (and live data) is visible.
+ * KPI refresh) and lays out the full dashboard: header, KPI strip, live AIS map
+ * + vessel feed, the marine KPI report widgets, and the weather/what-if panel.
  */
 
 import { useEffect } from 'react';
-import { CalciteShell, CalciteNotice } from '@esri/calcite-components-react';
+import { CalciteShell } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
+import { KpiStrip } from '@/components/KpiStrip';
+import { AISMap } from '@/components/AISMap';
+import { VesselFeed } from '@/components/VesselFeed';
+import { WeatherPanel } from '@/components/WeatherPanel';
+import { Panel } from '@/components/common/Panel';
+import { BerthingPlanGantt } from '@/components/reports/BerthingPlanGantt';
+import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
+import { DelayTrend } from '@/components/reports/DelayTrend';
+import { JustInTime } from '@/components/reports/JustInTime';
+import { PortCraftPerformance } from '@/components/reports/PortCraftPerformance';
+import { PredictionAccuracy } from '@/components/reports/PredictionAccuracy';
+import { KPI_TARGETS } from '@/config/targets';
 import { useAppStore } from '@/store/useAppStore';
 import { tokens } from '@/theme/tokens';
-
-function Region({ title, children }: { title: string; children?: React.ReactNode }) {
-  return (
-    <section
-      className="app-region"
-      aria-label={title}
-      style={{ padding: 12, minHeight: 80, display: 'flex', flexDirection: 'column', gap: 8 }}
-    >
-      <div style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', color: tokens.textMuted }}>
-        {title}
-      </div>
-      {children ?? (
-        <div style={{ color: tokens.textMuted, fontSize: 13 }}>
-          Widget pending — built after structure review.
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Temporary live KPI summary so the data pipeline is visible before widgets. */
-function KpiPreview() {
-  const kpis = useAppStore((s) => s.kpis);
-  const kpiError = useAppStore((s) => s.kpiError);
-  const vesselCount = useAppStore((s) => s.vessels.length);
-
-  if (kpiError) {
-    return (
-      <CalciteNotice open kind="danger" icon="exclamation-mark-triangle">
-        <div slot="title">KPI load failed</div>
-        <div slot="message">{kpiError}</div>
-      </CalciteNotice>
-    );
-  }
-  if (!kpis) return <div style={{ color: tokens.textMuted }}>Loading KPIs…</div>;
-
-  const cards = Object.values(kpis);
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-        gap: 8,
-      }}
-    >
-      {cards.map((c) => (
-        <div
-          key={c.key}
-          className="app-region"
-          style={{ padding: 10, background: tokens.panelAlt }}
-        >
-          <div style={{ fontSize: 11, color: tokens.textMuted }}>{c.label}</div>
-          <div style={{ fontSize: 22, fontWeight: 600, color: tokens.text }}>
-            {c.value}
-            <span style={{ fontSize: 12, color: tokens.textMuted, marginLeft: 2 }}>{c.unit}</span>
-          </div>
-          <div style={{ fontSize: 11, color: tokens.textMuted }}>
-            target {c.target}
-            {c.unit} · {c.deltaPct > 0 ? '▲' : c.deltaPct < 0 ? '▼' : '–'}{' '}
-            {Math.abs(c.deltaPct)}%
-          </div>
-        </div>
-      ))}
-      <div style={{ gridColumn: '1 / -1', fontSize: 11, color: tokens.textMuted }}>
-        {vesselCount} vessels in current AIS batch.
-      </div>
-    </div>
-  );
-}
 
 export function App() {
   useEffect(() => useAppStore.getState().start(), []);
@@ -88,11 +30,11 @@ export function App() {
       <div slot="header">
         <HeaderBar />
       </div>
+
       <main
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 360px',
-          gridTemplateRows: 'auto 1fr',
+          display: 'flex',
+          flexDirection: 'column',
           gap: 12,
           padding: 12,
           height: '100%',
@@ -100,18 +42,64 @@ export function App() {
           overflow: 'auto',
         }}
       >
-        <div style={{ gridColumn: '1 / -1' }}>
-          <Region title="KPI Strip (live preview)">
-            <KpiPreview />
-          </Region>
+        {/* KPI strip — full width */}
+        <KpiStrip />
+
+        {/* Map (wide) + vessel feed (rail) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 12 }}>
+          <Panel title="Live AIS Map — Nhava Sheva approaches" minHeight={420}>
+            <AISMap />
+          </Panel>
+          <Panel title="Vessel Feed (priority order)" minHeight={420}>
+            <VesselFeed />
+          </Panel>
         </div>
-        <Region title="AIS Map" />
-        <Region title="Vessel Feed" />
-        <div style={{ gridColumn: '1 / -1' }}>
-          <Region title="Marine KPI Reports" />
-        </div>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <Region title="Weather Panel + What-If" />
+
+        {/* Marine KPI reports grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Panel title="Berthing Plan — 24h" minHeight={220}>
+              <BerthingPlanGantt />
+            </Panel>
+          </div>
+
+          <Panel title="Arrivals & Departures (4h blocks)" minHeight={240}>
+            <ArrivalsDepartures />
+          </Panel>
+
+          <Panel title="Just-In-Time Arrivals" minHeight={240}>
+            <JustInTime />
+          </Panel>
+
+          <Panel title="Pre-Berthing Delay vs target" minHeight={240}>
+            <DelayTrend field="PRE_BERTH_DELAY" target={KPI_TARGETS.preBerthingDelay.target} unit="h" label="Pre-berthing delay" />
+          </Panel>
+
+          <Panel title="Pre-Sailing Delay vs target" minHeight={240}>
+            <DelayTrend field="PRE_SAIL_DELAY" target={KPI_TARGETS.preSailingDelay.target} unit="h" label="Pre-sailing delay" />
+          </Panel>
+
+          <Panel title="Average Vessel TAT vs target" minHeight={240}>
+            <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
+          </Panel>
+
+          <Panel title="Port Craft Performance" minHeight={240}>
+            <PortCraftPerformance />
+          </Panel>
+
+          <Panel title="Prediction Accuracy — ETA vs ATA" minHeight={240}>
+            <PredictionAccuracy />
+          </Panel>
+
+          <Panel title="Weather & What-If" minHeight={240}>
+            <WeatherPanel />
+          </Panel>
         </div>
       </main>
     </CalciteShell>
