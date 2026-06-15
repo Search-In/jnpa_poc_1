@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "JNPA Digital Twin PoC — Use Case 1: Vessel Traffic Management & Optimisation. ArcGIS-embeddable React dashboard.",
+  "description": "Rotterdam Digital Twin PoC — Use Case 1: Vessel Traffic Management & Optimisation. ArcGIS-embeddable React dashboard.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

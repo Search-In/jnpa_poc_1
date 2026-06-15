@@ -336,7 +336,7 @@ export function AISMap() {
       )}
 
       {/* Coverage stand-in banner — only when the live region isn't JNPA. */}
-      {env.dataMode === 'live' && env.liveRegion.isStandIn && (
+      {/* {env.dataMode === 'live' && env.liveRegion.isStandIn && (
         <div
           role="note"
           style={{
@@ -358,7 +358,7 @@ export function AISMap() {
           coverage over JNPA/Indian waters, so real-time vessels are shown here as a
           coverage demo. Switch to JNPA geography once a Velocity/licensed feed is configured.
         </div>
-      )}
+      )} */}
 
       {/* Layer toggles + legend overlay */}
       <div

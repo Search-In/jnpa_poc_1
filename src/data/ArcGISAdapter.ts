@@ -44,6 +44,7 @@ import type {
 import { env } from './config';
 import { bucketArrivalsDepartures, computeWhatIf } from './MockAdapter';
 import { openAisStream } from './aisstream';
+import { fetchOpenMeteoWeather, parseLonLat } from './weather';
 
 const H = 3_600_000;
 
@@ -334,12 +335,16 @@ export class ArcGISAdapter implements DataAdapter {
   }
 
   async getWeather(): Promise<WeatherReading> {
-    if (!env.weatherFeedUrl) {
-      throw new Error('[ArcGISAdapter] VITE_WEATHER_FEED_URL not configured.');
+    // Prefer the configured JNPA weather/tidal/channel feed when set …
+    if (env.weatherFeedUrl) {
+      const res = await fetch(env.weatherFeedUrl);
+      if (!res.ok) throw new Error(`[ArcGISAdapter] weather feed HTTP ${res.status}`);
+      return (await res.json()) as WeatherReading;
     }
-    const res = await fetch(env.weatherFeedUrl);
-    if (!res.ok) throw new Error(`[ArcGISAdapter] weather feed HTTP ${res.status}`);
-    return (await res.json()) as WeatherReading;
+    // … otherwise use the free, no-key Open-Meteo source for the active region
+    // (the open-source met fallback the PoC brief allows).
+    const { lat, lon } = parseLonLat(env.liveRegion.center);
+    return fetchOpenMeteoWeather(lat, lon);
   }
 
   async runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {
