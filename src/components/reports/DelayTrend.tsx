@@ -9,6 +9,7 @@ import { Line } from 'react-chartjs-2';
 import { ensureChartsRegistered, baseOptions } from '@/charts/setup';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { env } from '@/data/config';
 import type { KpiSnapshot } from '@/types/domain';
 import { tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
@@ -28,7 +29,7 @@ export function DelayTrend({
   label: string;
 }) {
   const { data, loading, error } = useAdapterQuery(
-    () => getAdapter().getKpiHistory({ lastHours: 24 }),
+    () => getAdapter().getKpiHistory({ lastHours: env.historyHours }),
     [],
     30_000
   );

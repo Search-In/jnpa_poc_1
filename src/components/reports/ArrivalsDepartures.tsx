@@ -8,6 +8,7 @@ import { Bar } from 'react-chartjs-2';
 import { ensureChartsRegistered, baseOptions } from '@/charts/setup';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { env } from '@/data/config';
 import { tokens } from '@/theme/tokens';
 import { PanelEmpty, PanelError, PanelLoading } from '../common/Panel';
 
@@ -17,8 +18,11 @@ const H = 3_600_000;
 
 export function ArrivalsDepartures() {
   const now = Date.now();
+  // Cap the display span so the 4h-block bar chart stays readable, but cover at
+  // least 48h so the seeded plan (which spans ~2 days) appears.
+  const spanH = Math.min(env.historyHours, 48);
   const { data, loading, error } = useAdapterQuery(
-    () => getAdapter().getArrivalsDepartures({ from: now - 24 * H, to: now }),
+    () => getAdapter().getArrivalsDepartures({ from: now - spanH * H, to: now }),
     [],
     30_000
   );

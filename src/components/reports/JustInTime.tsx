@@ -9,6 +9,7 @@ import { ensureChartsRegistered, baseOptions } from '@/charts/setup';
 import { useAppStore } from '@/store/useAppStore';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { env } from '@/data/config';
 import { KPI_TARGETS } from '@/config/targets';
 import { tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
@@ -55,7 +56,11 @@ function Gauge({ pct, target }: { pct: number; target: number }) {
 
 export function JustInTime() {
   const kpis = useAppStore((s) => s.kpis);
-  const { data } = useAdapterQuery(() => getAdapter().getKpiHistory({ lastHours: 24 }), [], 30_000);
+  const { data } = useAdapterQuery(
+    () => getAdapter().getKpiHistory({ lastHours: env.historyHours }),
+    [],
+    30_000
+  );
 
   const trend = useMemo(() => {
     if (!data) return null;

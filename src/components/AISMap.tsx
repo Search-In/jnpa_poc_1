@@ -76,6 +76,13 @@ const VESSEL_POPUP = {
   ],
 };
 
+/** A vessel whose AIS ship type is missing/uncategorised (small craft, or
+ *  static data not yet received). These are hidden when the toggle is off. */
+function isUnknownType(vesselType: string): boolean {
+  const t = vesselType.trim().toLowerCase();
+  return t === '' || t === 'unknown';
+}
+
 /** Status halo drawn behind the sprite so NAV_STATUS stays readable. */
 function haloSymbol(status: Vessel['NAV_STATUS']) {
   return {
@@ -187,6 +194,9 @@ export function AISMap() {
     weather: false,
     channel: false,
   });
+  // Hide vessels with no/unknown AIS ship type (small craft, or static data not
+  // yet received). On by default; operators can turn off the clutter.
+  const [showUnknown, setShowUnknown] = useState(true);
 
   const vessels = useAppStore((s) => s.vessels);
   const user = useAppStore((s) => s.user);
@@ -254,13 +264,15 @@ export function AISMap() {
     };
   }, [webMapFailed, authConfigured, user]);
 
-  // Re-render vessel graphics whenever the live set changes.
+  // Re-render vessel graphics whenever the live set (or the unknown filter)
+  // changes. When the filter is off, drop vessels with no known ship type.
   useEffect(() => {
     const layer = vesselLayerRef.current;
     if (!layer || !ready) return;
+    const shown = showUnknown ? vessels : vessels.filter((v) => !isUnknownType(v.VESSEL_TYPE));
     layer.removeAll();
-    layer.addMany(vessels.flatMap(vesselToGraphics));
-  }, [vessels, ready]);
+    layer.addMany(shown.flatMap(vesselToGraphics));
+  }, [vessels, ready, showUnknown]);
 
   // Apply layer visibility toggles.
   useEffect(() => {
@@ -278,6 +290,10 @@ export function AISMap() {
   }, [user, webMapFailed]);
 
   const toggle = (k: LayerKey) => setVisible((v) => ({ ...v, [k]: !v[k] }));
+
+  // Counts for the legend footer.
+  const hiddenUnknown = vessels.filter((v) => isUnknownType(v.VESSEL_TYPE)).length;
+  const shownCount = showUnknown ? vessels.length : vessels.length - hiddenUnknown;
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 320 }}>
@@ -388,6 +404,13 @@ export function AISMap() {
             {label}
           </CalciteLabel>
         ))}
+        <CalciteLabel layout="inline" scale="s" style={{ marginBottom: 2 }}>
+          <CalciteCheckbox
+            checked={showUnknown || undefined}
+            onCalciteCheckboxChange={() => setShowUnknown((s) => !s)}
+          />
+          Unknown-type vessels
+        </CalciteLabel>
         <div style={{ borderTop: `1px solid ${tokens.border}`, marginTop: 6, paddingTop: 6 }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: tokens.text }}>Nav status</div>
           {Object.entries(navStatusColor).map(([status, color]) => (
@@ -412,7 +435,9 @@ export function AISMap() {
           ))}
         </div>
         <div style={{ marginTop: 6, color: tokens.textMuted }}>
-          {vessels.length} vessels · {istTime(Date.now())} IST
+          {shownCount} vessels
+          {!showUnknown && hiddenUnknown > 0 ? ` · ${hiddenUnknown} unknown hidden` : ''} ·{' '}
+          {istTime(Date.now())} IST
         </div>
       </div>
     </div>

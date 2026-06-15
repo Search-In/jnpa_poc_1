@@ -1,7 +1,13 @@
 /**
- * <PredictionAccuracy> — predicted ETA vs actual ATA overlay + MAPE/accuracy.
- * Backed by getPrediction(). Accuracy uses the same forecastAccuracyPct() the
- * KPI engine uses, computed over prediction lead time.
+ * <PredictionAccuracy> — ETA-vs-ATA accuracy.
+ *
+ * Two views, picked by what data exists:
+ *   1. When the prediction source has RESOLVED pairs (predicted ETA + actual
+ *      arrival), show the per-vessel predicted-vs-actual lead-time overlay +
+ *      computed accuracy/MAPE (the live/Velocity history path).
+ *   2. Otherwise fall back to the FORECAST_ACC trend from the KPISnapshots layer
+ *      (real persisted accuracy), so the widget always shows real data instead
+ *      of a blank "no predictions" state.
  */
 
 import { useMemo } from 'react';
@@ -9,8 +15,10 @@ import { Line } from 'react-chartjs-2';
 import { ensureChartsRegistered, baseOptions } from '@/charts/setup';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
-import { forecastAccuracyPct, mape, hoursBetween, type EtaPrediction } from '@/kpi';
+import { env } from '@/data/config';
+import { forecastAccuracyPct, mape, hoursBetween, mean, type EtaPrediction } from '@/kpi';
 import { tokens } from '@/theme/tokens';
+import { istTime } from '@/util/format';
 import { PanelError, PanelLoading, PanelEmpty } from '../common/Panel';
 
 ensureChartsRegistered();
@@ -19,17 +27,26 @@ const H = 3_600_000;
 
 export function PredictionAccuracy() {
   const now = Date.now();
-  const { data, loading, error } = useAdapterQuery(
-    () => getAdapter().getPrediction({ lastHours: 24 }),
+  // Pull both sources; widen the snapshot window so seeded history still shows
+  // even when its dates don't line up exactly with the live clock.
+  const predQ = useAdapterQuery(
+    () => getAdapter().getPrediction({ lastHours: env.historyHours }),
+    [],
+    30_000
+  );
+  const histQ = useAdapterQuery(
+    () => getAdapter().getKpiHistory({ lastHours: env.historyHours }),
     [],
     30_000
   );
 
-  const view = useMemo(() => {
+  const resolvedView = useMemo(() => {
+    const data = predQ.data;
     if (!data) return null;
     const resolved = data.filter((p) => p.actualAta !== null);
+    if (resolved.length === 0) return null;
     const reference = now - 12 * H;
-    const etaPredictions: EtaPrediction[] = data.map((p) => ({
+    const etaPredictions: EtaPrediction[] = resolved.map((p) => ({
       reference,
       predictedEta: p.predictedEta,
       actualAta: p.actualAta,
@@ -42,7 +59,6 @@ export function PredictionAccuracy() {
           actual: p.actualAta === null ? null : hoursBetween(p.reference, p.actualAta),
         }))
       ) * 100;
-
     const chart = {
       labels: resolved.map((p) => p.VESSEL_NAME),
       datasets: [
@@ -63,24 +79,72 @@ export function PredictionAccuracy() {
       ],
     };
     return { chart, accuracy, mapePct, count: resolved.length };
-  }, [data, now]);
+  }, [predQ.data, now]);
 
-  if (loading && !data) return <PanelLoading label="Loading prediction accuracy…" />;
-  if (error) return <PanelError message={error} />;
-  if (!view || view.count === 0) return <PanelEmpty message="No resolved ETA predictions yet." />;
+  const trendView = useMemo(() => {
+    const snaps = histQ.data;
+    if (!snaps || snaps.length === 0) return null;
+    const accValues = snaps.map((s) => s.FORECAST_ACC);
+    return {
+      latest: accValues[accValues.length - 1],
+      avg: mean(accValues),
+      chart: {
+        labels: snaps.map((s) => istTime(s.TS)),
+        datasets: [
+          {
+            label: 'Forecast accuracy %',
+            data: accValues,
+            borderColor: tokens.accent,
+            backgroundColor: `${tokens.accent}22`,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+          },
+        ],
+      },
+    };
+  }, [histQ.data]);
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 6 }}>
-      <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
-        <span style={{ color: tokens.text }}>
-          Accuracy <strong style={{ color: tokens.good }}>{view.accuracy.toFixed(1)}%</strong>
-        </span>
-        <span style={{ color: tokens.textMuted }}>MAPE {view.mapePct.toFixed(1)}%</span>
-        <span style={{ color: tokens.textMuted }}>n={view.count}</span>
+  if ((predQ.loading && !predQ.data) || (histQ.loading && !histQ.data)) {
+    return <PanelLoading label="Loading prediction accuracy…" />;
+  }
+  if (predQ.error && histQ.error) return <PanelError message={predQ.error} />;
+
+  // Preferred: resolved per-vessel overlay.
+  if (resolvedView) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+          <span style={{ color: tokens.text }}>
+            Accuracy <strong style={{ color: tokens.good }}>{resolvedView.accuracy.toFixed(1)}%</strong>
+          </span>
+          <span style={{ color: tokens.textMuted }}>MAPE {resolvedView.mapePct.toFixed(1)}%</span>
+          <span style={{ color: tokens.textMuted }}>n={resolvedView.count}</span>
+        </div>
+        <div style={{ flex: 1, minHeight: 120 }}>
+          <Line data={resolvedView.chart} options={baseOptions<'line'>()} />
+        </div>
       </div>
-      <div style={{ flex: 1, minHeight: 120 }}>
-        <Line data={view.chart} options={baseOptions<'line'>()} />
+    );
+  }
+
+  // Fallback: persisted FORECAST_ACC trend.
+  if (trendView) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+          <span style={{ color: tokens.text }}>
+            Latest <strong style={{ color: tokens.good }}>{trendView.latest.toFixed(1)}%</strong>
+          </span>
+          <span style={{ color: tokens.textMuted }}>avg {trendView.avg.toFixed(1)}%</span>
+          <span style={{ color: tokens.textMuted }}>(ETA forecast trend)</span>
+        </div>
+        <div style={{ flex: 1, minHeight: 120 }}>
+          <Line data={trendView.chart} options={baseOptions<'line'>()} />
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return <PanelEmpty message="No prediction or forecast-accuracy data available." />;
 }

@@ -14,6 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_FS_KPI_SNAPSHOTS_URL?: string;
   readonly VITE_AISSTREAM_TOKEN?: string;
   readonly VITE_WEATHER_FEED_URL?: string;
+  readonly VITE_HISTORY_HOURS?: string;
   readonly VITE_AIS_BBOX?: string;
   readonly VITE_MAP_CENTER?: string;
   readonly VITE_MAP_ZOOM?: string;

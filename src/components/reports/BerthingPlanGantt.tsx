@@ -8,13 +8,13 @@
 import { useMemo } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { env } from '@/data/config';
 import type { BerthingPlanEntry } from '@/types/domain';
 import { tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
 import { PanelEmpty, PanelError, PanelLoading } from '../common/Panel';
 
 const H = 3_600_000;
-const WINDOW_H = 24;
 
 interface Lane {
   berthId: string;
@@ -35,11 +35,11 @@ function groupByBerth(plan: BerthingPlanEntry[]): Lane[] {
 
 export function BerthingPlanGantt() {
   const now = Date.now();
-  const winStart = now - 12 * H;
-  const winEnd = now + 12 * H;
 
+  // Query a wide window so seeded plan entries (fixed dates) are found even when
+  // they don't fall in the live ±12h band.
   const { data, loading, error } = useAdapterQuery(
-    () => getAdapter().getBerthPlan({ from: winStart, to: winEnd }),
+    () => getAdapter().getBerthPlan({ from: now - env.historyHours * H, to: now + 48 * H }),
     [],
     30_000
   );
@@ -48,23 +48,40 @@ export function BerthingPlanGantt() {
 
   if (loading && !data) return <PanelLoading label="Loading berthing plan…" />;
   if (error) return <PanelError message={error} />;
-  if (lanes.length === 0) return <PanelEmpty message="No berthing windows in the next 24h." />;
+  if (lanes.length === 0) return <PanelEmpty message="No berthing windows scheduled." />;
+
+  // Anchor the visible window to the actual plan extent (padded), rather than a
+  // fixed ±12h from now, so the chart always frames the data it has.
+  const entries = (data ?? []).flatMap((e) => [
+    e.PLANNED_START,
+    e.PLANNED_END,
+    e.ACTUAL_START ?? e.PLANNED_START,
+    e.ACTUAL_END ?? e.PLANNED_END,
+  ]);
+  const dataMin = entries.length ? Math.min(...entries) : now - 12 * H;
+  const dataMax = entries.length ? Math.max(...entries) : now + 12 * H;
+  const pad = 2 * H;
+  const winStart = dataMin - pad;
+  const winEnd = dataMax + pad;
+  const totalH = Math.max(1, (winEnd - winStart) / H);
 
   const laneH = 30;
   const labelW = 80;
   const chartW = 720;
-  const span = WINDOW_H * H;
+  const span = winEnd - winStart;
   const xOf = (ts: number) => labelW + ((ts - winStart) / span) * (chartW - labelW);
   const wOf = (a: number, b: number) => ((b - a) / span) * (chartW - labelW);
   const nowX = xOf(now);
   const height = lanes.length * laneH + 28;
+  // Gridline every ~1/6 of the span, labelled in IST.
+  const gridStepH = Math.max(1, Math.round(totalH / 6));
 
   return (
     <div style={{ overflowX: 'auto', height: '100%' }}>
-      <svg width={chartW} height={height} role="img" aria-label="24-hour berthing plan gantt">
-        {/* hour gridlines + labels every 4h */}
-        {Array.from({ length: WINDOW_H / 4 + 1 }, (_, i) => {
-          const ts = winStart + i * 4 * H;
+      <svg width={chartW} height={height} role="img" aria-label="Berthing plan gantt">
+        {/* time gridlines + IST labels */}
+        {Array.from({ length: Math.floor(totalH / gridStepH) + 1 }, (_, i) => {
+          const ts = winStart + i * gridStepH * H;
           const x = xOf(ts);
           return (
             <g key={i}>

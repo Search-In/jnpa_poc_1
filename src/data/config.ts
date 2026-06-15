@@ -18,6 +18,14 @@ export interface AppEnv {
   aisStreamToken: string;
   weatherFeedUrl: string;
   /**
+   * Default lookback (hours) for the historical/report widgets (berthing plan,
+   * delay/TAT trends, arrivals, prediction). Seed Feature Layers hold a few
+   * days of fixed-date data, so a generous window keeps the widgets populated
+   * even when the seed dates don't align with the live clock. Real live history
+   * can narrow this via VITE_HISTORY_HOURS.
+   */
+  historyHours: number;
+  /**
    * Live AIS region. JNPA/Indian waters have no free public AIS coverage, so
    * the demo can re-centre on a region that does (default: Rotterdam) to show
    * genuine real-time vessels. All env-overridable; clear to JNPA geography the
@@ -80,6 +88,7 @@ export const env: AppEnv = {
   },
   aisStreamToken: str(import.meta.env.VITE_AISSTREAM_TOKEN),
   weatherFeedUrl: str(import.meta.env.VITE_WEATHER_FEED_URL),
+  historyHours: num(import.meta.env.VITE_HISTORY_HOURS, 336),
   liveRegion: {
     bbox: parseBbox(import.meta.env.VITE_AIS_BBOX, ROTTERDAM_BBOX),
     center: str(import.meta.env.VITE_MAP_CENTER, '4.15,51.95'),
