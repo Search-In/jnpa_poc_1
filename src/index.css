@@ -1,0 +1,46 @@
+/* Global styles. Colour values are driven by CSS custom properties seeded from
+   src/theme/tokens.ts (see applyTheme in main.tsx) — no hard-coded colours. */
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    'Avenir Next', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+/* Respect reduced-motion (quality bar). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Visible keyboard focus everywhere (quality bar). */
+:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.app-region {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+}
