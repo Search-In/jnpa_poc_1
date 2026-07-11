@@ -203,7 +203,9 @@ function gateGraphics(): Graphic[] {
           pkey: key,
           gateId,
           terminalId,
-          heading: heading(key),
+          // Rotate the toll-naka model a further 90° so its canopy spans the
+          // access road across the quay bearing (not along it).
+          heading: (heading(key) + 270) % 360,
         },
       });
     })
