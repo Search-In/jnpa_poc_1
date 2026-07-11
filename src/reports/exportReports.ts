@@ -10,9 +10,10 @@ import type { BerthingPlanEntry, ArrivalsDeparturesBlock } from '@/types/domain'
 const IST_OFFSET_MS = 5.5 * 3_600_000;
 
 function istDateTime(ms: number): string {
+  // DD-MM-YYYY HH:MM IST — the Indian display convention (spec O-5).
   const d = new Date(ms + IST_OFFSET_MS);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} IST`;
+  return `${pad(d.getUTCDate())}-${pad(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} IST`;
 }
 
 const STYLE = `

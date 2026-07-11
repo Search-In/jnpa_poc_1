@@ -1,8 +1,10 @@
 /**
- * <AISMap> — live vessel map built on the ArcGIS `<arcgis-map>` web component
- * (NOT the deprecated widget classes). When VITE_WEBMAP_ID is set the map loads
- * that WebMap item (the same one the existing Dashboards app uses); otherwise it
- * falls back to a navigation basemap centred on Nhava Sheva.
+ * <AISMap> — live vessel map built on a programmatic ArcGIS `MapView`
+ * (@arcgis/core, the same bundled API PortScene uses for its SceneView — NOT the
+ * `<arcgis-map>` web component, which lazy-loads its runtime from the ArcGIS CDN
+ * and renders blank when that CDN is unreachable). When VITE_WEBMAP_ID is set the
+ * map loads that WebMap item; otherwise it falls back to an imagery basemap
+ * centred on Nhava Sheva.
  *
  * Layers managed programmatically and toggled from the UI:
  *   • Vessel Tracks  — client-side FeatureLayer (feature collection) driven by
@@ -19,9 +21,13 @@ import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import Polygon from '@arcgis/core/geometry/Polygon';
 import { CalciteCheckbox, CalciteLabel } from '@esri/calcite-components-react';
-import type MapView from '@arcgis/core/views/MapView';
-import type WebMap from '@arcgis/core/WebMap';
-import type EsriMap from '@arcgis/core/Map';
+// Programmatic MapView (same @arcgis/core API PortScene uses for SceneView) —
+// deliberately NOT the <arcgis-map> web component, which lazy-loads its runtime
+// from the ArcGIS CDN and renders blank when that CDN is unreachable (offline /
+// air-gap / slow registration). This keeps the 2D map as robust as the 3D scene.
+import MapView from '@arcgis/core/views/MapView';
+import EsriMap from '@arcgis/core/Map';
+import WebMap from '@arcgis/core/WebMap';
 
 import { useAppStore } from '@/store/useAppStore';
 import { getAdapter } from '@/data';
@@ -31,6 +37,7 @@ import { navStatusColor, tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
 import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
 import { buildPortAssets2dLayer } from '@/map/portAssets2d';
+import { initialBasemap, installBasemapFallback } from '@/map/basemapFallback';
 
 // In live mode, centre on the configured AIS region (which has real coverage);
 // in mock mode, centre on Nhava Sheva. Driven by env so it switches to JNPA
@@ -50,15 +57,6 @@ const LEGEND_SPRITES = [
   { label: 'Anchored', sprite: GLYPHS.anchor },
   { label: 'Berth', sprite: GLYPHS.berth },
 ];
-
-interface ArcgisMapElement extends HTMLElement {
-  view?: MapView;
-  map?: EsriMap | WebMap;
-}
-
-interface ArcgisViewReadyEvent extends CustomEvent {
-  target: ArcgisMapElement;
-}
 
 const VESSEL_POPUP = {
   title: '{VESSEL_NAME} ({VESSEL_TYPE})',
@@ -178,7 +176,8 @@ function berthToGraphics(b: Berth): Graphic[] {
 type LayerKey = 'vessels' | 'assets' | 'berths' | 'weather' | 'channel';
 
 export function AISMap() {
-  const hostRef = useRef<ArcgisMapElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<MapView | null>(null);
   const vesselLayerRef = useRef<GraphicsLayer | null>(null);
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
   const assetLayerRef = useRef<GraphicsLayer | null>(null);
@@ -206,63 +205,78 @@ export function AISMap() {
   // Whether to bind the WebMap: only if configured AND not already failed.
   const useWebMap = Boolean(env.webMapId) && !webMapFailed;
 
-  // Initialise programmatic layers once the view is ready; handle load errors.
+  // Create the MapView programmatically (no CDN web component). Re-runs if the
+  // WebMap fails and we fall back to a public basemap.
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
+    if (!containerRef.current) return;
 
-    const onReady = (evt: Event) => {
-      const target = (evt as ArcgisViewReadyEvent).target;
-      const map = target.map;
-      if (!map) return;
+    const [lon, lat] = initialCenter.split(',').map(Number);
 
-      // In live mode a WebMap may default to a different extent than the AIS
-      // coverage region — recentre the view so the real vessels are visible.
-      if (env.dataMode === 'live' && target.view) {
-        const [lon, lat] = env.liveRegion.center.split(',').map(Number);
-        void target.view.goTo({ center: [lon, lat], zoom: env.liveRegion.zoom }).catch(() => {
-          /* view animation can be interrupted; non-fatal */
-        });
-      }
+    // Bind the shared WebMap when configured & not already failed; else a basemap
+    // that survives offline / token-death: initialBasemap() is a bundled local
+    // base when ?offline=1, otherwise 'hybrid' with installBasemapFallback below
+    // swapping to the local base on a genuine tile/token failure (same mechanism
+    // PortScene uses). So the 2D map is never blank.
+    const map: EsriMap | WebMap = useWebMap
+      ? new WebMap({ portalItem: { id: env.webMapId } })
+      : new EsriMap({ basemap: initialBasemap() });
 
-      const vesselLayer = new GraphicsLayer({ title: 'Vessel Tracks' });
-      const berthLayer = new GraphicsLayer({ title: 'Berth Overlay' });
-      // Static port infrastructure (cranes, yards, gates, trucks, tug, berthed
-      // ships) placed from positions.json — the flat twin of the 3D model fleet.
-      const assetLayer = buildPortAssets2dLayer();
-      vesselLayerRef.current = vesselLayer;
-      berthLayerRef.current = berthLayer;
-      assetLayerRef.current = assetLayer;
-      map.addMany([berthLayer, assetLayer, vesselLayer]);
+    const view = new MapView({
+      container: containerRef.current,
+      map,
+      center: [lon, lat],
+      zoom: initialZoom,
+    });
+    viewRef.current = view;
 
-      void getAdapter()
-        .getBerths()
-        .then((berths) => berthLayer.addMany(berths.flatMap(berthToGraphics)))
-        .catch(() => {
-          /* berths optional on the map; KPI widgets surface load errors */
-        });
+    // Swap to the bundled offline base on real basemap failure (token death /
+    // no CDN). Fires the warning once so the operator sees the degraded state.
+    const teardownFallback = installBasemapFallback(view, {
+      onFallback: () => setMapWarning('Offline basemap engaged — external map tiles unavailable.'),
+    });
 
-      setReady(true);
-    };
+    const vesselLayer = new GraphicsLayer({ title: 'Vessel Tracks' });
+    const berthLayer = new GraphicsLayer({ title: 'Berth Overlay' });
+    // Static port infrastructure (cranes, yards, gates, trucks, tug, berthed
+    // ships) placed from positions.json — the flat twin of the 3D model fleet.
+    const assetLayer = buildPortAssets2dLayer();
+    vesselLayerRef.current = vesselLayer;
+    berthLayerRef.current = berthLayer;
+    assetLayerRef.current = assetLayer;
+    map.addMany([berthLayer, assetLayer, vesselLayer]);
+
+    view
+      .when(() => {
+        setReady(true);
+        void getAdapter()
+          .getBerths()
+          .then((berths) => berthLayer.addMany(berths.flatMap(berthToGraphics)))
+          .catch(() => {
+            /* berths optional on the map; KPI widgets surface load errors */
+          });
+      })
+      .catch(() => {
+        /* view init interrupted (e.g. unmount); non-fatal */
+      });
 
     // If the WebMap item fails to load (private item / no auth / bad id), drop
     // it and fall back to a public basemap so vessels still render.
-    const onLoadError = (evt: Event) => {
-      const detail = (evt as CustomEvent).detail;
-      const msg = detail?.error?.message ?? detail?.message ?? String(detail ?? 'unknown');
-      if (env.webMapId && !webMapFailed) {
-        setWebMapFailed(true);
-        setMapWarning(`WebMap "${env.webMapId}" failed to load (${msg}). Showing a public basemap.`);
-      }
-    };
+    if (useWebMap) {
+      (map as WebMap)
+        .load()
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          setWebMapFailed(true);
+          setMapWarning(`WebMap "${env.webMapId}" failed to load (${msg}). Showing a public basemap.`);
+        });
+    }
 
-    host.addEventListener('arcgisViewReadyChange', onReady as EventListener);
-    host.addEventListener('arcgisLoadError', onLoadError as EventListener);
     return () => {
-      host.removeEventListener('arcgisViewReadyChange', onReady as EventListener);
-      host.removeEventListener('arcgisLoadError', onLoadError as EventListener);
+      viewRef.current = null;
+      teardownFallback();
+      view.destroy();
     };
-  }, [webMapFailed]);
+  }, [useWebMap]);
 
   // Re-render vessel graphics whenever the live set (or the unknown filter)
   // changes. When the filter is off, drop vessels with no known ship type.
@@ -289,17 +303,12 @@ export function AISMap() {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 320 }}>
-      {/* The ArcGIS web component. item-id binds the shared WebMap when set and
-          loadable; on failure we re-mount (via key) with a public basemap. */}
-      <arcgis-map
-        key={useWebMap ? 'webmap' : 'basemap'}
-        ref={hostRef as never}
-        {...(useWebMap
-          ? { 'item-id': env.webMapId }
-          : { basemap: 'arcgis/imagery-standard' })}
-        center={initialCenter}
-        zoom={initialZoom}
-        style={{ width: '100%', height: '100%', display: 'block' }}
+      {/* Programmatic MapView mounts here (see the init effect). A WebMap binds
+          when configured & loadable; on failure the effect re-runs with a public
+          basemap so the map + live vessels always render. */}
+      <div
+        ref={containerRef}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       />
 
       {/* WebMap load warning + sign-in prompt (e.g. private item, no auth). */}

@@ -192,10 +192,16 @@ export function makeVessels(now: number, tick: number): Vessel[] {
     let sog: number;
 
     if (atBerth) {
-      // Alongside the real quay spot; no motion.
-      lon = berthPos[0];
-      lat = berthPos[1];
-      heading = (QUAY_BEARING + 90) % 360; // hull lies along the quay
+      // Alongside the real quay spot — but the STATIC "hero" berthed ship
+      // (portAssets3d/2d) already sits exactly on `vessel:<T>`. Shift the live
+      // moored vessel one ship-length ALONG the quay so it berths in the next
+      // slot instead of intersecting the hero ship. Deterministic per vessel.
+      const alongQuayDeg = (QUAY_BEARING + 90) % 360; // parallel to the hull
+      const rad = (alongQuayDeg * Math.PI) / 180;
+      const offsetDeg = 0.0026; // ≈ 275 m ≈ one container-ship length
+      lon = berthPos[0] + (Math.sin(rad) * offsetDeg) / Math.cos((berthPos[1] * Math.PI) / 180);
+      lat = berthPos[1] + Math.cos(rad) * offsetDeg;
+      heading = alongQuayDeg; // hull lies along the quay
       sog = 0;
     } else if (anchored) {
       // Holding in the waiting anchorage: a small, STABLE offset (not tick-based)

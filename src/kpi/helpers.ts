@@ -35,6 +35,38 @@ export function deltaPct(value: number, target: number): number {
 }
 
 /**
+ * Population variance; returns 0 for arrays of length < 2 (variance is undefined
+ * for a single sample — we return 0 rather than NaN, per the empty-state rule).
+ */
+export function variance(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return xs.reduce((s, x) => s + (x - m) ** 2, 0) / xs.length;
+}
+
+/** Standard deviation (sqrt of population variance); 0 for n < 2. */
+export function stddev(xs: number[]): number {
+  return Math.sqrt(variance(xs));
+}
+
+/**
+ * Linear-interpolation percentile (0..100). Returns 0 for an empty array and the
+ * single value for n === 1. Guards small-n (n < 4) gracefully rather than
+ * throwing, so day-one / sparse datasets render a defined value.
+ */
+export function percentile(xs: number[], p: number): number {
+  if (xs.length === 0) return 0;
+  if (xs.length === 1) return xs[0];
+  const sorted = [...xs].sort((a, b) => a - b);
+  const rank = (clamp(p, 0, 100) / 100) * (sorted.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  if (lo === hi) return sorted[lo];
+  const frac = rank - lo;
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * frac;
+}
+
+/**
  * Mean Absolute Percentage Error of predictions vs actuals, as a fraction
  * (0 = perfect). Pairs with a null actual are skipped. Pairs whose actual is
  * 0 are skipped to avoid divide-by-zero. Returns 0 when no usable pairs.

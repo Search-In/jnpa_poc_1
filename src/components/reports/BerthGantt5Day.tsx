@@ -23,6 +23,9 @@ import { useSimStore } from '@/sim/simStore';
 import { plannedTransits, controllingDepthM, type PlannedTransit } from '@/sim/derive';
 import { computeUkc, tideAt } from '@/dukc/ukc';
 import { intervalsOverlap, type PlanViolation } from '@/planning/constraints';
+import { useRoleStore } from '@/auth/roleStore';
+import { scopeData, canEdit } from '@/auth/roles';
+import { usePlanStore } from '@/planning/planStore';
 import type { Berth, BerthingPlanEntry } from '@/types/domain';
 import { tokens, ukcColor } from '@/theme/tokens';
 import { istDateTime, istTime, durationFromHours } from '@/util/format';
@@ -67,6 +70,10 @@ export function BerthGantt5Day() {
   const clockH = useSimStore((s) => s.clockH);
   const levers = useSimStore((s) => s.levers);
 
+  const role = useRoleStore((s) => s.role);
+  const principal = useRoleStore((s) => s.principal);
+  const roleCanEdit = canEdit(role);
+
   const berthsQ = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), [clockH], 30_000);
   const planQ = useAdapterQuery<BerthingPlanEntry[]>(
     () => getAdapter().getBerthPlan({ lastHours: 24 }),
@@ -82,8 +89,24 @@ export function BerthGantt5Day() {
   const [rejected, setRejected] = useState<PlanViolation | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  const plan = planQ.data;
-  const berths = berthsQ.data;
+  // Manually imported / entered calls overlay the adapter plan (IU-2).
+  const importedPlan = usePlanStore((s) => s.imported);
+
+  // Apply the active role's visibility scope to the plan + berths (R-5).
+  const scoped = useMemo(() => {
+    if (!planQ.data || !berthsQ.data) return null;
+    // Merge overlay (imported/manual) with adapter plan before scoping.
+    const merged = [...planQ.data, ...importedPlan];
+    return scopeData(role, principal, {
+      plan: merged,
+      berths: berthsQ.data,
+      vessels: [],
+      craft: [],
+    });
+  }, [planQ.data, berthsQ.data, importedPlan, role, principal]);
+
+  const plan = scoped?.plan;
+  const berths = scoped?.berths;
 
   // Transits (with DUKC windows) for the CURRENT levers, phased on the sim clock
   // so the feasibility shading moves as time advances.
@@ -179,7 +202,7 @@ export function BerthGantt5Day() {
   };
 
   const onPointerDown = (e: React.PointerEvent, entry: BerthingPlanEntry) => {
-    if (!replanMode) return;
+    if (!replanMode || !roleCanEdit) return;
     e.preventDefault();
     (e.target as Element).setPointerCapture?.(e.pointerId);
     setRejected(null);
@@ -271,7 +294,24 @@ export function BerthGantt5Day() {
           flexWrap: 'wrap',
         }}
       >
-        <SourceBadge source="BERTH_PLAN" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <SourceBadge source="BERTH_PLAN" />
+          {scoped?.scoped && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: tokens.accent,
+                border: `1px solid ${tokens.accent}`,
+                borderRadius: 3,
+                padding: '1px 5px',
+              }}
+              title="Rows filtered to your role's scope"
+            >
+              ROLE-SCOPED
+            </span>
+          )}
+        </div>
         <label
           style={{
             display: 'flex',
@@ -279,11 +319,14 @@ export function BerthGantt5Day() {
             gap: 8,
             fontSize: 12,
             color: tokens.textMuted,
-            cursor: 'pointer',
+            cursor: roleCanEdit ? 'pointer' : 'not-allowed',
+            opacity: roleCanEdit ? 1 : 0.55,
           }}
+          title={roleCanEdit ? undefined : 'Your role is read-only'}
         >
           <CalciteSwitch
-            checked={replanMode}
+            checked={replanMode && roleCanEdit}
+            disabled={!roleCanEdit}
             onCalciteSwitchChange={(ev) => {
               const on = (ev.target as HTMLCalciteSwitchElement).checked;
               setReplanMode(on);

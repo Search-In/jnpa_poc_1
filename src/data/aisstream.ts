@@ -169,26 +169,35 @@ export function mapStaticData(msg: unknown): VesselStatic | null {
   };
 }
 
-/** Open the stream; returns an unsubscribe that closes the socket. */
-export function openAisStream(opts: AisStreamOptions): () => void {
-  const ws = new WebSocket(AISSTREAM_URL);
-  // AISStream pushes JSON, but browsers may deliver frames as Blob/ArrayBuffer
-  // rather than string. Prefer arraybuffer so we can decode synchronously.
-  ws.binaryType = 'arraybuffer';
-  const bbox = opts.bbox ?? JNPA_BBOX;
+/** Reconnect backoff schedule (spec A-5): base delay grows, capped, + jitter. */
+export const RECONNECT_BASE_MS = 1000;
+export const RECONNECT_MAX_MS = 30_000;
 
-  ws.onopen = () => {
-    ws.send(
-      JSON.stringify({
-        APIKey: opts.token,
-        BoundingBoxes: [bbox],
-        // Subscribe to BOTH: PositionReport gives live position; ShipStaticData
-        // gives the ship name + type code (needed to pick the right sprite).
-        FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
-      })
-    );
-    opts.onState?.('connected');
-  };
+/**
+ * Exponential backoff with deterministic jitter (no Math.random — the codebase
+ * is replay-safe). Attempt 0 → ~1s, then doubling, capped at 30s; jitter is a
+ * bounded, attempt-derived offset so reconnect storms de-synchronise without a
+ * random source.
+ */
+export function reconnectDelayMs(attempt: number): number {
+  const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+  // Deterministic jitter in [0, base*0.25): a hash of the attempt index.
+  const jitter = (((attempt * 2654435761) >>> 0) % 1000) / 1000; // 0..1
+  return Math.round(base + base * 0.25 * jitter);
+}
+
+/**
+ * Open the stream with automatic reconnect (exponential backoff + jitter) and
+ * single-flight resubscribe (spec A-5/A-7). Returns an unsubscribe that stops
+ * reconnection and closes the socket. Emits 'reconnecting' between attempts so
+ * the UI can show the fallback rung rather than a dead feed.
+ */
+export function openAisStream(opts: AisStreamOptions): () => void {
+  const bbox = opts.bbox ?? JNPA_BBOX;
+  let ws: WebSocket | null = null;
+  let attempt = 0;
+  let closedByUs = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const handleText = (text: string) => {
     try {
@@ -205,20 +214,70 @@ export function openAisStream(opts: AisStreamOptions): () => void {
     }
   };
 
-  ws.onmessage = (event) => {
-    const data = event.data as string | ArrayBuffer | Blob;
-    if (typeof data === 'string') {
-      handleText(data);
-    } else if (data instanceof ArrayBuffer) {
-      handleText(new TextDecoder().decode(data));
-    } else {
-      // Blob fallback (some browsers ignore binaryType): decode asynchronously.
-      void (data as Blob).text().then(handleText).catch(() => {});
-    }
+  const scheduleReconnect = () => {
+    if (closedByUs || retryTimer) return;
+    const delay = reconnectDelayMs(attempt);
+    attempt++;
+    opts.onState?.('reconnecting');
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      connect();
+    }, delay);
   };
 
-  ws.onerror = () => opts.onState?.('error');
-  ws.onclose = () => opts.onState?.('closed');
+  const connect = () => {
+    if (closedByUs) return;
+    const sock = new WebSocket(AISSTREAM_URL);
+    ws = sock;
+    // AISStream pushes JSON, but browsers may deliver frames as Blob/ArrayBuffer
+    // rather than string. Prefer arraybuffer so we can decode synchronously.
+    sock.binaryType = 'arraybuffer';
 
-  return () => ws.close();
+    sock.onopen = () => {
+      attempt = 0; // reset backoff on a good connection
+      sock.send(
+        JSON.stringify({
+          APIKey: opts.token,
+          BoundingBoxes: [bbox],
+          // Subscribe to BOTH: PositionReport gives live position; ShipStaticData
+          // gives the ship name + type code (needed to pick the right sprite).
+          FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
+        })
+      );
+      opts.onState?.('connected');
+    };
+
+    sock.onmessage = (event) => {
+      const data = event.data as string | ArrayBuffer | Blob;
+      if (typeof data === 'string') {
+        handleText(data);
+      } else if (data instanceof ArrayBuffer) {
+        handleText(new TextDecoder().decode(data));
+      } else {
+        // Blob fallback (some browsers ignore binaryType): decode asynchronously.
+        void (data as Blob).text().then(handleText).catch(() => {});
+      }
+    };
+
+    sock.onerror = () => opts.onState?.('error');
+    sock.onclose = () => {
+      if (closedByUs) {
+        opts.onState?.('closed');
+      } else {
+        // Unexpected drop → back off and resubscribe (single-flight).
+        scheduleReconnect();
+      }
+    };
+  };
+
+  connect();
+
+  return () => {
+    closedByUs = true;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    ws?.close();
+  };
 }

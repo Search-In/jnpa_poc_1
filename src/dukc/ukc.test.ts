@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeUkc, squat, tideAt, tidalWindows, UKC_SAFETY_MARGIN_M } from './ukc';
+import { computeUkc, squat, tideAt, tidalWindows, ukcSensitivity, UKC_SAFETY_MARGIN_M } from './ukc';
 
 describe('squat', () => {
   it('is zero at rest and grows with speed²', () => {
@@ -51,5 +51,30 @@ describe('tidalWindows', () => {
     const w = tidalWindows({ staticDraftM: 9, controllingDepthM: 15, speedKt: 6, horizonH: 48 });
     const covered = w.reduce((s, win) => s + (win.toH - win.fromH), 0);
     expect(covered).toBeGreaterThan(40); // most of the 48h horizon is open
+  });
+});
+
+describe('ukcSensitivity (C-2)', () => {
+  it('returns nominal + 6 perturbations, worst ≤ nominal ≤ best', () => {
+    const rows = ukcSensitivity({
+      staticDraftM: 13.5,
+      chartedDepthM: 15,
+      tideM: 1.5,
+      speedKt: 8,
+      blockCoef: 0.65,
+    });
+    expect(rows).toHaveLength(7);
+    const nominal = rows.find((r) => r.label === 'nominal')!.ukcM;
+    const worst = rows.find((r) => r.label.startsWith('worst'))!.ukcM;
+    const best = rows.find((r) => r.label.startsWith('best'))!.ukcM;
+    expect(worst).toBeLessThanOrEqual(nominal);
+    expect(best).toBeGreaterThanOrEqual(nominal);
+  });
+
+  it('deeper draft reduces UKC by the draft delta', () => {
+    const rows = ukcSensitivity({ staticDraftM: 13, chartedDepthM: 15, tideM: 1, speedKt: 8 }, 0.2, 0.1);
+    const base = rows.find((r) => r.label === 'nominal')!.ukcM;
+    const deeper = rows.find((r) => r.label === 'draft +0.2 m')!.ukcM;
+    expect(deeper).toBeCloseTo(base - 0.2, 2);
   });
 });

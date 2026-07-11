@@ -149,3 +149,41 @@ export function tidalWindows(
   if (cur) windows.push(cur);
   return windows;
 }
+
+export interface UkcSensitivityRow {
+  label: string;
+  draftDeltaM: number;
+  tideDeltaM: number;
+  ukcM: number;
+  status: UkcResult['status'];
+}
+
+/**
+ * Sensitivity view (spec C-2): how the UKC decision moves under bounded input
+ * error — draft ±0.2 m and tide ±0.1 m. Returns the nominal case plus the four
+ * corner perturbations and the two single-axis worst cases, so a pilot sees
+ * whether a "go" is comfortable or marginal-on-the-edge. Pure/deterministic.
+ */
+export function ukcSensitivity(
+  inp: UkcInputs,
+  draftTolM = 0.2,
+  tideTolM = 0.1,
+): UkcSensitivityRow[] {
+  const at = (dDraft: number, dTide: number, label: string): UkcSensitivityRow => {
+    const r = computeUkc({
+      ...inp,
+      staticDraftM: inp.staticDraftM + dDraft,
+      tideM: inp.tideM + dTide,
+    });
+    return { label, draftDeltaM: dDraft, tideDeltaM: dTide, ukcM: r.ukcM, status: r.status };
+  };
+  return [
+    at(0, 0, 'nominal'),
+    at(+draftTolM, -tideTolM, 'worst (deep draft, low tide)'),
+    at(-draftTolM, +tideTolM, 'best (light draft, high tide)'),
+    at(+draftTolM, 0, `draft +${draftTolM} m`),
+    at(-draftTolM, 0, `draft −${draftTolM} m`),
+    at(0, -tideTolM, `tide −${tideTolM} m`),
+    at(0, +tideTolM, `tide +${tideTolM} m`),
+  ];
+}

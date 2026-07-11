@@ -28,6 +28,7 @@ import {
 } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
 import { DataModeChip } from '@/provenance/DataModeChip';
+import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
@@ -38,6 +39,7 @@ import { SimControls } from '@/sim/SimControls';
 import { PlacementToolbar } from '@/map/PlacementToolbar';
 import { Panel } from '@/components/common/Panel';
 import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
+import { PlanImportPanel } from '@/planning/PlanImportPanel';
 import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
@@ -49,6 +51,9 @@ import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
 import { WorkflowRuns } from '@/workflow/WorkflowRuns';
+import { WorkflowComposer } from '@/workflow/WorkflowComposer';
+import { ConnectorReadiness } from '@/console/ConnectorReadiness';
+import { AnalyticsPanel } from '@/planning/AnalyticsPanel';
 import { MethodologyPanel } from '@/components/MethodologyPanel';
 import { ExportToolbar } from '@/reports/ExportToolbar';
 import { KPI_TARGETS } from '@/config/targets';
@@ -61,10 +66,13 @@ import { tokens } from '@/theme/tokens';
 const TABS = [
   { id: 'kpis', label: 'KPI Wall' },
   { id: 'gantt', label: '5-Day Berthing' },
+  { id: 'plan', label: 'Plan Import' },
   { id: 'dukc', label: 'DUKC / RTUKC' },
   { id: 'craft', label: 'Port Craft' },
   { id: 'scenarios', label: 'What-If' },
   { id: 'workflows', label: 'Workflows' },
+  { id: 'analytics', label: 'Analytics & JIT' },
+  { id: 'connectors', label: 'Connectors' },
   { id: 'reports', label: 'Reports' },
   { id: 'methodology', label: 'Methodology' },
 ] as const;
@@ -127,7 +135,7 @@ export function App() {
     <>
       <CalciteShell style={{ height: '100vh', background: tokens.bg }}>
         <div slot="header">
-          <HeaderBar extra={<><SimControls /><DataModeChip /></>} />
+          <HeaderBar extra={<><RoleSwitcher /><SimControls /><DataModeChip /></>} />
         </div>
 
         {/* Left: the 3D sea-port scene is the anchor + default view. A 2D/3D
@@ -241,6 +249,9 @@ export function App() {
             <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>
               <BerthGantt5Day />
             </CalciteTab>
+            <CalciteTab tab="plan" selected={activeTab === 'plan'}>
+              <PlanImportPanel />
+            </CalciteTab>
             <CalciteTab tab="dukc" selected={activeTab === 'dukc'}>
               <DukcCorridor />
             </CalciteTab>
@@ -251,7 +262,22 @@ export function App() {
               <Scenarios />
             </CalciteTab>
             <CalciteTab tab="workflows" selected={activeTab === 'workflows'}>
-              <WorkflowRuns />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, alignItems: 'start' }}>
+                <div>
+                  <h3 style={{ fontSize: 13, color: tokens.textMuted, margin: '0 0 8px' }}>Workflow composer</h3>
+                  <WorkflowComposer />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 13, color: tokens.textMuted, margin: '0 0 8px' }}>Automated-workflow ledger</h3>
+                  <WorkflowRuns />
+                </div>
+              </div>
+            </CalciteTab>
+            <CalciteTab tab="analytics" selected={activeTab === 'analytics'}>
+              <AnalyticsPanel />
+            </CalciteTab>
+            <CalciteTab tab="connectors" selected={activeTab === 'connectors'}>
+              <ConnectorReadiness />
             </CalciteTab>
             <CalciteTab tab="reports" selected={activeTab === 'reports'}>
               <ExportToolbar />

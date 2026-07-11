@@ -5,6 +5,9 @@ import {
   mapVesselType,
   mapStaticData,
   isPlottablePosition,
+  reconnectDelayMs,
+  RECONNECT_MAX_MS,
+  RECONNECT_BASE_MS,
 } from './aisstream';
 
 describe('mapNavStatus', () => {
@@ -128,6 +131,22 @@ describe('mapAisMessage', () => {
     expect(v).not.toBeNull();
     expect(v!.LAT).toBe(18.95);
     expect(v!.LON).toBe(72.95);
+  });
+});
+
+describe('reconnectDelayMs — exponential backoff + deterministic jitter', () => {
+  it('grows with attempt and is capped', () => {
+    const d0 = reconnectDelayMs(0);
+    const d1 = reconnectDelayMs(1);
+    const d2 = reconnectDelayMs(2);
+    expect(d0).toBeGreaterThanOrEqual(RECONNECT_BASE_MS);
+    expect(d1).toBeGreaterThan(d0);
+    expect(d2).toBeGreaterThan(d1);
+    // Deep attempts saturate at the cap (+ up to 25% jitter).
+    expect(reconnectDelayMs(20)).toBeLessThanOrEqual(RECONNECT_MAX_MS * 1.25 + 1);
+  });
+  it('is deterministic (no Math.random) — same attempt → same delay', () => {
+    expect(reconnectDelayMs(3)).toBe(reconnectDelayMs(3));
   });
 });
 
