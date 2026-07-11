@@ -19,7 +19,7 @@ glTF object symbols. Licences below; CC-BY assets are attributed here as require
 | `rail-loco.glb` | Rake locomotive (live shunting train) | Quaternius | poly.pizza | CC0 1.0 |
 | `rail-wagon.glb` | Flat rail wagon | Quaternius | poly.pizza | CC0 1.0 |
 | `rail-container.glb` | Container rail wagon | Quaternius | poly.pizza | CC0 1.0 |
-| `gate-realistic.glb` | Terminal gate arch (unused — replaced by composite gate) | **Poly by Google** | poly.pizza | **CC-BY 3.0** |
+| `gate-realistic.glb` | Terminal gate arch (active — the 3D terminal gates) | **Poly by Google** | poly.pizza | **CC-BY 3.0** |
 | `yard-container-red/green/blue.glb` | ISO containers — stacked yard blocks | Quaternius | poly.pizza | CC0 1.0 |
 | `gate-boom.glb` | Gate boom barrier (composite gate-house) | Quaternius | poly.pizza | CC0 1.0 |
 

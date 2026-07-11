@@ -16,7 +16,12 @@ import type {
   Vessel,
   WeatherReading,
 } from '@/types/domain';
-import { TERMINALS, VESSEL_BERTH_POS, channelCentreline, QUAY_BEARING } from '@/map/portGeometry';
+import {
+  TERMINALS,
+  channelCentreline,
+  TERMINAL_QUAYS,
+  offsetMeters,
+} from '@/map/portGeometry';
 
 const H = 3_600_000;
 
@@ -39,11 +44,16 @@ export function seededRandom(seed: number): () => number {
  * multiple berths at one terminal. Terminal naming follows the shared convention
  * (NSICT/NSIGT/GTI/BMCT/JNPCT).
  */
-const TERM_POS: Record<string, [number, number]> = Object.fromEntries(
-  TERMINALS.map((t) => [t.id, [t.lng, t.lat] as [number, number]]),
-);
+/** Berth apron depth from the waterline, metres (how far inland the box runs). */
+const BERTH_DEPTH_M = 60;
+/** Per-terminal count of berth slots we tile along the quay (for even spacing). */
+const BERTH_SLOTS: Record<string, number> = { NSICT: 2, NSIGT: 1, GTI: 1, BMCT: 2, JNPCT: 1 };
 
-/** A berth on `terminal`'s quay, offset by `i` berth-widths along the line. */
+/**
+ * A berth box sitting ON the terminal's quay line (fitted from the cranes), tiled
+ * to the `i`-th slot along that line. This replaces the old axis-aligned box at
+ * the terminal centroid, so berths align with the real wharf, cranes and vessels.
+ */
 function termBerth(
   id: string,
   name: string,
@@ -53,10 +63,27 @@ function termBerth(
   status: Berth['STATUS'],
   i: number,
 ): Berth {
-  const [lng, lat] = TERM_POS[terminal] ?? [72.945, 18.949];
-  // Offset along the ~208° quay bearing so sibling berths don't overlap.
-  const step = 0.0016 * i;
-  return berth(id, name, terminal, len, draft, status, lng - step * 0.5, lat + step * 0.35);
+  const q = TERMINAL_QUAYS[terminal];
+  const slots = BERTH_SLOTS[terminal] ?? 1;
+  // Centre of slot i within the quay length: divide the line into `slots` cells.
+  const cellLen = q.lengthM / slots;
+  const centreAlong = -q.lengthM / 2 + cellLen * (i + 0.5);
+  const boxLen = Math.min(len, cellLen * 0.92); // fit within its cell
+  const midW = offsetMeters(q.mid, q.along, centreAlong); // slot centre on waterline
+  // Four corners: two on the waterline, two pushed landward.
+  const wA = offsetMeters(midW, q.along, -boxLen / 2);
+  const wB = offsetMeters(midW, q.along, +boxLen / 2);
+  const lB = offsetMeters(wB, q.landward, BERTH_DEPTH_M);
+  const lA = offsetMeters(wA, q.landward, BERTH_DEPTH_M);
+  return {
+    BERTH_ID: id,
+    BERTH_NAME: name,
+    TERMINAL: terminal,
+    LENGTH_M: len,
+    DRAFT_M: draft,
+    STATUS: status,
+    GEOM: [wA, wB, lB, lA, wA],
+  };
 }
 
 export const BERTHS: Berth[] = [
@@ -68,34 +95,6 @@ export const BERTHS: Berth[] = [
   termBerth('BMCT-2', 'BMCT Berth 2', 'BMCT', 1000, 16.5, 'maintenance', 1),
   termBerth('JNPCT-1', 'JNPCT Berth 1', 'JNPCT', 300, 13.5, 'available', 0),
 ];
-
-function berth(
-  id: string,
-  name: string,
-  terminal: string,
-  len: number,
-  draft: number,
-  status: Berth['STATUS'],
-  lon: number,
-  lat: number
-): Berth {
-  const d = 0.0008;
-  return {
-    BERTH_ID: id,
-    BERTH_NAME: name,
-    TERMINAL: terminal,
-    LENGTH_M: len,
-    DRAFT_M: draft,
-    STATUS: status,
-    GEOM: [
-      [lon - d, lat - d / 2],
-      [lon + d, lat - d / 2],
-      [lon + d, lat + d / 2],
-      [lon - d, lat + d / 2],
-      [lon - d, lat - d / 2],
-    ],
-  };
-}
 
 const VESSEL_SEED = [
   { mmsi: '419000123', name: 'MV BHARAT EXPRESS', type: 'Container Ship' },
@@ -182,7 +181,6 @@ export function makeVessels(now: number, tick: number): Vessel[] {
     // Stable per-vessel randomness (seeded by index, not tick) for jitter/speed.
     const idRnd = seededRandom(1234 + i * 97);
     const berthedTerminal = TERMINAL_IDS[i % TERMINAL_IDS.length];
-    const berthPos = VESSEL_BERTH_POS[berthedTerminal];
     const atBerth = status === 'moored' || status === 'berthing';
     const anchored = status === 'anchored';
 
@@ -192,16 +190,20 @@ export function makeVessels(now: number, tick: number): Vessel[] {
     let sog: number;
 
     if (atBerth) {
-      // Alongside the real quay spot — but the STATIC "hero" berthed ship
-      // (portAssets3d/2d) already sits exactly on `vessel:<T>`. Shift the live
-      // moored vessel one ship-length ALONG the quay so it berths in the next
-      // slot instead of intersecting the hero ship. Deterministic per vessel.
-      const alongQuayDeg = (QUAY_BEARING + 90) % 360; // parallel to the hull
-      const rad = (alongQuayDeg * Math.PI) / 180;
-      const offsetDeg = 0.0026; // ≈ 275 m ≈ one container-ship length
-      lon = berthPos[0] + (Math.sin(rad) * offsetDeg) / Math.cos((berthPos[1] * Math.PI) / 180);
-      lat = berthPos[1] + Math.cos(rad) * offsetDeg;
-      heading = alongQuayDeg; // hull lies along the quay
+      // Berth the vessel ON its terminal's quay line (fitted from the cranes),
+      // floating just SEAWARD of the waterline so the hull lies alongside the
+      // wharf — not on the deck and not on top of the static hero ship. Each
+      // berthed vessel takes a distinct slot along the quay. Deterministic.
+      const q = TERMINAL_QUAYS[berthedTerminal];
+      const slot = (i % 3) - 1; // -1, 0, +1 → spread along the quay
+      const alongCentre = slot * 180; // ~180 m between berthed hulls
+      const centre = offsetMeters(q.mid, q.along, alongCentre);
+      // Seaward = opposite of landward; sit ~35 m off the quay edge.
+      const seaward: [number, number] = [-q.landward[0], -q.landward[1]];
+      const spot = offsetMeters(centre, seaward, 35);
+      lon = spot[0];
+      lat = spot[1];
+      heading = q.bearingDeg; // hull lies along the quay
       sog = 0;
     } else if (anchored) {
       // Holding in the waiting anchorage: a small, STABLE offset (not tick-based)

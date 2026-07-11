@@ -13,7 +13,7 @@ import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import { placementStore } from './placementStore';
-import { QUAY_BEARING } from './portGeometry';
+import { QUAY_BEARING, TERMINALS, TERMINAL_QUAYS, offsetMeters } from './portGeometry';
 import { tokens } from '../theme/tokens';
 import { CRAFT_SPRITES, VESSEL_SPRITES } from '../assets/registry';
 
@@ -190,21 +190,24 @@ export function buildPortAssets2dLayer(): GraphicsLayer {
     );
   }
 
-  // Berthed hero vessels — the container sprite alongside each terminal.
-  keysOf('vessel').forEach((key) => {
-    const p = pos(key);
-    if (!p) return;
-    const terminalId = key.slice('vessel:'.length);
+  // Berthed hero vessels — the container sprite alongside each terminal, placed
+  // ON the quay line (fitted from the cranes), matching the 3D scene.
+  TERMINALS.forEach((t) => {
+    const q = TERMINAL_QUAYS[t.id];
+    const centre = offsetMeters(q.mid, q.along, q.lengthM / 2 - 160);
+    const seaward: [number, number] = [-q.landward[0], -q.landward[1]];
+    const p = offsetMeters(centre, seaward, 35);
+    const terminalId = t.id;
     g.push(
       new Graphic({
         geometry: pt(p),
-        attributes: { pkey: key, kind: 'berthed', label: terminalId },
+        attributes: { pkey: `vessel:${terminalId}`, kind: 'berthed', label: terminalId },
         symbol: {
           type: 'picture-marker',
           url: VESSEL_SPRITES.container.url,
           width: VESSEL_SPRITES.container.width,
           height: VESSEL_SPRITES.container.height,
-          angle: heading(key, (QUAY_HEADING + 90) % 360),
+          angle: q.bearingDeg,
         },
         popupTemplate: { title: 'Berthed vessel', content: 'Alongside {label}.' },
       }),

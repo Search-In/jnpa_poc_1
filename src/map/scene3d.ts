@@ -21,7 +21,10 @@ import {
   PILOT_STATION,
   TERMINALS,
   TERMINAL_BY_ID,
+  TERMINAL_QUAYS,
+  offsetMeters,
   type ChannelSegment,
+  type TerminalQuay,
 } from './portGeometry';
 import { navStatusColor, tokens, ukcColor } from '../theme/tokens';
 import type { Vessel, Berth } from '@/types/domain';
@@ -151,27 +154,36 @@ export function pilotStationLayer(): GraphicsLayer {
 
 // ---- terminal quay decks (extruded) ----------------------------------------
 
-/** A small quay-deck polygon along the waterline for each terminal. */
-function deckRing(lng: number, lat: number, berths: number): [number, number][] {
-  const w = 0.0009 * Math.max(1, berths / 2); // wider quay for more berths
-  const h = 0.0006;
-  return [
-    [lng - w, lat - h],
-    [lng + w, lat - h],
-    [lng + w, lat + h],
-    [lng - w, lat + h],
-    [lng - w, lat - h],
-  ];
+/** Landward depth of a terminal's quay apron, metres. */
+const QUAY_DEPTH_M = 130;
+/** How far past the outermost cranes the deck runs at each end, metres. */
+const QUAY_END_PAD_M = 40;
+
+/**
+ * An ORIENTED quay-deck rectangle fitted to the terminal's crane line: it runs
+ * along the quay for its full length (+ a small end pad) and extends landward by
+ * QUAY_DEPTH_M, so the deck sits under the cranes on the real wharf instead of
+ * as an axis-aligned box at the terminal centroid.
+ */
+function deckRing(q: TerminalQuay): [number, number][] {
+  const half = q.lengthM / 2 + QUAY_END_PAD_M;
+  // Waterline edge endpoints (along the crane line, through the mid).
+  const wA = offsetMeters(q.mid, q.along, -half);
+  const wB = offsetMeters(q.mid, q.along, +half);
+  // Landward edge endpoints (pushed inland by the apron depth).
+  const lB = offsetMeters(wB, q.landward, QUAY_DEPTH_M);
+  const lA = offsetMeters(wA, q.landward, QUAY_DEPTH_M);
+  return [wA, wB, lB, lA, wA];
 }
 
 function deckGraphics(): Graphic[] {
-  return TERMINALS.map(
-    (t) =>
-      new Graphic({
-        geometry: new Polygon({ rings: [deckRing(t.lng, t.lat, t.berths)], spatialReference: { wkid: 4326 } }),
-        attributes: { objectId: stableOid(`deck:${t.id}`), terminalId: t.id, name: t.name, berths: t.berths, maxDraft: t.maxDraftM },
-      }),
-  );
+  return TERMINALS.map((t) => {
+    const q = TERMINAL_QUAYS[t.id];
+    return new Graphic({
+      geometry: new Polygon({ rings: [deckRing(q)], spatialReference: { wkid: 4326 } }),
+      attributes: { objectId: stableOid(`deck:${t.id}`), terminalId: t.id, name: t.name, berths: t.berths, maxDraft: t.maxDraftM },
+    });
+  });
 }
 
 export function terminalDeckLayer(): FeatureLayer {

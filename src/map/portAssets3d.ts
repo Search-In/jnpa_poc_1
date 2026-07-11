@@ -23,7 +23,7 @@ import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
 import { stableOid } from './applyGraphics';
 import { placementStore } from './placementStore';
-import { QUAY_BEARING } from './portGeometry';
+import { QUAY_BEARING, TERMINALS, TERMINAL_QUAYS, offsetMeters } from './portGeometry';
 
 const MODELS = '/models';
 
@@ -348,30 +348,34 @@ export function tugLayer(): FeatureLayer {
 }
 
 // ---------------------------------------------------------------------------
-// Berthed hero vessels — a real container-ship GLB alongside each terminal at
-// its surveyed `vessel:<T>` berth spot. These are the STATIC berthed ships that
-// dress the quay; the live moving AIS fleet is rendered separately in scene3d.
+// Berthed hero vessels — a real container-ship GLB alongside each terminal,
+// placed ON the quay line fitted from that terminal's cranes (not the raw
+// `vessel:<T>` spot, which could drift off the wharf). Seated just seaward of the
+// waterline at a quay slot clear of the live moored AIS ships (which take the
+// centre/±180 m slots in fixtures), so hero and live hulls never intersect. The
+// live moving AIS fleet is rendered separately in scene3d.
 // ---------------------------------------------------------------------------
 
 function berthedVesselGraphics(): Graphic[] {
-  return keysOf('vessel')
-    .map((key, idx) => {
-      const p = pos(key);
-      if (!p) return null;
-      const [, terminalId] = key.split(':');
-      return new Graphic({
-        geometry: new Point({ longitude: p[0], latitude: p[1], spatialReference: { wkid: 4326 } }),
-        attributes: {
-          objectId: stableOid(`berthedves:${key}`),
-          pkey: key,
-          terminalId,
-          hull: idx % 2 === 0 ? 'a' : 'b',
-          // Hull runs along the quay (bearing + 90).
-          heading: heading(key, (QUAY_HEADING + 90) % 360),
-        },
-      });
-    })
-    .filter((g): g is Graphic => g != null);
+  return TERMINALS.map((t, idx) => {
+    const q = TERMINAL_QUAYS[t.id];
+    // Hero ship sits toward the far end of the quay (+ half-length − a margin),
+    // away from the live moored vessels clustered near the quay mid.
+    const alongCentre = q.lengthM / 2 - 160;
+    const centre = offsetMeters(q.mid, q.along, alongCentre);
+    const seaward: [number, number] = [-q.landward[0], -q.landward[1]];
+    const spot = offsetMeters(centre, seaward, 35);
+    return new Graphic({
+      geometry: new Point({ longitude: spot[0], latitude: spot[1], spatialReference: { wkid: 4326 } }),
+      attributes: {
+        objectId: stableOid(`berthedves:${t.id}`),
+        pkey: `vessel:${t.id}`,
+        terminalId: t.id,
+        hull: idx % 2 === 0 ? 'a' : 'b',
+        heading: q.bearingDeg, // hull runs along the quay
+      },
+    });
+  });
 }
 
 export function berthedVesselLayer(): FeatureLayer {
