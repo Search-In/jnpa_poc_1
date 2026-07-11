@@ -26,10 +26,13 @@ export interface AppEnv {
    */
   historyHours: number;
   /**
-   * Live AIS region. JNPA/Indian waters have no free public AIS coverage, so
-   * the demo can re-centre on a region that does (default: Rotterdam) to show
-   * genuine real-time vessels. All env-overridable; clear to JNPA geography the
-   * moment a covering feed (Velocity/licensed) is configured.
+   * Live AIS region. The demo runs on JNPA / Nhava Sheva geography by default
+   * (simulated feed, honestly labelled). JNPA/Indian waters have no *free* public
+   * AIS coverage, so — only when the operator explicitly opts in via env — the
+   * live-AIS demo can re-centre on a covered region (e.g. Rotterdam) purely to
+   * show genuine real-time vessel motion; that region is always flagged as a
+   * coverage stand-in, never presented as JNPA. Clear the override the moment a
+   * covering feed (Velocity/licensed) is configured.
    */
   liveRegion: {
     /** [[swLat, swLon], [neLat, neLon]] AIS subscription box. */
@@ -66,11 +69,21 @@ function parseBbox(v: string | undefined, fallback: number[][]): number[][] {
   return fallback;
 }
 
-// Rotterdam — densest live AISStream coverage as of build time. Override via env.
-const ROTTERDAM_BBOX = [
+// JNPA / Nhava Sheva approaches — the true target geography (default for the
+// simulated feed). [[swLat, swLon], [neLat, neLon]].
+const JNPA_BBOX = [
+  [18.86, 72.86],
+  [19.02, 73.02],
+];
+
+// Rotterdam — densest FREE live AISStream coverage as of build time. Used ONLY
+// as an opt-in live-AIS coverage stand-in (VITE_AIS_BBOX / VITE_LIVE_REGION_*),
+// never as the default framing. Kept here so the stand-in is one env flag away.
+const ROTTERDAM_STANDIN_BBOX = [
   [51.85, 3.9],
   [52.05, 4.5],
 ];
+void ROTTERDAM_STANDIN_BBOX;
 
 export const env: AppEnv = {
   dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live') ?? 'mock',
@@ -90,11 +103,14 @@ export const env: AppEnv = {
   weatherFeedUrl: str(import.meta.env.VITE_WEATHER_FEED_URL),
   historyHours: num(import.meta.env.VITE_HISTORY_HOURS, 336),
   liveRegion: {
-    bbox: parseBbox(import.meta.env.VITE_AIS_BBOX, ROTTERDAM_BBOX),
-    center: str(import.meta.env.VITE_MAP_CENTER, '4.15,51.95'),
-    zoom: num(import.meta.env.VITE_MAP_ZOOM, 11),
-    label: str(import.meta.env.VITE_LIVE_REGION_LABEL, 'Rotterdam (live AIS coverage demo)'),
-    // Stand-in unless the operator explicitly says this region IS the target.
-    isStandIn: str(import.meta.env.VITE_LIVE_REGION_IS_TARGET) !== 'true',
+    bbox: parseBbox(import.meta.env.VITE_AIS_BBOX, JNPA_BBOX),
+    center: str(import.meta.env.VITE_MAP_CENTER, '72.95,18.95'),
+    zoom: num(import.meta.env.VITE_MAP_ZOOM, 12),
+    label: str(import.meta.env.VITE_LIVE_REGION_LABEL, 'JNPA / Nhava Sheva approaches'),
+    // A region is only a "stand-in" when the operator points the live AIS box at
+    // a non-JNPA area (e.g. Rotterdam) for coverage AND doesn't flag it as target.
+    isStandIn:
+      str(import.meta.env.VITE_AIS_BBOX) !== '' &&
+      str(import.meta.env.VITE_LIVE_REGION_IS_TARGET) !== 'true',
   },
 };

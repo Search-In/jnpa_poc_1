@@ -72,9 +72,28 @@ export function mapVesselType(code: number | undefined): string {
 }
 
 /**
+ * True when a lat/lon pair is a real, plottable WGS84 position. Rejects NaN,
+ * out-of-range values, and the AIS "no fix" sentinel (0,0 — "null island" off
+ * West Africa). A dropped position is safer than a fabricated one: rendering a
+ * (0,0) ghost or an off-globe point silently corrupts the twin. This is the
+ * hard integrity floor; richer sanity (teleport, land-mask, staleness) is a
+ * separate data-quality pass.
+ */
+export function isPlottablePosition(lat: number | undefined, lon: number | undefined): boolean {
+  if (typeof lat !== 'number' || typeof lon !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+  // AIS transmits 0/0 when it has no positional fix; treat as "no position".
+  if (lat === 0 && lon === 0) return false;
+  return true;
+}
+
+/**
  * Map an AISStream message to a partial Vessel. Returns null for message types
- * we don't track. Static data (names/types) arrives separately from position,
- * so callers should merge by MMSI (the ArcGISAdapter keeps a per-MMSI cache).
+ * we don't track, for missing MMSI, AND for reports with no valid position —
+ * we never invent (0,0) coordinates. Static data (names/types) arrives
+ * separately from position, so callers should merge by MMSI (the ArcGISAdapter
+ * keeps a per-MMSI cache).
  */
 export function mapAisMessage(msg: unknown): Vessel | null {
   const m = msg as {
@@ -97,6 +116,12 @@ export function mapAisMessage(msg: unknown): Vessel | null {
   const md = m.MetaData;
   if (!pr || !md?.MMSI) return null;
 
+  // Position may live on the report or in MetaData; require a real fix on one
+  // of them. Drop the frame rather than plotting a fabricated (0,0) ghost.
+  const lat = pr.Latitude ?? md.latitude;
+  const lon = pr.Longitude ?? md.longitude;
+  if (!isPlottablePosition(lat, lon)) return null;
+
   const ts = md.time_utc ? Date.parse(md.time_utc) : Date.now();
   return {
     MMSI: String(md.MMSI),
@@ -106,8 +131,8 @@ export function mapAisMessage(msg: unknown): Vessel | null {
     SOG: pr.Sog ?? 0,
     COG: pr.Cog ?? 0,
     HEADING: pr.TrueHeading ?? pr.Cog ?? 0,
-    LAT: pr.Latitude ?? md.latitude ?? 0,
-    LON: pr.Longitude ?? md.longitude ?? 0,
+    LAT: lat as number,
+    LON: lon as number,
     ETA: null,
     BERTH_ID: null,
     TIMESTAMP: Number.isNaN(ts) ? Date.now() : ts,

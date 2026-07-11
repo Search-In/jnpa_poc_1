@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { mapAisMessage, mapNavStatus, mapVesselType, mapStaticData } from './aisstream';
+import {
+  mapAisMessage,
+  mapNavStatus,
+  mapVesselType,
+  mapStaticData,
+  isPlottablePosition,
+} from './aisstream';
 
 describe('mapNavStatus', () => {
   it('maps known AIS status codes', () => {
@@ -80,5 +86,65 @@ describe('mapAisMessage', () => {
     expect(
       mapAisMessage({ MessageType: 'PositionReport', Message: { PositionReport: {} } })
     ).toBeNull();
+  });
+
+  it('drops a report with no position instead of fabricating (0,0)', () => {
+    // MMSI present, but neither the report nor MetaData carries a fix.
+    const v = mapAisMessage({
+      MessageType: 'PositionReport',
+      MetaData: { MMSI: 419000123, ShipName: 'GHOST' },
+      Message: { PositionReport: { Sog: 3, Cog: 90 } },
+    });
+    expect(v).toBeNull();
+  });
+
+  it('drops the AIS "null island" (0,0) no-fix sentinel', () => {
+    const v = mapAisMessage({
+      MessageType: 'PositionReport',
+      MetaData: { MMSI: 419000123 },
+      Message: { PositionReport: { Latitude: 0, Longitude: 0 } },
+    });
+    expect(v).toBeNull();
+  });
+
+  it('drops out-of-range / non-finite coordinates', () => {
+    const bad = (lat: number, lon: number) =>
+      mapAisMessage({
+        MessageType: 'PositionReport',
+        MetaData: { MMSI: 419000123 },
+        Message: { PositionReport: { Latitude: lat, Longitude: lon } },
+      });
+    expect(bad(91, 72.95)).toBeNull(); // lat > 90
+    expect(bad(18.95, 181)).toBeNull(); // lon > 180
+    expect(bad(NaN, 72.95)).toBeNull(); // non-finite
+  });
+
+  it('accepts a valid MetaData-only position', () => {
+    const v = mapAisMessage({
+      MessageType: 'PositionReport',
+      MetaData: { MMSI: 419000123, latitude: 18.95, longitude: 72.95 },
+      Message: { PositionReport: { Sog: 5 } },
+    });
+    expect(v).not.toBeNull();
+    expect(v!.LAT).toBe(18.95);
+    expect(v!.LON).toBe(72.95);
+  });
+});
+
+describe('isPlottablePosition', () => {
+  it('accepts real WGS84 positions', () => {
+    expect(isPlottablePosition(18.95, 72.95)).toBe(true);
+    expect(isPlottablePosition(-33.9, 151.2)).toBe(true);
+    expect(isPlottablePosition(0, 72.95)).toBe(true); // equator with a real lon
+  });
+
+  it('rejects the (0,0) no-fix sentinel, out-of-range, and non-finite', () => {
+    expect(isPlottablePosition(0, 0)).toBe(false);
+    expect(isPlottablePosition(90.1, 0)).toBe(false);
+    expect(isPlottablePosition(0, -180.1)).toBe(false);
+    expect(isPlottablePosition(NaN, 10)).toBe(false);
+    expect(isPlottablePosition(10, Infinity)).toBe(false);
+    expect(isPlottablePosition(undefined, 10)).toBe(false);
+    expect(isPlottablePosition(10, undefined)).toBe(false);
   });
 });

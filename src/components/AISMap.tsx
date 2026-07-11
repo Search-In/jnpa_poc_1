@@ -30,6 +30,7 @@ import type { Berth, Vessel } from '@/types/domain';
 import { navStatusColor, tokens } from '@/theme/tokens';
 import { istTime } from '@/util/format';
 import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
+import { buildPortAssets2dLayer } from '@/map/portAssets2d';
 
 // In live mode, centre on the configured AIS region (which has real coverage);
 // in mock mode, centre on Nhava Sheva. Driven by env so it switches to JNPA
@@ -174,12 +175,13 @@ function berthToGraphics(b: Berth): Graphic[] {
   return [footprint, marker];
 }
 
-type LayerKey = 'vessels' | 'berths' | 'weather' | 'channel';
+type LayerKey = 'vessels' | 'assets' | 'berths' | 'weather' | 'channel';
 
 export function AISMap() {
   const hostRef = useRef<ArcgisMapElement | null>(null);
   const vesselLayerRef = useRef<GraphicsLayer | null>(null);
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
+  const assetLayerRef = useRef<GraphicsLayer | null>(null);
   const [ready, setReady] = useState(false);
   /**
    * When the configured WebMap can't load (commonly a private item with no
@@ -190,6 +192,7 @@ export function AISMap() {
   const [mapWarning, setMapWarning] = useState<string | null>(null);
   const [visible, setVisible] = useState<Record<LayerKey, boolean>>({
     vessels: true,
+    assets: true,
     berths: true,
     weather: false,
     channel: false,
@@ -199,9 +202,6 @@ export function AISMap() {
   const [showUnknown, setShowUnknown] = useState(true);
 
   const vessels = useAppStore((s) => s.vessels);
-  const user = useAppStore((s) => s.user);
-  const authConfigured = useAppStore((s) => s.authConfigured);
-  const signIn = useAppStore((s) => s.signIn);
 
   // Whether to bind the WebMap: only if configured AND not already failed.
   const useWebMap = Boolean(env.webMapId) && !webMapFailed;
@@ -227,9 +227,13 @@ export function AISMap() {
 
       const vesselLayer = new GraphicsLayer({ title: 'Vessel Tracks' });
       const berthLayer = new GraphicsLayer({ title: 'Berth Overlay' });
+      // Static port infrastructure (cranes, yards, gates, trucks, tug, berthed
+      // ships) placed from positions.json — the flat twin of the 3D model fleet.
+      const assetLayer = buildPortAssets2dLayer();
       vesselLayerRef.current = vesselLayer;
       berthLayerRef.current = berthLayer;
-      map.addMany([berthLayer, vesselLayer]);
+      assetLayerRef.current = assetLayer;
+      map.addMany([berthLayer, assetLayer, vesselLayer]);
 
       void getAdapter()
         .getBerths()
@@ -248,11 +252,7 @@ export function AISMap() {
       const msg = detail?.error?.message ?? detail?.message ?? String(detail ?? 'unknown');
       if (env.webMapId && !webMapFailed) {
         setWebMapFailed(true);
-        setMapWarning(
-          authConfigured && !user
-            ? 'Your WebMap is private — sign in to load it. Showing a public basemap for now.'
-            : `WebMap "${env.webMapId}" failed to load (${msg}). Showing a public basemap.`
-        );
+        setMapWarning(`WebMap "${env.webMapId}" failed to load (${msg}). Showing a public basemap.`);
       }
     };
 
@@ -262,7 +262,7 @@ export function AISMap() {
       host.removeEventListener('arcgisViewReadyChange', onReady as EventListener);
       host.removeEventListener('arcgisLoadError', onLoadError as EventListener);
     };
-  }, [webMapFailed, authConfigured, user]);
+  }, [webMapFailed]);
 
   // Re-render vessel graphics whenever the live set (or the unknown filter)
   // changes. When the filter is off, drop vessels with no known ship type.
@@ -278,16 +278,8 @@ export function AISMap() {
   useEffect(() => {
     if (vesselLayerRef.current) vesselLayerRef.current.visible = visible.vessels;
     if (berthLayerRef.current) berthLayerRef.current.visible = visible.berths;
+    if (assetLayerRef.current) assetLayerRef.current.visible = visible.assets;
   }, [visible]);
-
-  // After a successful sign-in, retry loading the previously-failed WebMap.
-  useEffect(() => {
-    if (user && webMapFailed) {
-      setWebMapFailed(false);
-      setMapWarning(null);
-      setReady(false);
-    }
-  }, [user, webMapFailed]);
 
   const toggle = (k: LayerKey) => setVisible((v) => ({ ...v, [k]: !v[k] }));
 
@@ -330,24 +322,6 @@ export function AISMap() {
           }}
         >
           <div>{mapWarning}</div>
-          {authConfigured && !user && (
-            <button
-              type="button"
-              onClick={() => void signIn()}
-              style={{
-                marginTop: 6,
-                background: tokens.accent,
-                color: '#fff',
-                border: 'none',
-                borderRadius: 3,
-                padding: '4px 10px',
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              Sign in to ArcGIS
-            </button>
-          )}
         </div>
       )}
 
@@ -394,6 +368,7 @@ export function AISMap() {
         {(
           [
             ['vessels', 'Vessel Tracks'],
+            ['assets', 'Port Assets'],
             ['berths', 'Berth Overlay'],
             ['weather', 'Weather Layer'],
             ['channel', 'Channel / Bathymetry'],

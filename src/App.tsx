@@ -1,112 +1,286 @@
 /**
- * App shell — Calcite light theme. Wires the store lifecycle (vessel stream +
- * KPI refresh) and lays out the full dashboard: header, KPI strip, live AIS map
- * + vessel feed, the marine KPI report widgets, and the weather/what-if panel.
+ * App shell — JNPA Vessel Traffic Management & Optimisation (UC-1), Calcite dark.
+ *
+ * The 3D sea-port scene is the anchor and the default first-load view (spec §A6):
+ * a living JNPA approach with channel, anchorages, berths and live (simulated)
+ * vessel motion, framed by a KPI rail and a tabbed operations panel. A persistent
+ * DATA_MODE provenance chip (default SIMULATED) sits in the header; clicking it
+ * opens the Integration Simulator Console. The What-If Reactive Guide, Guided
+ * Tour and Integration Console ride as overlays.
+ *
+ * Structural rebuild in place: the tested KPI engine, DataAdapter and Nhava Sheva
+ * fixtures are preserved; every platform module (3D scene, provenance, DUKC,
+ * scenarios, workflows) is new and marine-specific.
  */
-
-import { useEffect } from 'react';
-import { CalciteShell } from '@esri/calcite-components-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  CalciteShell,
+  CalciteShellPanel,
+  CalcitePanel,
+  CalciteTabs,
+  CalciteTabNav,
+  CalciteTabTitle,
+  CalciteTab,
+  CalciteSegmentedControl,
+  CalciteSegmentedControlItem,
+  CalciteButton,
+  CalciteChip,
+} from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
+import { DataModeChip } from '@/provenance/DataModeChip';
+import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselFeed } from '@/components/VesselFeed';
-import { WeatherPanel } from '@/components/WeatherPanel';
+import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
+import { DemoPlayer } from '@/sim/DemoPlayer';
+import { SimControls } from '@/sim/SimControls';
+import { PlacementToolbar } from '@/map/PlacementToolbar';
 import { Panel } from '@/components/common/Panel';
-import { BerthingPlanGantt } from '@/components/reports/BerthingPlanGantt';
+import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
 import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
-import { DelayTrend } from '@/components/reports/DelayTrend';
 import { JustInTime } from '@/components/reports/JustInTime';
-import { PortCraftPerformance } from '@/components/reports/PortCraftPerformance';
-import { PredictionAccuracy } from '@/components/reports/PredictionAccuracy';
+import { DelayTrend } from '@/components/reports/DelayTrend';
+import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
+import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
+import { DukcCorridor } from '@/components/reports/DukcCorridor';
+import { WeatherPanel } from '@/components/WeatherPanel';
+import { Scenarios } from '@/sim/ScenariosPanel';
+import { GuidedTour } from '@/sim/GuidedTour';
+import { ReactiveGuide } from '@/whatif/ReactiveGuide';
+import { WorkflowRuns } from '@/workflow/WorkflowRuns';
+import { MethodologyPanel } from '@/components/MethodologyPanel';
+import { ExportToolbar } from '@/reports/ExportToolbar';
 import { KPI_TARGETS } from '@/config/targets';
+import type { Berth } from '@/types/domain';
 import { useAppStore } from '@/store/useAppStore';
+import { useSimStore } from '@/sim/simStore';
+import { useSimClock } from '@/sim/useSimClock';
 import { tokens } from '@/theme/tokens';
 
+const TABS = [
+  { id: 'kpis', label: 'KPI Wall' },
+  { id: 'gantt', label: '5-Day Berthing' },
+  { id: 'dukc', label: 'DUKC / RTUKC' },
+  { id: 'craft', label: 'Port Craft' },
+  { id: 'scenarios', label: 'What-If' },
+  { id: 'workflows', label: 'Workflows' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'methodology', label: 'Methodology' },
+] as const;
+
+type TabId = (typeof TABS)[number]['id'];
+
 export function App() {
+  // Store lifecycle: vessel stream + KPI refresh (no auth — runs credential-free).
   useEffect(() => {
-    // Restore any existing OAuth session before the map loads private items.
-    void useAppStore.getState().restoreSession();
+    useSimStore.getState().restore();
     return useAppStore.getState().start();
   }, []);
+  useSimClock();
+
+  const vessels = useAppStore((s) => s.vessels);
+  const [berths, setBerths] = useState<Berth[]>([]);
+  const highlights = useSimStore((s) => s.highlights);
+
+  const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
+  const [activeTab, setActiveTab] = useState<TabId>('kpis');
+  const [offlineBase, setOfflineBase] = useState(false);
+  // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
+  // SceneView is mounted and can receive the imperative handle. The callback ref
+  // MUST be stable (useCallback) — an inline function is a new identity each
+  // render, which makes React detach+reattach the ref (null → handle) every
+  // render, and calling setScene there would loop forever. We also only setScene
+  // on an actual identity change.
+  const [scene, setScene] = useState<PortSceneHandle | null>(null);
+  const sceneRef = useRef<PortSceneHandle | null>(null);
+  const setSceneRef = useCallback((h: PortSceneHandle | null) => {
+    if (sceneRef.current === h) return;
+    sceneRef.current = h;
+    setScene(h);
+  }, []);
+
+  // Load berths once (and refetch when the scene needs them). Kept simple — the
+  // 3D scene + gantt both read berths; the store already streams vessels.
+  useEffect(() => {
+    let alive = true;
+    void import('@/data').then(({ getAdapter }) =>
+      getAdapter()
+        .getBerths()
+        .then((b) => {
+          if (alive) setBerths(b as never);
+        })
+        .catch(() => {}),
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Guided tour drives the camera + active tab + map highlights per step.
+  function onTourStep(s: { preset: string; tab: string; highlights: string[] }) {
+    if (s.tab && TABS.some((t) => t.id === s.tab)) setActiveTab(s.tab as TabId);
+    if (mapMode === '3d') sceneRef.current?.goToPreset(s.preset as CameraPreset);
+  }
 
   return (
-    <CalciteShell style={{ height: '100vh' }}>
-      <div slot="header">
-        <HeaderBar />
-      </div>
-
-      <main
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-          padding: 12,
-          height: '100%',
-          background: tokens.bg,
-          overflow: 'auto',
-        }}
-      >
-        {/* KPI strip — full width */}
-        <KpiStrip />
-
-        {/* Map (wide) + vessel feed (rail). Fixed-height row so the feed scrolls
-            internally instead of expanding the page. */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 12 }}>
-          <Panel title="Live AIS Map — Rotterdam approaches" height={640}>
-            <AISMap />
-          </Panel>
-          <Panel title="Vessel Feed (priority order)" height={640}>
-            <VesselFeed />
-          </Panel>
+    <>
+      <CalciteShell style={{ height: '100vh', background: tokens.bg }}>
+        <div slot="header">
+          <HeaderBar extra={<><SimControls /><DataModeChip /></>} />
         </div>
 
-        {/* Marine KPI reports grid */}
-        <div
+        {/* Left: the 3D sea-port scene is the anchor + default view. A 2D/3D
+            toggle flips it to the flat AIS map. The DemoPlayer (camera bookmarks
+            + opening choreography) rides over the 3D scene. */}
+        <CalciteShellPanel
+          slot="panel-start"
+          widthScale="l"
+          resizable
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-            gap: 12,
-          }}
+            '--calcite-shell-panel-min-width': '360px',
+            '--calcite-shell-panel-width': '46vw',
+            '--calcite-shell-panel-max-width': '90vw',
+          } as React.CSSProperties}
         >
-          <div style={{ gridColumn: '1 / -1' }}>
-            <Panel title="Berthing Plan — 24h" minHeight={220}>
-              <BerthingPlanGantt />
-            </Panel>
+          <CalcitePanel heading={mapMode === '3d' ? 'JNPA Sea-Port · 3D' : 'Live AIS Map · JNPA approaches'}>
+            <div slot="header-actions-end" style={{ display: 'flex', gap: 8, alignItems: 'center', paddingInline: 8 }}>
+              {offlineBase && (
+                <CalciteChip scale="s" kind="inverse" icon="offline">
+                  Offline basemap
+                </CalciteChip>
+              )}
+              {/* 3D asset placement editing (shared positions.json workflow). */}
+              {mapMode === '3d' && <PlacementToolbar />}
+              <CalciteButton
+                scale="s"
+                appearance="outline"
+                iconStart="exclamation-mark-triangle"
+                title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
+                onClick={() => {
+                  const u = new URL(window.location.href);
+                  u.searchParams.set('offline', '1');
+                  window.location.href = u.toString();
+                }}
+              >
+                Simulate token expiry
+              </CalciteButton>
+              <CalciteSegmentedControl
+                width="auto"
+                scale="s"
+                onCalciteSegmentedControlChange={(e) =>
+                  setMapMode(((e.target as unknown as { value: '2d' | '3d' }).value) === '3d' ? '3d' : '2d')
+                }
+              >
+                <CalciteSegmentedControlItem value="2d" checked={mapMode === '2d'} iconStart="map">
+                  2D
+                </CalciteSegmentedControlItem>
+                <CalciteSegmentedControlItem value="3d" checked={mapMode === '3d'} iconStart="urban-model">
+                  3D
+                </CalciteSegmentedControlItem>
+              </CalciteSegmentedControl>
+            </div>
+
+            <div style={{ height: 'calc(100vh - 120px)', position: 'relative' }}>
+              {mapMode === '3d' ? (
+                <>
+                  <PortScene
+                    ref={setSceneRef}
+                    vessels={vessels}
+                    berths={berths}
+                    highlights={highlights}
+                    onOfflineBasemap={() => setOfflineBase(true)}
+                  />
+                  <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
+                    <DemoPlayer scene={scene} />
+                  </div>
+                </>
+              ) : (
+                <AISMap />
+              )}
+            </div>
+          </CalcitePanel>
+        </CalciteShellPanel>
+
+        {/* Center/right: KPI strip + tabbed operations panels. */}
+        <CalcitePanel>
+          <div style={{ padding: 12 }}>
+            <KpiStrip />
           </div>
+          <CalciteTabs layout="inline" style={{ padding: 12 }}>
+            <CalciteTabNav slot="title-group">
+              {TABS.map((tb) => (
+                <CalciteTabTitle
+                  key={tb.id}
+                  tab={tb.id}
+                  selected={activeTab === tb.id}
+                  onCalciteTabsActivate={() => setActiveTab(tb.id)}
+                >
+                  {tb.label}
+                </CalciteTabTitle>
+              ))}
+            </CalciteTabNav>
 
-          <Panel title="Arrivals & Departures (4h blocks)" minHeight={240}>
-            <ArrivalsDepartures />
-          </Panel>
+            <CalciteTab tab="kpis" selected={activeTab === 'kpis'}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
+                <Panel title="Prediction vs Actual — convergence" minHeight={280}>
+                  <PredictionConvergence />
+                </Panel>
+                <Panel title="Just-In-Time Arrivals" minHeight={280}>
+                  <JustInTime />
+                </Panel>
+                <Panel title="Pre-Berthing Delay vs target" minHeight={260}>
+                  <DelayTrend field="PRE_BERTH_DELAY" target={KPI_TARGETS.preBerthingDelay.target} unit="h" label="Pre-berthing delay" />
+                </Panel>
+                <Panel title="Average Vessel TAT vs target" minHeight={260}>
+                  <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
+                </Panel>
+              </div>
+            </CalciteTab>
 
-          <Panel title="Just-In-Time Arrivals" minHeight={240}>
-            <JustInTime />
-          </Panel>
+            <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>
+              <BerthGantt5Day />
+            </CalciteTab>
+            <CalciteTab tab="dukc" selected={activeTab === 'dukc'}>
+              <DukcCorridor />
+            </CalciteTab>
+            <CalciteTab tab="craft" selected={activeTab === 'craft'}>
+              <PortCraftBoard />
+            </CalciteTab>
+            <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
+              <Scenarios />
+            </CalciteTab>
+            <CalciteTab tab="workflows" selected={activeTab === 'workflows'}>
+              <WorkflowRuns />
+            </CalciteTab>
+            <CalciteTab tab="reports" selected={activeTab === 'reports'}>
+              <ExportToolbar />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
+                <Panel title="Arrivals & Departures (4h blocks)" minHeight={260}>
+                  <ArrivalsDepartures />
+                </Panel>
+                <Panel title="Weather & Sea-State" minHeight={260}>
+                  <WeatherPanel />
+                </Panel>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <Panel title="Live Vessel Feed (priority order)" height={360}>
+                    <VesselFeed />
+                  </Panel>
+                </div>
+              </div>
+            </CalciteTab>
+            <CalciteTab tab="methodology" selected={activeTab === 'methodology'}>
+              <MethodologyPanel />
+            </CalciteTab>
+          </CalciteTabs>
+        </CalcitePanel>
+      </CalciteShell>
 
-          <Panel title="Pre-Berthing Delay vs target" minHeight={240}>
-            <DelayTrend field="PRE_BERTH_DELAY" target={KPI_TARGETS.preBerthingDelay.target} unit="h" label="Pre-berthing delay" />
-          </Panel>
-
-          <Panel title="Pre-Sailing Delay vs target" minHeight={240}>
-            <DelayTrend field="PRE_SAIL_DELAY" target={KPI_TARGETS.preSailingDelay.target} unit="h" label="Pre-sailing delay" />
-          </Panel>
-
-          <Panel title="Average Vessel TAT vs target" minHeight={240}>
-            <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
-          </Panel>
-
-          <Panel title="Port Craft Performance" minHeight={240}>
-            <PortCraftPerformance />
-          </Panel>
-
-          <Panel title="Prediction Accuracy — ETA vs ATA" minHeight={240}>
-            <PredictionAccuracy />
-          </Panel>
-
-          <Panel title="Weather & What-If" minHeight={240}>
-            <WeatherPanel />
-          </Panel>
-        </div>
-      </main>
-    </CalciteShell>
+      {/* Overlays: guided tour narrates a scenario; reactive guide shows its
+          causal chain; the integration console injects per-source faults. */}
+      <GuidedTour onStep={onTourStep} />
+      <ReactiveGuide onSpotlight={(ids) => useSimStore.getState().setHighlights(ids)} />
+      <IntegrationConsole />
+    </>
   );
 }

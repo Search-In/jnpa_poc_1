@@ -1,18 +1,50 @@
-# Rotterdam · Vessel Traffic Management & Optimisation (Digital Twin PoC — Use Case 1)
+# JNPA · Vessel Traffic Management & Optimisation (Digital Twin PoC — Use Case 1)
 
-A production-grade, **ArcGIS-embeddable** dashboard for the Jawaharlal Nehru Port
-Authority Digital Twin PoC. It shows live vessel traffic on an Esri map,
-computes the marine KPIs the port cares about (turnaround, berthing/sailing
-delay, just-in-time arrivals, forecast accuracy, berth occupancy), and embeds
-back into the existing ArcGIS Dashboards app
-(`086aad29b91c43428491496776e0d1db`).
+A production-grade, **ArcGIS-native** command-and-control twin for the Jawaharlal
+Nehru Port Authority (Nhava Sheva). The **3D sea-port scene is the default view**:
+a georeferenced JNPA approach with a depth-graded navigation channel, outer/waiting
+anchorages, the pilot boarding ground, extruded terminal quays (NSICT, NSIGT,
+GTI/APMT, NSFT, BMCT), status-coloured berths and heading-rotated vessels driven
+by a live (simulated) AIS stream. Around it: the marine KPI wall (turnaround,
+berthing/sailing delay, just-in-time, prediction accuracy, berth occupancy), a
+5-day berth Gantt with tidal + DUKC feasibility shading, a DUKC/RTUKC channel
+corridor, a port-craft resource board, a what-if simulator with a reactive
+causality guide, an integration-fault console, and an automated-workflow ledger.
+
+Every screen carries a **DATA_MODE provenance chip** (default **SIMULATED**), so a
+viewer can never mistake demo data for a live JNPA feed. No claimed JNPA baselines;
+every figure is framed as a target or a simulated result under stated assumptions
+(see the in-app Methodology & Assumptions register).
 
 It runs in **two interchangeable data modes** behind one adapter interface:
 
 | Mode | `VITE_DATA_MODE` | Source | Needs credentials? |
 |------|------------------|--------|--------------------|
-| **Mock** (default) | `mock` | Deterministic Nhava Sheva fixtures + simulated AIS stream | **No** — demos instantly |
+| **Mock** (default) | `mock` | Deterministic Nhava Sheva fixtures + simulated AIS stream + sim clock | **No** — demos instantly, fully offline |
 | **Live** | `live` | ArcGIS Velocity Stream Layer + Hosted Feature Layers, or AISStream.io fallback | Yes |
+
+> **Live AIS coverage note.** JNPA/Indian waters have no *free* public AIS feed.
+> The demo runs on JNPA geography with a simulated feed by default. Only if you
+> explicitly set `VITE_AIS_BBOX` (e.g. to Rotterdam) does the live-AIS demo
+> re-centre on a covered region purely to show genuine real-time motion — and that
+> region is always flagged in-UI as a **coverage stand-in**, never as JNPA.
+
+## What's new in this rebuild (vs the earlier 2D dashboard)
+
+- **3D marine PortScene** (`src/map/`) — SceneView with channel/anchorage/berths/
+  vessels, camera bookmarks + a 60-second opening choreography, and automatic
+  **offline basemap fallback on ArcGIS token death** (`?offline=1` to rehearse).
+- **DATA_MODE provenance system** (`src/provenance/`) — global chip + per-panel
+  source badges + the fallback ladder LIVE→DEGRADED→CACHED→IMPUTED→OFFLINE.
+- **Integration Simulator Console** (`src/console/`) — per-source LIVE/DEGRADED/
+  OFFLINE + latency injection + reconciliation audit log.
+- **What-If simulator + Reactive Causality Guide** (`src/sim/`, `src/whatif/`) —
+  scenarios M1–M5, a WHICH/WHERE/HOW/WHY/WHAT-NOW causal DAG, guided tour.
+- **DUKC/RTUKC** (`src/dukc/`) — a defensible under-keel-clearance engine
+  (depth + tide − draft − squat) with predictive tidal windows *and* a live RTUKC
+  readout, plus a 5-day berth Gantt and a prediction-vs-actual convergence chart.
+- **Automated workflow ledger** (`src/workflow/`) — marine triggers with an
+  AUTO/ADVISORY governance toggle.
 
 ---
 

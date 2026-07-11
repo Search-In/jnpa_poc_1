@@ -7,8 +7,10 @@
  *   • KPI history             ← KPISnapshots Feature Layer
  *   • Headline KPIs           ← same `buildKpiBundle` engine as mock
  *
- * Org-item access uses the OAuth named-user session established by
- * `src/arcgis/identity.ts`; the public API key is only for basemaps/geocode.
+ * This adapter is used ONLY in live mode (VITE_DATA_MODE=live). The default demo
+ * runs MOCK with zero credentials and never instantiates this class, so the app
+ * needs no ArcGIS sign-in. If live mode is enabled against private org items, add
+ * an OAuth flow here; public Feature Layers + AISStream need only their URLs.
  *
  * NOTE: this is wired to the ArcGIS JS SDK but requires the `.env` URLs to be
  * filled in. Each method throws a clear, actionable error when its endpoint is
@@ -45,6 +47,14 @@ import { env } from './config';
 import { bucketArrivalsDepartures, computeWhatIf } from './MockAdapter';
 import { openAisStream } from './aisstream';
 import { fetchOpenMeteoWeather, parseLonLat } from './weather';
+import { validateVessel, TrackQuality, type DqReason } from './quality';
+
+/**
+ * Flush the vessel cache to subscribers at most once per this interval. AIS can
+ * arrive in bursts (e.g. 10k queued frames after a reconnect); coalescing to the
+ * animation frame budget keeps the UI from freezing (spec §5.1 backpressure).
+ */
+const VESSEL_FLUSH_MS = 250;
 
 const H = 3_600_000;
 
@@ -92,9 +102,27 @@ export class ArcGISAdapter implements DataAdapter {
   private streamLayer: StreamLayer | null = null;
   /** Latest known position per MMSI, so subscribers get the full current set. */
   private vesselCache = new Map<string, Vessel>();
+  /** Data-quality track guard (teleport / regression / dedup / staleness). */
+  private trackQuality = new TrackQuality();
+  /** Rolling count of quarantined frames by reason code, for the DQ surface. */
+  private quarantineCounts = new Map<string, number>();
+  /** Pending batch-flush timer (backpressure coalescing). */
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   private now(): number {
     return Date.now();
+  }
+
+  /** Record quarantine reasons so the Connector Readiness page can show DQ. */
+  private recordQuarantine(reasons: DqReason[]): void {
+    for (const r of reasons) {
+      this.quarantineCounts.set(r.code, (this.quarantineCounts.get(r.code) ?? 0) + 1);
+    }
+  }
+
+  /** Quarantine tally snapshot (reason code → count). */
+  getQuarantineCounts(): Record<string, number> {
+    return Object.fromEntries(this.quarantineCounts);
   }
 
   /** Subscribers waiting for Velocity positions routed via the map layerview. */
@@ -132,18 +160,37 @@ export class ArcGISAdapter implements DataAdapter {
       // Ship name + type arrive in separate ShipStaticData frames, in any order
       // relative to positions — remember them per MMSI and merge both ways.
       const staticByMmsi = new Map<string, { name: string; type: string }>();
-      return openAisStream({
+      // Coalesce cache flushes: a burst of frames triggers one flush per
+      // VESSEL_FLUSH_MS, not one per message (backpressure without UI freeze).
+      const scheduleFlush = () => {
+        if (this.flushTimer) return;
+        this.flushTimer = setTimeout(() => {
+          this.flushTimer = null;
+          onBatch([...this.vesselCache.values()]);
+        }, VESSEL_FLUSH_MS);
+      };
+      const unsub = openAisStream({
         token: env.aisStreamToken,
         bbox: env.liveRegion.bbox,
         onState,
-        onVessel: (v) => {
+        onVessel: (raw) => {
+          const now = this.now();
+          // 1) stateless firewall (position/range/AoI/SOG/name) …
+          const checked = validateVessel(raw, env.liveRegion.bbox);
+          if (checked.reasons.length) this.recordQuarantine(checked.reasons);
+          if (!checked.vessel) return; // quarantined
+          // 2) … then stateful vetting (teleport/regression/dedup).
+          const vetted = this.trackQuality.vet(checked.vessel, 'aisstream', now);
+          if (vetted.reasons.length) this.recordQuarantine(vetted.reasons);
+          if (!vetted.vessel) return;
+          const v = vetted.vessel;
           const s = staticByMmsi.get(v.MMSI);
           if (s) {
             v.VESSEL_TYPE = s.type;
             v.VESSEL_NAME = s.name || v.VESSEL_NAME;
           }
           this.vesselCache.set(v.MMSI, v);
-          onBatch([...this.vesselCache.values()]);
+          scheduleFlush();
         },
         onStatic: (s) => {
           staticByMmsi.set(s.MMSI, { name: s.VESSEL_NAME, type: s.VESSEL_TYPE });
@@ -152,10 +199,17 @@ export class ArcGISAdapter implements DataAdapter {
             existing.VESSEL_TYPE = s.VESSEL_TYPE;
             existing.VESSEL_NAME = s.VESSEL_NAME || existing.VESSEL_NAME;
             this.vesselCache.set(s.MMSI, existing);
-            onBatch([...this.vesselCache.values()]);
+            scheduleFlush();
           }
         },
       });
+      return () => {
+        if (this.flushTimer) {
+          clearTimeout(this.flushTimer);
+          this.flushTimer = null;
+        }
+        unsub();
+      };
     }
     onState?.('error');
     throw new Error(

@@ -16,6 +16,7 @@ import type {
   Vessel,
   WeatherReading,
 } from '@/types/domain';
+import { TERMINALS, VESSEL_BERTH_POS, channelCentreline, QUAY_BEARING } from '@/map/portGeometry';
 
 const H = 3_600_000;
 
@@ -31,14 +32,41 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
-// JNPA terminals → berths. Polygons are small rectangles along the quay line.
+/**
+ * JNPA terminals → berths. Berth positions are anchored to the SHARED surveyed
+ * geography embedded from PoC_2 (`data/positions.json` → `terminal:<ID>`), so the
+ * berths sit on the same quay line UC-2 renders. Small along-quay offsets spread
+ * multiple berths at one terminal. Terminal naming follows the shared convention
+ * (NSICT/NSIGT/GTI/BMCT/JNPCT).
+ */
+const TERM_POS: Record<string, [number, number]> = Object.fromEntries(
+  TERMINALS.map((t) => [t.id, [t.lng, t.lat] as [number, number]]),
+);
+
+/** A berth on `terminal`'s quay, offset by `i` berth-widths along the line. */
+function termBerth(
+  id: string,
+  name: string,
+  terminal: string,
+  len: number,
+  draft: number,
+  status: Berth['STATUS'],
+  i: number,
+): Berth {
+  const [lng, lat] = TERM_POS[terminal] ?? [72.945, 18.949];
+  // Offset along the ~208° quay bearing so sibling berths don't overlap.
+  const step = 0.0016 * i;
+  return berth(id, name, terminal, len, draft, status, lng - step * 0.5, lat + step * 0.35);
+}
+
 export const BERTHS: Berth[] = [
-  berth('NSICT-1', 'NSICT Berth 1', 'NSICT', 350, 15, 'occupied', 72.945, 18.952),
-  berth('NSICT-2', 'NSICT Berth 2', 'NSICT', 350, 15, 'occupied', 72.946, 18.951),
-  berth('NSIGT-1', 'NSIGT Berth 1', 'NSIGT', 330, 14.5, 'available', 72.948, 18.95),
-  berth('GTI-1', 'GTI Berth 1', 'GTI', 712, 16.5, 'occupied', 72.95, 18.949),
-  berth('BMCT-1', 'BMCT Berth 1', 'BMCT', 1000, 16.5, 'reserved', 72.952, 18.948),
-  berth('BMCT-2', 'BMCT Berth 2', 'BMCT', 1000, 16.5, 'maintenance', 72.954, 18.947),
+  termBerth('NSICT-1', 'NSICT Berth 1', 'NSICT', 350, 15, 'occupied', 0),
+  termBerth('NSICT-2', 'NSICT Berth 2', 'NSICT', 350, 15, 'occupied', 1),
+  termBerth('NSIGT-1', 'NSIGT Berth 1', 'NSIGT', 330, 14.5, 'available', 0),
+  termBerth('GTI-1', 'GTI Berth 1', 'GTI', 712, 16.5, 'occupied', 0),
+  termBerth('BMCT-1', 'BMCT Berth 1', 'BMCT', 1000, 16.5, 'reserved', 0),
+  termBerth('BMCT-2', 'BMCT Berth 2', 'BMCT', 1000, 16.5, 'maintenance', 1),
+  termBerth('JNPCT-1', 'JNPCT Berth 1', 'JNPCT', 300, 13.5, 'available', 0),
 ];
 
 function berth(
@@ -95,28 +123,112 @@ const NAV_CYCLE: Vessel['NAV_STATUS'][] = [
   'approaching',
 ];
 
-/** Build the live vessel set as of `now`, jittered by `tick` for motion. */
+/** Terminal ids in shared order, for berthing moored vessels onto real quays. */
+const TERMINAL_IDS = TERMINALS.map((t) => t.id);
+
+// --- channel motion: move underway/approaching vessels smoothly seaward→quay --
+// The joined channel centreline (outer approach → quay) is the flight path. A
+// vessel's progress advances continuously with `tick`, so its position glides
+// forward instead of teleporting to a fresh random point each stream update.
+const CENTRELINE = channelCentreline();
+
+/** Cumulative arc-length parameterisation of the centreline (in lng/lat units). */
+const CENTRELINE_SEGS = (() => {
+  const segs: { a: [number, number]; b: [number, number]; len: number; acc: number }[] = [];
+  let acc = 0;
+  for (let i = 0; i < CENTRELINE.length - 1; i++) {
+    const a = CENTRELINE[i];
+    const b = CENTRELINE[i + 1];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    segs.push({ a, b, len, acc });
+    acc += len;
+  }
+  return { segs, total: acc };
+})();
+
+/** Bearing (deg true) from point a → b. */
+function bearingDeg(a: [number, number], b: [number, number]): number {
+  const dLon = b[0] - a[0];
+  const dLat = b[1] - a[1];
+  const deg = (Math.atan2(dLon, dLat) * 180) / Math.PI; // 0 = north, 90 = east
+  return (deg + 360) % 360;
+}
+
+/** Point + heading at fractional progress u∈[0,1] along the centreline. */
+function alongChannel(u: number): { lng: number; lat: number; heading: number } {
+  const { segs, total } = CENTRELINE_SEGS;
+  const target = ((u % 1) + 1) % 1 * total; // wrap so vessels loop the run
+  for (const s of segs) {
+    if (target <= s.acc + s.len || s === segs[segs.length - 1]) {
+      const t = s.len > 0 ? (target - s.acc) / s.len : 0;
+      return {
+        lng: s.a[0] + (s.b[0] - s.a[0]) * t,
+        lat: s.a[1] + (s.b[1] - s.a[1]) * t,
+        heading: bearingDeg(s.a, s.b),
+      };
+    }
+  }
+  const last = segs[segs.length - 1];
+  return { lng: last.b[0], lat: last.b[1], heading: bearingDeg(last.a, last.b) };
+}
+
+/** Build the live vessel set as of `now`. Underway/approaching vessels advance
+ *  along the channel path; berthed/anchored ones hold their station. Identity
+ *  (position seed) is per-vessel, NOT per-tick, so the fleet moves smoothly
+ *  rather than teleporting each stream update. */
 export function makeVessels(now: number, tick: number): Vessel[] {
-  const rnd = seededRandom(1234 + tick);
   return VESSEL_SEED.map((v, i) => {
     const status = NAV_CYCLE[i % NAV_CYCLE.length];
-    // Anchorage to the SW of the port; approaches from the W channel.
-    const baseLon = status === 'moored' || status === 'berthing' ? 72.949 : 72.9 + rnd() * 0.05;
-    const baseLat = status === 'moored' || status === 'berthing' ? 18.95 : 18.9 + rnd() * 0.06;
-    const drift = (tick % 60) * 0.0002;
-    const sog =
-      status === 'moored' ? 0 : status === 'anchored' ? 0.1 : 6 + rnd() * 8;
-    const cog = Math.round(rnd() * 360);
+    // Stable per-vessel randomness (seeded by index, not tick) for jitter/speed.
+    const idRnd = seededRandom(1234 + i * 97);
+    const berthedTerminal = TERMINAL_IDS[i % TERMINAL_IDS.length];
+    const berthPos = VESSEL_BERTH_POS[berthedTerminal];
+    const atBerth = status === 'moored' || status === 'berthing';
+    const anchored = status === 'anchored';
+
+    let lon: number;
+    let lat: number;
+    let heading: number;
+    let sog: number;
+
+    if (atBerth) {
+      // Alongside the real quay spot; no motion.
+      lon = berthPos[0];
+      lat = berthPos[1];
+      heading = (QUAY_BEARING + 90) % 360; // hull lies along the quay
+      sog = 0;
+    } else if (anchored) {
+      // Holding in the waiting anchorage: a small, STABLE offset (not tick-based)
+      // so anchored ships sit still with a gentle swing, not a random jump.
+      const swing = Math.sin((tick / 40 + i) % (Math.PI * 2)) * 0.0004;
+      lon = 72.885 + idRnd() * 0.02 + swing;
+      lat = 18.905 + idRnd() * 0.018 + swing;
+      heading = Math.round(idRnd() * 360);
+      sog = 0.1;
+    } else {
+      // Underway / approaching: glide forward along the channel centreline.
+      // Each vessel starts at a staggered offset and advances with tick so the
+      // fleet threads the channel like real traffic. speed sets progress rate.
+      const speedKn = 6 + idRnd() * 8;
+      const start = idRnd(); // staggered entry point along the run
+      const progress = start + (tick * speedKn) / 9000; // slow, smooth advance
+      const p = alongChannel(progress);
+      lon = p.lng;
+      lat = p.lat;
+      heading = Math.round(p.heading);
+      sog = Number(speedKn.toFixed(1));
+    }
+
     return {
       MMSI: v.mmsi,
       VESSEL_NAME: v.name,
       VESSEL_TYPE: v.type,
       NAV_STATUS: status,
       SOG: Number(sog.toFixed(1)),
-      COG: cog,
-      HEADING: cog,
-      LAT: Number((baseLat + drift).toFixed(5)),
-      LON: Number((baseLon + drift).toFixed(5)),
+      COG: heading,
+      HEADING: heading,
+      LAT: Number(lat.toFixed(5)),
+      LON: Number(lon.toFixed(5)),
       ETA: status === 'approaching' || status === 'anchored' ? now + (2 + i) * H : null,
       BERTH_ID:
         status === 'moored' || status === 'berthing' ? BERTHS[i % BERTHS.length].BERTH_ID : null,

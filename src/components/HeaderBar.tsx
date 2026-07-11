@@ -3,8 +3,7 @@
  * Reads connection + lastUpdate from the store; no direct data access.
  */
 
-import { useEffect, useState } from 'react';
-import { CalciteButton, CalciteChip } from '@esri/calcite-components-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { tokens } from '@/theme/tokens';
 
@@ -19,14 +18,9 @@ function istClock(now: number): string {
   return `${hh}:${mm}:${ss} IST`;
 }
 
-export function HeaderBar() {
+export function HeaderBar({ extra }: { extra?: ReactNode }) {
   const connection = useAppStore((s) => s.connection);
   const lastUpdate = useAppStore((s) => s.lastUpdate);
-  const mode = useAppStore((s) => s.mode);
-  const authConfigured = useAppStore((s) => s.authConfigured);
-  const user = useAppStore((s) => s.user);
-  const signIn = useAppStore((s) => s.signIn);
-  const signOut = useAppStore((s) => s.signOut);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -58,13 +52,8 @@ export function HeaderBar() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <CalciteChip
-          scale="s"
-          kind={mode === 'live' ? 'brand' : 'neutral'}
-          aria-label={`Data mode: ${mode}`}
-        >
-          {mode === 'live' ? 'LIVE' : 'MOCK'}
-        </CalciteChip>
+        {/* Global DATA_MODE provenance chip (passed in by the shell). */}
+        {extra}
 
         <span
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
@@ -96,24 +85,6 @@ export function HeaderBar() {
         >
           {istClock(now)}
         </span>
-
-        {authConfigured &&
-          (user ? (
-            <CalciteButton
-              scale="s"
-              kind="neutral"
-              appearance="outline"
-              iconStart="sign-out"
-              title={`Signed in as ${user.fullName}`}
-              onClick={() => signOut()}
-            >
-              {user.username}
-            </CalciteButton>
-          ) : (
-            <CalciteButton scale="s" iconStart="sign-in" onClick={() => void signIn()}>
-              Sign in
-            </CalciteButton>
-          ))}
       </div>
     </header>
   );

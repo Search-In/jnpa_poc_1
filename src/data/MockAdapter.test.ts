@@ -81,9 +81,12 @@ describe('MockAdapter', () => {
     expect(new MockAdapter().mode).toBe('mock');
   });
 
-  it('returns the six JNPA berths', async () => {
+  it('returns the seven JNPA berths across all five terminals', async () => {
     const berths = await new MockAdapter().getBerths();
-    expect(berths).toHaveLength(6);
+    expect(berths).toHaveLength(7);
+    // One berth per terminal at minimum — shared naming NSICT/NSIGT/GTI/BMCT/JNPCT.
+    const terminals = new Set(berths.map((b) => b.TERMINAL));
+    expect(terminals).toEqual(new Set(['NSICT', 'NSIGT', 'GTI', 'BMCT', 'JNPCT']));
     expect(berths.every((b) => b.GEOM.length >= 4)).toBe(true);
   });
 
