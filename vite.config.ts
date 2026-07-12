@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
     base: './',
     build: {
       target: 'es2022',
-      sourcemap: true,
+      sourcemap: false,
     },
     server: {
       port: 5173,
