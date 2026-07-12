@@ -51,7 +51,7 @@ jobs:
       # --- Deploy dist to EC2 via SCP ---
       - name: Deploy dist folder to EC2
         run: |
-          scp -i ~/.ssh/deploy_key -r dist/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/jnpa_poc_1/
+          scp -i ~/.ssh/deploy_key -r dist/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/jnpa_poc_1/
 
       # --- Restart Docker container on EC2 ---
       - name: Restart Docker container on EC2
