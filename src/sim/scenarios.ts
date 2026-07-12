@@ -44,12 +44,12 @@ export const SCENARIOS: Scenario[] = [
     summary: 'A 4-hour weather hold builds an arrival queue; recovery re-sequences the line-up.',
     rubric: 'C5 — what-if + reactive causality',
     levers: { weatherSeverity: 0.85 },
-    chain: ['weather', 'windwave', 'pilotage', 'arrivalQueue', 'preBerthDelay', 'tat'],
+    chain: ['weather', 'windwave', 'pilotage', 'arrivalQueue', 'preBerthDelay', 'jit'],
     steps: [
       { preset: 'anchorage', tab: 'scenarios', title: 'Weather front arrives', narrative: 'Sustained winds and wave height cross the pilotage limit. The twin suspends pilot transfers — no vessel boards a pilot until the hold clears.', highlights: ['ANCH-OUTER', 'PBG'] },
       { preset: 'pilot', tab: 'craft', title: 'Pilot boarding halts', narrative: 'With boarding suspended, inbound vessels hold at the anchorage. Pilots idle; the boarding ground is quiet.', highlights: ['PBG'] },
       { preset: 'overview', tab: 'gantt', title: 'Arrival queue builds', narrative: 'Simulated: over the 4-hour hold an arrival queue forms. Pre-berthing delay rises against target as the window is lost.', highlights: ['ANCH-OUTER', 'ANCH-WAIT'] },
-      { preset: 'berths', tab: 'kpis', title: 'Recovery sequencing', narrative: 'When the hold lifts, the twin proposes a recovery sequence — deep-draft vessels take the next tidal window first — and TAT converges back toward target.', highlights: ['GTI', 'BMCT'] },
+      { preset: 'berths', tab: 'kpis', title: 'Recovery sequencing', narrative: 'When the hold lifts, the twin proposes a recovery sequence — deep-draft vessels take the next tidal window first. Just-In-Time recovers as the delayed arrivals berth against their slots; the turn (TAT) is preserved since the whole call shifts, not the alongside time.', highlights: ['GTI', 'BMCT'] },
     ],
   },
   {
@@ -73,11 +73,11 @@ export const SCENARIOS: Scenario[] = [
     summary: 'A crane fails at a GTI berth; calls reallocate across terminals.',
     rubric: 'C5 — interdependencies + automated workflow',
     levers: { berthsOut: ['GTI-1'] },
-    chain: ['berthOutage', 'berthingSeq', 'preBerthDelay', 'tat'],
+    chain: ['berthOutage', 'berthingSeq', 'preBerthDelay'],
     steps: [
-      { preset: 'berths', tab: 'scenarios', title: 'Crane breakdown', narrative: 'A quay crane at GTI Berth 1 goes out of service. The berth is marked unavailable in the plan.', highlights: ['GTI'] },
-      { preset: 'overview', tab: 'gantt', title: 'Reallocation', narrative: 'Simulated: affected calls reallocate to compatible berths across NSICT/NSIGT/BMCT within draft limits; a workflow fires the re-optimisation proposal.', highlights: ['NSICT', 'NSIGT', 'BMCT'] },
-      { preset: 'overview', tab: 'workflows', title: 'Workflow fires', narrative: 'The berth-outage trigger writes a Workflow Run: proposed reallocation + stakeholder notification. In ADVISORY mode it waits for sign-off; in AUTO it applies.', highlights: ['GTI'] },
+      { preset: 'berths', tab: 'gantt', title: 'Crane breakdown', narrative: 'A quay crane at GTI Berth 1 goes out of service. The berth is hatched out-of-service on the plan and its call must wait for a compatible slot.', highlights: ['GTI'] },
+      { preset: 'overview', tab: 'gantt', title: 'Reallocation proposal', narrative: 'Simulated: the GTI-1 call waits for a compatible berth across NSICT/NSIGT/BMCT within draft limits — its pre-berthing delay rises as the reassignment window is found.', highlights: ['NSICT', 'NSIGT', 'BMCT'] },
+      { preset: 'overview', tab: 'workflows', title: 'Workflow proposal', narrative: 'The berth-outage condition raises a proposed Workflow Run: reallocation + stakeholder notification. In ADVISORY mode it waits for sign-off; in AUTO it would apply. Shown here as a proposal, not an executed reassignment.', highlights: ['GTI'] },
     ],
   },
   {
@@ -103,9 +103,9 @@ export const SCENARIOS: Scenario[] = [
     levers: { extraArrivals: 6, weatherSeverity: 0.3 },
     chain: ['weather', 'arrivalQueue', 'anchorageMgmt', 'berthingSeq', 'jit'],
     steps: [
-      { preset: 'anchorage', tab: 'scenarios', title: 'Fog lifts', narrative: 'Visibility recovers and six delayed arrivals present at once. The anchorage fills; the twin must sequence them into finite berths.', highlights: ['ANCH-OUTER', 'ANCH-WAIT'] },
-      { preset: 'overview', tab: 'gantt', title: 'Re-sequencing', narrative: 'Simulated: JIT re-sequencing spaces the arrivals to berth availability and tidal windows, smoothing the peak instead of berthing first-come.', highlights: ['NSICT', 'GTI', 'BMCT'] },
-      { preset: 'overview', tab: 'kpis', title: 'Peak smoothed', narrative: 'The convergence view shows predicted vs realised berthing times tightening as the plan absorbs the bunch — the reactive answer to the compression.', highlights: [] },
+      { preset: 'anchorage', tab: 'scenarios', title: 'Fog lifts', narrative: 'Visibility recovers and six delayed arrivals present at once — they appear as fresh contacts filling the outer and waiting anchorages. The twin must sequence them into finite berths.', highlights: ['ANCH-OUTER', 'ANCH-WAIT'] },
+      { preset: 'overview', tab: 'gantt', title: 'Bunched arrivals compress slots', narrative: 'Simulated: the compression pushes berthing later across the affected calls, so Just-In-Time slips against target — the reactive playbook is to space arrivals to berth availability and tidal windows rather than berth first-come.', highlights: ['NSICT', 'GTI', 'BMCT'] },
+      { preset: 'overview', tab: 'kpis', title: 'JIT under compression', narrative: 'The JIT gauge and convergence view show the cost of the bunch — arrivals missing their just-in-time windows — which is what a re-sequencing plan would then recover.', highlights: [] },
     ],
   },
 ];

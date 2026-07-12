@@ -11,6 +11,7 @@ import { KPI_TARGETS } from '@/config/targets';
 import type { KpiKey, KpiValue } from '@/types/kpi';
 import { tokens } from '@/theme/tokens';
 import { signedPct } from '@/util/format';
+import { useHighlightedKpis } from '@/whatif/useHighlight';
 import { Sparkline } from './common/Sparkline';
 
 /** Card display order (matches the reference layout). */
@@ -33,7 +34,7 @@ function deltaColor(key: KpiKey, deltaPct: number): string {
   return isGood ? tokens.good : tokens.bad;
 }
 
-function Card({ kpi }: { kpi: KpiValue }) {
+function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }) {
   const key = kpi.key as KpiKey;
   const color = deltaColor(key, kpi.deltaPct);
   const arrow = kpi.deltaPct > 0 ? '▲' : kpi.deltaPct < 0 ? '▼' : '–';
@@ -41,9 +42,18 @@ function Card({ kpi }: { kpi: KpiValue }) {
   return (
     <div
       className="app-region"
-      style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 6, background: tokens.panel }}
+      style={{
+        padding: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        background: lit ? `${tokens.accent}14` : tokens.panel,
+        boxShadow: lit ? `inset 0 0 0 1.5px ${tokens.accent}` : 'none',
+        opacity: dim ? 0.5 : 1,
+        transition: 'opacity 120ms ease',
+      }}
       role="group"
-      aria-label={kpi.label}
+      aria-label={`${kpi.label}${lit ? ' — spotlighted by the active scenario' : ''}`}
     >
       <div style={{ fontSize: 11, color: tokens.textMuted, minHeight: 26 }}>{kpi.label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
@@ -69,6 +79,9 @@ function Card({ kpi }: { kpi: KpiValue }) {
 export function KpiStrip() {
   const kpis = useAppStore((s) => s.kpis);
   const kpiError = useAppStore((s) => s.kpiError);
+  // What-if spotlight: light the KPI cards the active scenario's causal chain
+  // names (e.g. M4 → JIT), keeping the KPI wall in sync with the reactive guide.
+  const litKpis = useHighlightedKpis();
 
   if (kpiError) {
     return (
@@ -89,7 +102,7 @@ export function KpiStrip() {
     >
       {ORDER.map((key) =>
         kpis ? (
-          <Card key={key} kpi={kpis[key]} />
+          <Card key={key} kpi={kpis[key]} lit={litKpis.has(key)} dim={litKpis.size > 0 && !litKpis.has(key)} />
         ) : (
           <div
             key={key}

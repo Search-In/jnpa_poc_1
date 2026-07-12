@@ -196,7 +196,11 @@ export function makeVessels(now: number, tick: number): Vessel[] {
       // berthed vessel takes a distinct slot along the quay. Deterministic.
       const q = TERMINAL_QUAYS[berthedTerminal];
       const slot = (i % 3) - 1; // -1, 0, +1 → spread along the quay
-      const alongCentre = slot * 180; // ~180 m between berthed hulls
+      // MSC ARUNACHAL (i=4) berths at JNPCT on slot 0 — the same quay centre the
+      // static hero vessel:JNPCT occupies — so nudge it one hull along the quay
+      // to clear the overlap. Others keep their tiled slot.
+      const alongSlot = i === 4 ? slot + 1 : slot;
+      const alongCentre = alongSlot * 250; // ~180 m between berthed hulls
       const centre = offsetMeters(q.mid, q.along, alongCentre);
       // Seaward = opposite of landward; sit ~35 m off the quay edge.
       const seaward: [number, number] = [-q.landward[0], -q.landward[1]];
@@ -246,16 +250,25 @@ export function makeVessels(now: number, tick: number): Vessel[] {
 }
 
 /** A 24h-window berthing plan: some completed, some active, some scheduled. */
+/**
+ * Deterministic per-call arrival deltas (minutes vs recommended slot) for the
+ * completed/active plan entries. A realistic spread: several calls land inside
+ * the ±60-min JIT window, several miss it — so Just-In-Time computes to a live
+ * ~60-75%, not the flat 0% the old "uniformly 1.5-2.5h late" pattern produced,
+ * nor a trivial 100%. Signed so a couple arrive early. Index-keyed → reproducible.
+ */
+const ARRIVAL_DELTA_MIN = [12, -25, 95, 40, -8, 150];
+
 export function makeBerthingPlan(now: number): BerthingPlanEntry[] {
   const start = now - 18 * H;
   return VESSEL_SEED.slice(0, 8).map((v, i) => {
     const plannedStart = start + i * 3 * H;
     const plannedEnd = plannedStart + 8 * H;
-    // First five are completed/active with actuals; later ones still scheduled.
+    // First six are completed/active with actuals; later ones still scheduled.
     const hasActuals = i < 6;
     const isActive = i >= 4 && i < 6;
-    // Inject realistic small delays so KPIs aren't all zero.
-    const startDelay = (i % 3) * 0.5 * H + 1.5 * H; // pilotage lead + slip
+    // Arrival slip vs recommended slot — some within JIT tolerance, some not.
+    const startDelay = (ARRIVAL_DELTA_MIN[i] ?? 0) * 60_000;
     const actualStart = hasActuals ? plannedStart + startDelay : null;
     const actualEnd =
       hasActuals && !isActive ? plannedEnd + ((i % 2) * H + 2 * H) : null;

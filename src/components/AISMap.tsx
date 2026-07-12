@@ -32,8 +32,10 @@ import WebMap from '@arcgis/core/WebMap';
 import { useAppStore } from '@/store/useAppStore';
 import { getAdapter } from '@/data';
 import { env } from '@/data/config';
+import { asset3dPosition } from '@/map/scene3d';
+import { useHighlightIds } from '@/whatif/useHighlight';
 import type { Berth, Vessel } from '@/types/domain';
-import { navStatusColor, tokens } from '@/theme/tokens';
+import { navStatusColor, tokens, ukcColor } from '@/theme/tokens';
 import { istTime } from '@/util/format';
 import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
 import { buildPortAssets2dLayer } from '@/map/portAssets2d';
@@ -173,6 +175,21 @@ function berthToGraphics(b: Berth): Graphic[] {
   return [footprint, marker];
 }
 
+/** A 2D amber selection ring at [lng,lat] — the flat-map twin of PortScene's
+ *  3D `selectionRing`, so a what-if/tour highlight reads the same on both maps. */
+function selectionRing2d(lng: number, lat: number): Graphic {
+  return new Graphic({
+    geometry: new Point({ longitude: lng, latitude: lat }),
+    symbol: {
+      type: 'simple-marker',
+      style: 'circle',
+      color: [0, 0, 0, 0],
+      size: 34,
+      outline: { color: ukcColor.marginal, width: 3 },
+    } as never,
+  });
+}
+
 type LayerKey = 'vessels' | 'assets' | 'berths' | 'weather' | 'channel';
 
 export function AISMap() {
@@ -181,6 +198,7 @@ export function AISMap() {
   const vesselLayerRef = useRef<GraphicsLayer | null>(null);
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
   const assetLayerRef = useRef<GraphicsLayer | null>(null);
+  const selectionLayerRef = useRef<GraphicsLayer | null>(null);
   const [ready, setReady] = useState(false);
   /**
    * When the configured WebMap can't load (commonly a private item with no
@@ -201,6 +219,8 @@ export function AISMap() {
   const [showUnknown, setShowUnknown] = useState(true);
 
   const vessels = useAppStore((s) => s.vessels);
+  // What-if / guided-tour spotlight ids — ringed on the map, same as PortScene.
+  const highlights = useHighlightIds();
 
   // Whether to bind the WebMap: only if configured AND not already failed.
   const useWebMap = Boolean(env.webMapId) && !webMapFailed;
@@ -250,10 +270,13 @@ export function AISMap() {
     // Static port infrastructure (cranes, yards, gates, trucks, tug, berthed
     // ships) placed from positions.json — the flat twin of the 3D model fleet.
     const assetLayer = buildPortAssets2dLayer();
+    // Selection rings sit ON TOP so a highlighted asset reads over everything.
+    const selectionLayer = new GraphicsLayer({ title: '_selection' });
     vesselLayerRef.current = vesselLayer;
     berthLayerRef.current = berthLayer;
     assetLayerRef.current = assetLayer;
-    map.addMany([berthLayer, assetLayer, vesselLayer]);
+    selectionLayerRef.current = selectionLayer;
+    map.addMany([berthLayer, assetLayer, vesselLayer, selectionLayer]);
 
     view
       .when(() => {
@@ -283,10 +306,33 @@ export function AISMap() {
 
     return () => {
       viewRef.current = null;
+      selectionLayerRef.current = null;
       teardownFallback();
       view.destroy();
     };
   }, [useWebMap]);
+
+  // ---- ring + zoom to highlighted assets (what-if / guided tour) ----
+  // Mirrors PortScene's highlight effect: resolve each id via asset3dPosition()
+  // (terminals, anchorages, PBG, channel segments), drop an amber ring, and pan
+  // to the set. Unresolvable ids are skipped. Runs once the view is ready.
+  useEffect(() => {
+    const layer = selectionLayerRef.current;
+    const view = viewRef.current;
+    if (!layer || !view || !ready) return;
+    layer.removeAll();
+    const pos = asset3dPosition();
+    const targets: Point[] = [];
+    for (const id of highlights) {
+      const p = pos.get(id);
+      if (!p) continue;
+      layer.add(selectionRing2d(p[0], p[1]));
+      targets.push(new Point({ longitude: p[0], latitude: p[1] }));
+    }
+    if (targets.length) {
+      void view.goTo({ target: targets }, { duration: 800 }).catch(() => {});
+    }
+  }, [highlights, ready]);
 
   // Re-render vessel graphics whenever the live set (or the unknown filter)
   // changes. When the filter is off, drop vessels with no known ship type.

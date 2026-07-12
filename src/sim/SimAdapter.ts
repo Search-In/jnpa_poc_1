@@ -33,9 +33,17 @@ import type {
   WhatIfResult,
   WhatIfScenario,
 } from '@/data/types';
+import { recomputePlanKpis } from '@/kpi';
 import { useSimStore } from './simStore';
 import type { SimSnapshot } from './applySim';
-import { applyBerths, applyKpis, applyPortCraft, applyVessels, applyWeather } from './applySim';
+import {
+  applyBerths,
+  applyKpis,
+  applyPlanLevers,
+  applyPortCraft,
+  applyVessels,
+  applyWeather,
+} from './applySim';
 
 function snap(): SimSnapshot {
   const s = useSimStore.getState();
@@ -79,11 +87,22 @@ export class SimAdapter implements DataAdapter {
   }
 
   async getBerthPlan(window?: TimeWindow): Promise<BerthingPlanEntry[]> {
-    return this.base.getBerthPlan(window);
+    // Fold lever-driven arrival slip onto the plan so the gantt actuals move
+    // with the scenario, from the same causal source the KPIs read.
+    return applyPlanLevers(await this.base.getBerthPlan(window), snap().levers);
   }
 
   async getKPIs(): Promise<KpiBundle> {
-    return applyKpis(await this.base.getKPIs(), snap().overrides.kpiDeltas);
+    const s = snap();
+    const base = await this.base.getKPIs();
+    // Recompute the plan-derived cards (JIT, delays, TAT, occupancy) off the
+    // lever-overlaid plan so a scenario visibly moves them, then layer the
+    // operator's manual KPI nudges on top. Neutral levers → identity, so the
+    // honest baseline is preserved with no What-if running.
+    const plan = applyPlanLevers(await this.base.getBerthPlan(), s.levers);
+    const berths = await this.base.getBerths();
+    const recomputed = recomputePlanKpis(base, plan, Date.now(), berths.length);
+    return applyKpis(recomputed, s.overrides.kpiDeltas);
   }
 
   async getArrivalsDepartures(window?: TimeWindow): Promise<ArrivalsDeparturesBlock[]> {

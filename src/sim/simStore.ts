@@ -283,7 +283,17 @@ export const useSimStore = create<SimState>((set, get) => ({
 
   loadScenario: (id, levers) => { set({ scenarioId: id, levers: { ...NEUTRAL_LEVERS, ...levers }, version: get().version + 1 }); persist(get()); },
   clearScenario: () => { set({ scenarioId: null, levers: { ...NEUTRAL_LEVERS }, highlights: [], version: get().version + 1 }); persist(get()); },
-  setHighlights: (ids) => { set({ highlights: ids, version: get().version + 1 }); persist(get()); },
+  // Highlights are a map-spotlight only — NOT a data mutation. Bumping `version`
+  // here would refetch every adapter query and re-render every `version` consumer
+  // (e.g. App) on each tour step, which combined with an unstable onStep closure
+  // produced an infinite update loop. No-op when the ids are unchanged so a
+  // repeated setHighlights (same guided-tour beat) can't churn subscribers.
+  setHighlights: (ids) => {
+    const cur = get().highlights;
+    if (cur.length === ids.length && cur.every((id, i) => id === ids[i])) return;
+    set({ highlights: ids });
+    persist(get());
+  },
   startTour: (id, auto) => { set({ tour: { scenarioId: id, step: 0, auto } }); persist(get()); },
   gotoStep: (step) => { set({ tour: { ...get().tour, step } }); persist(get()); },
   endTour: () => { set({ tour: { scenarioId: null, step: 0, auto: true }, highlights: [], version: get().version + 1 }); persist(get()); },

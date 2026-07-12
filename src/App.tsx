@@ -131,10 +131,18 @@ export function App() {
   }, [simVersion]);
 
   // Guided tour drives the camera + active tab + map highlights per step.
-  function onTourStep(s: { preset: string; tab: string; highlights: string[] }) {
-    if (s.tab && TABS.some((t) => t.id === s.tab)) setActiveTab(s.tab as TabId);
-    if (mapMode === '3d') sceneRef.current?.goToPreset(s.preset as CameraPreset);
-  }
+  // MUST be stable (useCallback): GuidedTour lists this in a useEffect dep array,
+  // so a fresh identity each render would re-fire that effect → setHighlights →
+  // version bump → App re-render → new identity … an infinite update loop that
+  // white-screens the app whenever a scenario/tour is running. mapMode is read
+  // through a ref-free closure dep so flips still fly the camera correctly.
+  const onTourStep = useCallback(
+    (s: { preset: string; tab: string; highlights: string[] }) => {
+      if (s.tab && TABS.some((t) => t.id === s.tab)) setActiveTab(s.tab as TabId);
+      if (mapMode === '3d') sceneRef.current?.goToPreset(s.preset as CameraPreset);
+    },
+    [mapMode],
+  );
 
   return (
     <>
