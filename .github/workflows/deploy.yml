@@ -1,0 +1,81 @@
+name: Build & Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # --- Checkout code ---
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Setup Node.js ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # --- Install dependencies ---
+      - name: Install dependencies
+        run: npm i
+
+      # --- Build SPA (mock mode) ---
+      - name: Build Vite SPA
+        run: npm run build
+        env:
+          VITE_DATA_MODE: mock
+
+      # --- Upload dist as artifact (optional, for debugging) ---
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-build
+          path: dist/
+          retention-days: 5
+
+      # --- Setup SSH key for EC2 deployment ---
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # --- Deploy dist to EC2 via SCP ---
+      - name: Deploy dist folder to EC2
+        run: |
+          scp -i ~/.ssh/deploy_key -r dist/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/uc1-app/
+
+      # --- Restart Docker container on EC2 ---
+      - name: Restart Docker container on EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          cd /home/${{ secrets.EC2_USER }}/uc1-app
+          docker compose down
+          docker compose up -d
+          echo "Waiting for container to start..."
+          sleep 3
+          # curl -s http://localhost:8080/health || echo "Health check failed"
+          EOF
+
+      # --- Cleanup ---
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      # --- Notify on success ---
+      - name: Deployment successful
+        if: success()
+        run: echo "✅ Deployment to EC2 completed successfully!"
+
+      # --- Notify on failure ---
+      - name: Deployment failed
+        if: failure()
+        run: echo "❌ Deployment failed. Check logs above."
