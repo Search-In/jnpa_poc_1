@@ -1,5 +1,5 @@
 # One-command run of the UC-1 SPA (spec D-1): `docker compose up`.
-# Serves the static bundle on http://localhost:8080 as a non-root user, mock
+# Serves the static bundle on http://localhost:80 as a non-root user, mock
 # mode (no credentials). Put a TLS-terminating reverse proxy in front for
 # production (see docs/DEPLOYMENT.md).
 
@@ -11,7 +11,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "80:80"
     restart: unless-stopped
     environment:
       - VITE_DATA_MODE=mock

@@ -2,80 +2,174 @@ name: Build & Deploy to EC2
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 env:
-  NODE_VERSION: '24'
+  NODE_VERSION: "24"
+  DEPLOY_DIR: "/home/ec2-user/jnpa_poc_1"
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      # --- Checkout code ---
-      - name: Checkout repository
+      # -----------------------------
+      # Checkout Repository
+      # -----------------------------
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- Setup Node.js ---
+      # -----------------------------
+      # Setup Node.js
+      # -----------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
 
-      # --- Install dependencies ---
-      - name: Install dependencies
-        run: npm i
+      # -----------------------------
+      # Install Dependencies
+      # -----------------------------
+      - name: Install Dependencies
+        run: npm ci
 
-      # --- Build SPA (mock mode) ---
-      - name: Build Vite SPA
-        run: node --max-old-space-size=4096 ./node_modules/.bin/vite build
+      # -----------------------------
+      # Build Application
+      # -----------------------------
+      - name: Build Vite Application
         env:
           VITE_DATA_MODE: mock
+        run: |
+          node --max-old-space-size=4096 ./node_modules/.bin/vite build
 
-      # --- Upload dist as artifact (optional, for debugging) ---
-      - name: Upload dist artifact
+      # -----------------------------
+      # Upload Build Artifact (Optional)
+      # -----------------------------
+      - name: Upload Dist Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dist-build
           path: dist/
           retention-days: 5
 
-      # --- Setup SSH key for EC2 deployment ---
-      - name: Setup SSH key
+      # -----------------------------
+      # Setup SSH
+      # -----------------------------
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
+
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+
           chmod 600 ~/.ssh/deploy_key
+
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      # --- Deploy dist to EC2 via SCP ---
-      - name: Deploy dist folder to EC2
+      # -----------------------------
+      # Verify Deployment Directory
+      # -----------------------------
+      - name: Verify Deployment Directory
         run: |
-          scp -i ~/.ssh/deploy_key -r dist/ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/jnpa_poc_1/
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
 
-      # --- Restart Docker container on EC2 ---
-      - name: Restart Docker container on EC2
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-          cd /home/${{ secrets.EC2_USER }}/jnpa_poc_1
-          docker compose down
-          docker compose up -d
-          echo "Waiting for container to start..."
-          sleep 3
-          # curl -s http://localhost:8080/health || echo "Health check failed"
+          if [ ! -d "${{ env.DEPLOY_DIR }}" ]; then
+            echo "❌ Deployment directory does not exist."
+            exit 1
+          fi
+
+          echo "✅ Deployment directory found."
+
           EOF
 
-      # --- Cleanup ---
-      - name: Cleanup SSH key
+      # -----------------------------
+      # Package Deployment Files
+      # -----------------------------
+      - name: Package Deployment Files
+        run: |
+          tar -czf deploy.tar.gz \
+            dist \
+            Dockerfile \
+            docker-compose.yml \
+            nginx.conf
+
+      # -----------------------------
+      # Upload Package
+      # -----------------------------
+      - name: Upload Package to EC2
+        run: |
+          scp \
+            -i ~/.ssh/deploy_key \
+            deploy.tar.gz \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.DEPLOY_DIR }}/
+
+      # -----------------------------
+      # Deploy on EC2
+      # -----------------------------
+      - name: Deploy on EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+
+          set -e
+
+          cd ${{ env.DEPLOY_DIR }}
+
+          echo "Extracting deployment package..."
+
+          tar -xzf deploy.tar.gz
+
+          rm -f deploy.tar.gz
+
+          echo "Stopping old containers..."
+
+          docker compose down
+
+          echo "Building new image..."
+
+          docker compose build
+
+          echo "Starting containers..."
+
+          docker compose up -d
+
+          echo "Running containers..."
+
+          docker compose ps
+
+          echo "Waiting for application..."
+
+          sleep 10
+
+          echo "Checking health endpoint..."
+
+          curl -f http://localhost:8080/health
+
+          echo "✅ Deployment completed successfully."
+
+          EOF
+
+      # -----------------------------
+      # Cleanup Local Package
+      # -----------------------------
+      - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        run: |
+          rm -f deploy.tar.gz
+          rm -f ~/.ssh/deploy_key
 
-      # --- Notify on success ---
-      - name: Deployment successful
+      # -----------------------------
+      # Success Notification
+      # -----------------------------
+      - name: Success
         if: success()
-        run: echo "✅ Deployment to EC2 completed successfully!"
+        run: echo "🎉 Deployment completed successfully."
 
-      # --- Notify on failure ---
-      - name: Deployment failed
+      # -----------------------------
+      # Failure Notification
+      # -----------------------------
+      - name: Failure
         if: failure()
-        run: echo "❌ Deployment failed. Check logs above."
+        run: echo "❌ Deployment failed. Check workflow logs."

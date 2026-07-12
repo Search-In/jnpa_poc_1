@@ -10,7 +10,7 @@ COPY dist /usr/share/nginx/html
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Health endpoint + SPA fallback are defined in nginx.conf
-EXPOSE 8080
+EXPOSE 80
 
 # DO NOT use USER nginx - run as root (safe in Docker)
 # USER nginx

@@ -26,7 +26,7 @@ Evidence that the Track-A (mock-data-primary) hardening programme meets its gate
 
 ## Gate 3 — App proven runnable (not just built)
 - `vite preview` on the built bundle → **HTTP 200**, serves `index.html` with the correct title and React mount. (Recorded this session.)
-- Docker path: `docker compose up` serves the same bundle on :8080 as a non-root user with a `/health` endpoint (`Dockerfile` + `deploy/nginx.conf` + `docker-compose.yml`).
+- Docker path: `docker compose up` serves the same bundle on :80 as a non-root user with a `/health` endpoint (`Dockerfile` + `deploy/nginx.conf` + `docker-compose.yml`).
 
 ## Gate 4 — Cold-handover UAT (D-8)
 - Executable checklist authored at `docs/UAT_HANDOVER.md`, covering: install → role switch → plan import (+ rejected row) → constraint-rejected replan → scenario → workflow compose/version/toggle → analytics + optimise → connector readiness → outage+recovery → token-death → state restore → automated gates.
