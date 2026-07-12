@@ -93,7 +93,7 @@ jobs:
             dist \
             Dockerfile \
             docker-compose.yml \
-            nginx.conf
+            deploy/nginx.conf
 
       # -----------------------------
       # Upload Package
