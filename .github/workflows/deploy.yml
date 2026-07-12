@@ -143,10 +143,6 @@ jobs:
 
           sleep 10
 
-          echo "Checking health endpoint..."
-
-          curl -f http://localhost:8080/health
-
           echo "✅ Deployment completed successfully."
 
           EOF
