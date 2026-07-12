@@ -196,7 +196,11 @@ export function makeVessels(now: number, tick: number): Vessel[] {
       // berthed vessel takes a distinct slot along the quay. Deterministic.
       const q = TERMINAL_QUAYS[berthedTerminal];
       const slot = (i % 3) - 1; // -1, 0, +1 → spread along the quay
-      const alongCentre = slot * 180; // ~180 m between berthed hulls
+      // MSC ARUNACHAL (i=4) berths at JNPCT on slot 0 — the same quay centre the
+      // static hero vessel:JNPCT occupies — so nudge it one hull along the quay
+      // to clear the overlap. Others keep their tiled slot.
+      const alongSlot = i === 4 ? slot + 1 : slot;
+      const alongCentre = alongSlot * 250; // ~180 m between berthed hulls
       const centre = offsetMeters(q.mid, q.along, alongCentre);
       // Seaward = opposite of landward; sit ~35 m off the quay edge.
       const seaward: [number, number] = [-q.landward[0], -q.landward[1]];
