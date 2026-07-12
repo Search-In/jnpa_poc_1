@@ -9,13 +9,15 @@ import { ensureChartsRegistered, baseOptions } from '@/charts/setup';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
 import { craftPerformance, type CraftJob } from '@/kpi';
+import { useSimStore } from '@/sim/simStore';
 import { tokens } from '@/theme/tokens';
 import { PanelError, PanelLoading, PanelEmpty } from '../common/Panel';
 
 ensureChartsRegistered();
 
 export function PortCraftPerformance() {
-  const { data, loading, error } = useAdapterQuery(() => getAdapter().getPortCraft(), [], 30_000);
+  const simVersion = useSimStore((s) => s.version);
+  const { data, loading, error } = useAdapterQuery(() => getAdapter().getPortCraft(), [simVersion], 30_000);
 
   const stats = useMemo(() => {
     if (!data) return null;

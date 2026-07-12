@@ -15,6 +15,7 @@ import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
 import type { WhatIfResult } from '@/data';
 import { useAppStore } from '@/store/useAppStore';
+import { useSimStore } from '@/sim/simStore';
 import { tokens } from '@/theme/tokens';
 import { PanelError, PanelLoading } from './common/Panel';
 
@@ -31,7 +32,8 @@ function Metric({ label, value, unit }: { label: string; value: string | number;
 }
 
 export function WeatherPanel() {
-  const { data, loading, error } = useAdapterQuery(() => getAdapter().getWeather(), [], 60_000);
+  const simVersion = useSimStore((s) => s.version);
+  const { data, loading, error } = useAdapterQuery(() => getAdapter().getWeather(), [simVersion], 60_000);
   const vessels = useAppStore((s) => s.vessels);
 
   const [delayHours, setDelayHours] = useState(2);

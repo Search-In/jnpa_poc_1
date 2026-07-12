@@ -226,6 +226,16 @@ export function AISMap() {
       map,
       center: [lon, lat],
       zoom: initialZoom,
+      // Vessel/berth detail shows in the Esri popup ANCHORED to the clicked
+      // feature, inside the map — docking off is disabled so it never floats to
+      // the side of the (narrow) map panel.
+      popupEnabled: true,
+      popup: {
+        dockEnabled: false,
+        dockOptions: { buttonEnabled: false, breakpoint: false },
+        collision: 'reposition',
+        alignment: 'auto',
+      } as never,
     });
     viewRef.current = view;
 
@@ -359,11 +369,12 @@ export function AISMap() {
         </div>
       )} */}
 
-      {/* Layer toggles + legend overlay */}
+      {/* Layer toggles + legend overlay. Offset down-left so it clears the
+          map-mode control bar that floats at the map's top-right (see App.tsx). */}
       <div
         style={{
           position: 'absolute',
-          top: 8,
+          top: 58,
           right: 8,
           background: tokens.panel,
           border: `1px solid ${tokens.border}`,
@@ -371,6 +382,9 @@ export function AISMap() {
           padding: 8,
           fontSize: 11,
           maxWidth: 200,
+          maxHeight: 'calc(100% - 70px)',
+          overflowY: 'auto',
+          zIndex: 4,
         }}
       >
         <div style={{ fontWeight: 600, marginBottom: 4, color: tokens.text }}>Layers</div>

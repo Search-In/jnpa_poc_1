@@ -18,6 +18,7 @@ import type GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import LayerList from '@arcgis/core/widgets/LayerList';
 import Legend from '@arcgis/core/widgets/Legend';
 import Expand from '@arcgis/core/widgets/Expand';
+import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
 import { initialBasemap, installBasemapFallback, isOfflineRequested } from './basemapFallback';
 import { applyGraphics } from './applyGraphics';
 import {
@@ -64,17 +65,31 @@ interface PortSceneProps {
   onOfflineBasemap?: () => void;
 }
 
+/**
+ * Resolve the id of the top-most clicked/hovered asset. Ordered most-specific
+ * first (a vessel/berth/crane/gate on top of a terminal deck should win over the
+ * deck) so a click on a discrete asset selects that asset, not the polygon under
+ * it. Covers every layer that carries an identifying attribute — the operational
+ * FeatureLayers (vessel/berth/terminal/anchorage/channel/pilot) and the static
+ * glTF port assets (cranes/gates/yard stacks/trucks/tug/berthed hero ships).
+ */
 function resolveHit(res: { results: Array<unknown> }): string | null {
   for (const r of res.results) {
     const graphic = (r as { graphic?: { attributes?: Record<string, unknown> } }).graphic;
     if (!graphic) continue;
     const a = (graphic.attributes ?? {}) as Record<string, unknown>;
     const id =
-      (a.terminalId as string) ??
-      (a.berthId as string) ??
       (a.vesselId as string) ??
+      (a.berthId as string) ??
+      (a.craneId as string) ??
+      (a.gateId as string) ??
+      (a.blockId as string) ??
+      (a.routeKey as string) ??
       (a.anchId as string) ??
+      (a.segId as string) ??
       (a.assetId as string) ??
+      (a.pkey as string) ??
+      (a.terminalId as string) ??
       null;
     if (id) return id;
   }
@@ -93,21 +108,32 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     vesselStatus: FeatureLayer;
   } | null>(null);
   const selectionRef = useRef<GraphicsLayer | null>(null);
+  /** Id of the asset the popup is currently anchored to (for popup actions). */
+  const lastSelectedRef = useRef<string | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
 
-  // ---- imperative camera focus ----
+  // ---- selection ring (no camera move) ----
+  // Drop the amber selection ring on an asset without flying the camera. A plain
+  // click just selects + rings + opens the anchored popup; the camera only moves
+  // when the operator asks (the popup's "Focus camera" action, or focusAsset).
+  function ringAsset(assetId: string): boolean {
+    const sel = selectionRef.current;
+    const pos = asset3dPosition().get(assetId);
+    if (!sel || !pos) return false;
+    sel.removeAll();
+    sel.add(selectionRing(pos[0], pos[1]));
+    return true;
+  }
+
+  // ---- imperative camera focus (rings + flies) ----
   function focusAsset(assetId: string) {
     const view = viewRef.current;
-    const sel = selectionRef.current;
     if (!view) return;
     const pos = asset3dPosition().get(assetId);
     if (!pos) return;
+    ringAsset(assetId);
     const [lng, lat] = pos;
-    if (sel) {
-      sel.removeAll();
-      sel.add(selectionRing(lng, lat));
-    }
     void view
       .goTo({ target: { type: 'point', longitude: lng, latitude: lat, spatialReference: { wkid: 4326 } }, tilt: 62, zoom: 16 } as never, {
         duration: 900,
@@ -203,22 +229,78 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
         lighting: { type: 'sun', date: new Date('2026-06-16T06:30:00Z'), directShadowsEnabled: true },
       } as never,
       ui: { components: ['zoom', 'compass', 'navigation-toggle', 'attribution'] },
+      // Asset detail shows in the Esri popup ANCHORED to the clicked feature,
+      // inside the map. Docking is disabled so it never floats off to the side of
+      // the (narrow) map panel; collision keeps the balloon within the view.
+      popupEnabled: true,
+      popup: {
+        dockEnabled: false,
+        dockOptions: { buttonEnabled: false, breakpoint: false },
+        collision: 'reposition',
+        alignment: 'auto',
+        visibleElements: { collapseButton: false },
+      } as never,
     });
     viewRef.current = view;
 
     const teardownFallback = installBasemapFallback(view, { onFallback: () => propsRef.current.onOfflineBasemap?.() });
 
     view.when(() => {
+      // Legend + Layers stack at bottom-left; top-right is left clear for the
+      // React map-mode control overlay (2D/3D, token-expiry, placement editor).
       view.ui.add(new Expand({ view, content: new Legend({ view }), expanded: false, expandTooltip: 'Legend' }), 'bottom-left');
-      view.ui.add(new Expand({ view, content: new LayerList({ view }), expanded: false, expandTooltip: 'Layers' }), 'top-right');
+      view.ui.add(new Expand({ view, content: new LayerList({ view }), expanded: false, expandTooltip: 'Layers' }), 'bottom-left');
     });
+
+    // Popup actions (buttons inside the native Esri detail popup). The per-layer
+    // popupTemplates declare `focus-asset` / `clear-selection`; handle them
+    // centrally here. In ArcGIS 4.34 `view.popup` is created lazily (it isn't the
+    // Popup widget yet when this effect runs — `view.popup.on` would throw), so
+    // we bind via reactiveUtils.on(() => view.popup, ...), which waits for the
+    // widget to exist and (re)binds if it's recreated. The clicked feature's own
+    // id is read from its attributes so "Focus camera" flies to exactly the asset
+    // the popup is describing.
+    const idOf = (g: { attributes?: Record<string, unknown> } | null | undefined): string | null => {
+      const a = (g?.attributes ?? {}) as Record<string, unknown>;
+      return (
+        (a.vesselId as string) ?? (a.berthId as string) ?? (a.terminalId as string) ??
+        (a.anchId as string) ?? (a.segId as string) ?? (a.assetId as string) ??
+        (a.craneId as string) ?? (a.gateId as string) ?? (a.blockId as string) ?? null
+      );
+    };
+    const actionHandle = reactiveUtils.on(
+      () => view.popup,
+      'trigger-action',
+      (e: { action?: { id?: string } }) => {
+        const actionId = e.action?.id;
+        const popup = view.popup as unknown as { selectedFeature?: { attributes?: Record<string, unknown> }; close: () => void };
+        const featId = idOf(popup.selectedFeature) ?? lastSelectedRef.current;
+        if (actionId === 'focus-asset' && featId) {
+          focusAsset(featId);
+        } else if (actionId === 'clear-selection') {
+          lastSelectedRef.current = null;
+          selectionRef.current?.removeAll();
+          popup.close();
+          propsRef.current.onSelect?.(null);
+        }
+      },
+    );
 
     const clickHandle = view.on('click', (event) => {
       void view.hitTest(event).then((res) => {
         const id = resolveHit(res);
         if (id) {
-          focusAsset(id);
+          // Select only: ring the asset + surface it to React. The native Esri
+          // popup opens anchored to the graphic on its own (popupEnabled). No
+          // camera move — that's the "Focus camera" popup action / focus() handle.
+          lastSelectedRef.current = id;
+          ringAsset(id);
           propsRef.current.onSelect?.(id);
+        } else {
+          // Click on empty water clears the selection ring.
+          lastSelectedRef.current = null;
+          selectionRef.current?.removeAll();
+          propsRef.current.onSelect?.(null);
         }
       });
     });
@@ -234,6 +316,7 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
       teardownFallback();
       clickHandle.remove();
       moveHandle.remove();
+      actionHandle.remove();
       view.destroy();
       viewRef.current = null;
       layersRef.current = null;

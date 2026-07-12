@@ -61,6 +61,7 @@ import type { Berth } from '@/types/domain';
 import { useAppStore } from '@/store/useAppStore';
 import { useSimStore } from '@/sim/simStore';
 import { useSimClock } from '@/sim/useSimClock';
+import { useSimReactivity } from '@/sim/useSimReactivity';
 import { tokens } from '@/theme/tokens';
 
 const TABS = [
@@ -86,10 +87,14 @@ export function App() {
     return useAppStore.getState().start();
   }, []);
   useSimClock();
+  useSimReactivity();
 
   const vessels = useAppStore((s) => s.vessels);
   const [berths, setBerths] = useState<Berth[]>([]);
   const highlights = useSimStore((s) => s.highlights);
+  // Re-fetch berths (through SimAdapter) whenever the operator stages a data
+  // override, so forced berth statuses reach the 3D scene live.
+  const simVersion = useSimStore((s) => s.version);
 
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
@@ -123,7 +128,7 @@ export function App() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [simVersion]);
 
   // Guided tour drives the camera + active tab + map highlights per step.
   function onTourStep(s: { preset: string; tab: string; highlights: string[] }) {
@@ -135,7 +140,25 @@ export function App() {
     <>
       <CalciteShell style={{ height: '100vh', background: tokens.bg }}>
         <div slot="header">
-          <HeaderBar extra={<><RoleSwitcher /><SimControls /><DataModeChip /></>} />
+          <HeaderBar
+            extra={
+              <>
+                <RoleSwitcher />
+                <SimControls />
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  kind="brand"
+                  iconStart="sliders-horizontal"
+                  title="Open the Simulator control room in a new tab — its controls drive this dashboard live"
+                  onClick={() => window.open('#/simulator', '_blank')}
+                >
+                  Simulator
+                </CalciteButton>
+                <DataModeChip />
+              </>
+            }
+          />
         </div>
 
         {/* Left: the 3D sea-port scene is the anchor + default view. A 2D/3D
@@ -152,59 +175,82 @@ export function App() {
           } as React.CSSProperties}
         >
           <CalcitePanel heading={mapMode === '3d' ? 'JNPA Sea-Port · 3D' : 'Live AIS Map · JNPA approaches'}>
-            <div slot="header-actions-end" style={{ display: 'flex', gap: 8, alignItems: 'center', paddingInline: 8 }}>
-              {offlineBase && (
-                <CalciteChip scale="s" kind="inverse" icon="offline">
-                  Offline basemap
-                </CalciteChip>
-              )}
-              {/* 3D asset placement editing (shared positions.json workflow). */}
-              {mapMode === '3d' && <PlacementToolbar />}
-              <CalciteButton
-                scale="s"
-                appearance="outline"
-                iconStart="exclamation-mark-triangle"
-                title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
-                onClick={() => {
-                  const u = new URL(window.location.href);
-                  u.searchParams.set('offline', '1');
-                  window.location.href = u.toString();
-                }}
-              >
-                Simulate token expiry
-              </CalciteButton>
-              <CalciteSegmentedControl
-                width="auto"
-                scale="s"
-                onCalciteSegmentedControlChange={(e) =>
-                  setMapMode(((e.target as unknown as { value: '2d' | '3d' }).value) === '3d' ? '3d' : '2d')
-                }
-              >
-                <CalciteSegmentedControlItem value="2d" checked={mapMode === '2d'} iconStart="map">
-                  2D
-                </CalciteSegmentedControlItem>
-                <CalciteSegmentedControlItem value="3d" checked={mapMode === '3d'} iconStart="urban-model">
-                  3D
-                </CalciteSegmentedControlItem>
-              </CalciteSegmentedControl>
-            </div>
-
             <div style={{ height: 'calc(100vh - 120px)', position: 'relative' }}>
               {mapMode === '3d' ? (
-                <>
-                  <PortScene
-                    ref={setSceneRef}
-                    vessels={vessels}
-                    berths={berths}
-                    highlights={highlights}
-                    onOfflineBasemap={() => setOfflineBase(true)}
-                  />
-                  <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
-                    <DemoPlayer scene={scene} />
-                  </div>
-                </>
+                <PortScene
+                  ref={setSceneRef}
+                  vessels={vessels}
+                  berths={berths}
+                  highlights={highlights}
+                  onOfflineBasemap={() => setOfflineBase(true)}
+                />
               ) : (
                 <AISMap />
+              )}
+
+              {/* Map-mode controls — floated ON the map (top-right) as an overlay,
+                  like the camera-preset bar, rather than sitting in a bar above
+                  the map. */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 10,
+                  right: 10,
+                  zIndex: 5,
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  justifyContent: 'flex-end',
+                  maxWidth: 'calc(100% - 20px)',
+                  padding: 6,
+                  background: `${tokens.panel}E6`,
+                  border: `1px solid ${tokens.border}`,
+                  borderRadius: 8,
+                  boxShadow: '0 2px 8px rgba(0,0,0,.35)',
+                }}
+              >
+                {offlineBase && (
+                  <CalciteChip scale="s" kind="inverse" icon="offline">
+                    Offline basemap
+                  </CalciteChip>
+                )}
+                {/* 3D asset placement editing (shared positions.json workflow). */}
+                {mapMode === '3d' && <PlacementToolbar />}
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  iconStart="exclamation-mark-triangle"
+                  title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
+                  onClick={() => {
+                    const u = new URL(window.location.href);
+                    u.searchParams.set('offline', '1');
+                    window.location.href = u.toString();
+                  }}
+                >
+                  Simulate token expiry
+                </CalciteButton>
+                <CalciteSegmentedControl
+                  width="auto"
+                  scale="s"
+                  onCalciteSegmentedControlChange={(e) =>
+                    setMapMode(((e.target as unknown as { value: '2d' | '3d' }).value) === '3d' ? '3d' : '2d')
+                  }
+                >
+                  <CalciteSegmentedControlItem value="2d" checked={mapMode === '2d'} iconStart="map">
+                    2D
+                  </CalciteSegmentedControlItem>
+                  <CalciteSegmentedControlItem value="3d" checked={mapMode === '3d'} iconStart="urban-model">
+                    3D
+                  </CalciteSegmentedControlItem>
+                </CalciteSegmentedControl>
+              </div>
+
+              {/* Camera-preset bar (3D only) — floated on the map bottom-centre. */}
+              {mapMode === '3d' && (
+                <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
+                  <DemoPlayer scene={scene} />
+                </div>
               )}
             </div>
           </CalcitePanel>

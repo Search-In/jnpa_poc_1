@@ -11,7 +11,19 @@ import { defineCustomElements as defineMapComponents } from '@arcgis/map-compone
 
 import { tokens } from './theme/tokens';
 import { App } from './App';
+import { SimulatorPage } from './sim/SimulatorPage';
+import { useHashRoute } from './sim/useHashRoute';
 import './index.css';
+
+/**
+ * Root — hash-routed shell. `#/simulator` renders the standalone Simulator
+ * control room (its own tab, drives the dashboard via BroadcastChannel);
+ * everything else renders the dashboard app.
+ */
+function Root() {
+  const route = useHashRoute();
+  return route.startsWith('/simulator') ? <SimulatorPage /> : <App />;
+}
 
 /** Seed CSS custom properties from the token file so CSS has no colour literals. */
 function applyTheme(): void {
@@ -35,6 +47,6 @@ applyTheme();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Root />
   </StrictMode>
 );
