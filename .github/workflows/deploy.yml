@@ -31,6 +31,7 @@ jobs:
         run: npm run build
         env:
           VITE_DATA_MODE: mock
+          NODE_OPTIONS: "--max-old-space-size=2048"
 
       # --- Upload dist as artifact (optional, for debugging) ---
       - name: Upload dist artifact
