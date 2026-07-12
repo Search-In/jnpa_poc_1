@@ -69,12 +69,13 @@ export function BerthGantt5Day() {
   // Key the query on clockH so the DUKC feasibility bands advance with the sim.
   const clockH = useSimStore((s) => s.clockH);
   const levers = useSimStore((s) => s.levers);
+  const simVersion = useSimStore((s) => s.version);
 
   const role = useRoleStore((s) => s.role);
   const principal = useRoleStore((s) => s.principal);
   const roleCanEdit = canEdit(role);
 
-  const berthsQ = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), [clockH], 30_000);
+  const berthsQ = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), [clockH, simVersion], 30_000);
   const planQ = useAdapterQuery<BerthingPlanEntry[]>(
     () => getAdapter().getBerthPlan({ lastHours: 24 }),
     [clockH],

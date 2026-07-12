@@ -16,7 +16,6 @@ import { useMemo } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
 import { useSimStore } from '@/sim/simStore';
-import { craftUnderScenario } from '@/sim/derive';
 import { SourceBadge } from '@/provenance/SourceBadge';
 import { tokens } from '@/theme/tokens';
 import { PanelLoading, PanelError, PanelEmpty } from '@/components/common/Panel';
@@ -291,17 +290,19 @@ function GroupCard({ g }: { g: GroupStats }) {
 /* ── panel ───────────────────────────────────────────────────────────── */
 
 export function PortCraftBoard() {
-  const levers = useSimStore((s) => s.levers);
-  const { data, loading, error } = useAdapterQuery(() => getAdapter().getPortCraft(), [], 30_000);
+  // Craft already arrive with scenario shortages (pilots/tugs down) + explicit
+  // per-craft outages applied by SimAdapter, so this panel no longer re-applies
+  // craftUnderScenario. It refetches whenever the sim version bumps.
+  const simVersion = useSimStore((s) => s.version);
+  const { data, loading, error } = useAdapterQuery(() => getAdapter().getPortCraft(), [simVersion], 30_000);
 
   const view = useMemo(() => {
     if (!data) return null;
-    const craft = craftUnderScenario(data, levers);
-    const groups = TYPE_ORDER.map((t) => groupStats(craft, t)).filter((g) => g.total > 0);
+    const groups = TYPE_ORDER.map((t) => groupStats(data, t)).filter((g) => g.total > 0);
     const conflicts = detectConflicts(groups);
     const rec = recommend(groups);
     return { groups, conflicts, rec };
-  }, [data, levers]);
+  }, [data]);
 
   if (loading && !data) return <PanelLoading label="Loading port craft…" />;
   if (error) return <PanelError message={error} />;

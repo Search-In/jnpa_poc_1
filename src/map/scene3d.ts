@@ -27,7 +27,23 @@ import {
   type TerminalQuay,
 } from './portGeometry';
 import { navStatusColor, tokens, ukcColor } from '../theme/tokens';
+import { istTime } from '../util/format';
 import type { Vessel, Berth } from '@/types/domain';
+
+/**
+ * Shared action buttons shown inside every asset's native Esri detail popup.
+ * `PortScene` handles their `trigger-action` events: focus flies the camera to
+ * the asset, clear drops the selection ring + closes the popup.
+ */
+const POPUP_ACTIONS = [
+  { id: 'focus-asset', title: 'Focus camera', icon: 'zoom-to-object', className: 'esri-icon-zoom-in-magnifying-glass' },
+  { id: 'clear-selection', title: 'Clear', icon: 'x', className: 'esri-icon-close' },
+];
+
+/** A titled popup content row block (definition-list style) for rich detail. */
+function popupFields(rows: { fieldName: string; label: string }[]) {
+  return [{ type: 'fields', fieldInfos: rows.map((r) => ({ fieldName: r.fieldName, label: r.label })) }];
+}
 
 /** Depth → channel segment colour ramp (deep = blue, shallow = amber/red). */
 function depthColor(depthM: number): [number, number, number, number] {
@@ -84,7 +100,10 @@ export function channelLayer(): FeatureLayer {
         };
       }),
     } as never,
-    popupTemplate: { title: '{name}', content: 'Charted depth: {depth} m (below datum)' } as never,
+    popupTemplate: {
+      title: '〰️ {name}',
+      content: popupFields([{ fieldName: 'depth', label: 'Charted depth (m, below datum)' }]),
+    } as never,
     elevationInfo: { mode: 'on-the-ground' } as never,
   });
 }
@@ -128,7 +147,11 @@ export function anchorageLayer(): FeatureLayer {
         symbol: { type: 'label-3d', symbolLayers: [{ type: 'text', material: { color: tokens.textMuted }, halo: { color: [255, 255, 255, 1], size: 1 }, size: 10 }] },
       },
     ] as never,
-    popupTemplate: { title: '{name}', content: 'Designated anchorage area.' } as never,
+    popupTemplate: {
+      title: '🛟 {name}',
+      content: 'Designated anchorage area — vessels hold here awaiting a pilot / berth window.',
+      actions: POPUP_ACTIONS,
+    } as never,
     elevationInfo: { mode: 'on-the-ground' } as never,
   });
 }
@@ -215,7 +238,15 @@ export function terminalDeckLayer(): FeatureLayer {
         symbol: { type: 'label-3d', symbolLayers: [{ type: 'text', material: { color: tokens.text }, halo: { color: [255, 255, 255, 1], size: 1.2 }, size: 12 }] },
       },
     ] as never,
-    popupTemplate: { title: '{name}', content: 'Berths: {berths}<br/>Max design draft: {maxDraft} m' } as never,
+    popupTemplate: {
+      title: '🏗️ {name}',
+      content: popupFields([
+        { fieldName: 'terminalId', label: 'Terminal id' },
+        { fieldName: 'berths', label: 'Berths' },
+        { fieldName: 'maxDraft', label: 'Max design draft (m)' },
+      ]),
+      actions: POPUP_ACTIONS,
+    } as never,
     elevationInfo: { mode: 'on-the-ground' } as never,
   });
 }
@@ -272,8 +303,14 @@ export function berthLayer(berths: Berth[]): FeatureLayer {
       })),
     } as never,
     popupTemplate: {
-      title: '{name} ({terminal})',
-      content: 'Status: {status}<br/>Design draft: {draft} m',
+      title: '⚓ {name} · {terminal}',
+      content: popupFields([
+        { fieldName: 'berthId', label: 'Berth id' },
+        { fieldName: 'terminal', label: 'Terminal' },
+        { fieldName: 'status', label: 'Status' },
+        { fieldName: 'draft', label: 'Design draft (m)' },
+      ]),
+      actions: POPUP_ACTIONS,
     } as never,
     elevationInfo: { mode: 'on-the-ground' } as never,
   });
@@ -323,8 +360,10 @@ export function vesselGraphics(vessels: Vessel[]): Graphic[] {
         // marker layer above the hull instead.
         model: vesselModel(v.VESSEL_TYPE),
         sog: v.SOG,
+        cog: v.COG,
         heading: v.HEADING,
-        berth: v.BERTH_ID ?? '',
+        berth: v.BERTH_ID ?? '—',
+        eta: v.ETA ? istTime(v.ETA) : '—',
         size,
       },
     });
@@ -346,8 +385,10 @@ export function vesselLayer(vessels: Vessel[]): FeatureLayer {
       { name: 'status', type: 'string' },
       { name: 'model', type: 'string' },
       { name: 'sog', type: 'double' },
+      { name: 'cog', type: 'double' },
       { name: 'heading', type: 'double' },
       { name: 'berth', type: 'string' },
+      { name: 'eta', type: 'string' },
       { name: 'size', type: 'double' },
     ],
     renderer: {
@@ -379,9 +420,18 @@ export function vesselLayer(vessels: Vessel[]): FeatureLayer {
       visualVariables: [{ type: 'rotation', field: 'heading', axis: 'heading' }],
     } as never,
     popupTemplate: {
-      title: '{name}',
-      content:
-        'MMSI: {vesselId}<br/>Type: {type}<br/>Status: {status}<br/>SOG: {sog} kn<br/>Berth: {berth}',
+      title: '🚢 {name}',
+      content: popupFields([
+        { fieldName: 'vesselId', label: 'MMSI' },
+        { fieldName: 'type', label: 'Type' },
+        { fieldName: 'status', label: 'Nav status' },
+        { fieldName: 'sog', label: 'Speed (kn)' },
+        { fieldName: 'cog', label: 'Course (°T)' },
+        { fieldName: 'heading', label: 'Heading (°T)' },
+        { fieldName: 'berth', label: 'Assigned berth' },
+        { fieldName: 'eta', label: 'ETA (IST)' },
+      ]),
+      actions: POPUP_ACTIONS,
     } as never,
     elevationInfo: { mode: 'relative-to-ground', offset: 0 } as never,
   });
