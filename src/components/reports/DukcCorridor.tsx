@@ -42,6 +42,7 @@ import { CHANNEL } from '@/map/portGeometry';
 import { getAdapter } from '@/data';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { SourceBadge } from '@/provenance/SourceBadge';
+import { useHighlightMatch } from '@/whatif/useHighlight';
 import { PanelLoading, PanelError, PanelEmpty } from '../common/Panel';
 
 ensureChartsRegistered();
@@ -79,6 +80,11 @@ function Stat({ label, value, unit }: { label: string; value: string; unit?: str
 export function DukcCorridor() {
   const clockH = useSimStore((s) => s.clockH);
   const levers = useSimStore((s) => s.levers);
+
+  // What-if spotlight: ring the channel segment(s) the active scenario lights
+  // (e.g. M2 CH-INNER), so the corridor strip and the map spotlight the same
+  // stretch of channel.
+  const hl = useHighlightMatch();
 
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
 
@@ -228,10 +234,13 @@ export function DukcCorridor() {
 
         {/* Channel corridor strip, seaward → quay. */}
         <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
-          {corridor.map(({ seg, ukcM, status, availableM, requiredM }) => (
+          {corridor.map(({ seg, ukcM, status, availableM, requiredM }) => {
+            const lit = hl.has(seg.id);
+            const dim = hl.any && !lit;
+            return (
             <div
               key={seg.id}
-              title={`${seg.name} · available ${availableM} m · required ${requiredM} m`}
+              title={`${seg.name} · available ${availableM} m · required ${requiredM} m${lit ? ' · spotlighted by the active scenario' : ''}`}
               style={{
                 flex: 1,
                 minWidth: 0,
@@ -240,11 +249,14 @@ export function DukcCorridor() {
                 gap: 2,
                 padding: '8px 6px',
                 borderRadius: tokens.radius.sm,
-                background: tokens.panelAlt,
+                background: lit ? `${tokens.accent}14` : tokens.panelAlt,
+                opacity: dim ? 0.45 : 1,
                 borderTop: `3px solid ${statusColor(status)}`,
-                border: `1px solid ${tokens.border}`,
+                border: `1px solid ${lit ? tokens.accent : tokens.border}`,
+                boxShadow: lit ? `0 0 0 1px ${tokens.accent}` : 'none',
                 borderTopWidth: 3,
                 borderTopColor: statusColor(status),
+                transition: 'opacity 120ms ease',
               }}
             >
               <span style={{ fontSize: 10.5, color: tokens.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -258,7 +270,8 @@ export function DukcCorridor() {
                 UKC · {status === 'noGo' ? 'no-go' : status}
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
         <span style={{ fontSize: 10, color: tokens.textMuted }}>
           Seaward → quay. Cell colour = projected UKC status at the current tide for a {corridor.length ? '15.5 m' : ''} reference deep-draft transit.

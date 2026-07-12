@@ -30,6 +30,7 @@ import type { Berth, BerthingPlanEntry } from '@/types/domain';
 import { tokens, ukcColor } from '@/theme/tokens';
 import { istDateTime, istTime, durationFromHours } from '@/util/format';
 import { SourceBadge } from '@/provenance/SourceBadge';
+import { useHighlightMatch } from '@/whatif/useHighlight';
 import { PanelEmpty, PanelError, PanelLoading } from '../common/Panel';
 
 const H = 3_600_000;
@@ -60,6 +61,8 @@ function windowFill(status: 'go' | 'marginal' | 'noGo'): string {
 interface Row {
   berthId: string;
   berthName: string;
+  /** Terminal id (e.g. GTI) so a terminal-level scenario highlight lights the row. */
+  terminal?: string;
   outOfService: boolean;
   entries: BerthingPlanEntry[];
   transit?: PlannedTransit;
@@ -74,6 +77,10 @@ export function BerthGantt5Day() {
   const role = useRoleStore((s) => s.role);
   const principal = useRoleStore((s) => s.principal);
   const roleCanEdit = canEdit(role);
+
+  // What-if / guided-tour spotlight: light the berth rows the active scenario
+  // rings on the map, so map + gantt highlight the same assets in sync.
+  const hl = useHighlightMatch();
 
   const berthsQ = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), [clockH, simVersion], 30_000);
   const planQ = useAdapterQuery<BerthingPlanEntry[]>(
@@ -124,6 +131,7 @@ export function BerthGantt5Day() {
     const start = Math.floor(earliest / DAY_MS) * DAY_MS; // day-aligned epoch
 
     const nameOf = new Map(berths.map((b) => [b.BERTH_ID, b.BERTH_NAME] as const));
+    const terminalOf = new Map(berths.map((b) => [b.BERTH_ID, b.TERMINAL] as const));
     const transitOf = new Map(transits.map((t) => [t.planId, t] as const));
     const out = new Set(levers.berthsOut);
 
@@ -138,6 +146,7 @@ export function BerthGantt5Day() {
         return {
           berthId,
           berthName: nameOf.get(berthId) ?? berthId,
+          terminal: terminalOf.get(berthId),
           outOfService: out.has(berthId),
           entries,
           transit: t,
@@ -373,10 +382,27 @@ export function BerthGantt5Day() {
           {rows.map((row, i) => {
             const y = headH + i * laneH;
             const transit = row.transit;
+            const lit = hl.berth(row.berthId, row.terminal);
+            const dim = hl.any && !lit;
             return (
-              <g key={row.berthId}>
+              <g key={row.berthId} opacity={dim ? 0.4 : 1}>
                 {/* row background */}
                 <rect x={labelW} y={y} width={plotW} height={laneH} fill={i % 2 ? tokens.panelAlt : tokens.panel} />
+
+                {/* what-if spotlight: ring the highlighted berth row */}
+                {lit && (
+                  <rect
+                    x={labelW}
+                    y={y + 1}
+                    width={plotW - 1}
+                    height={laneH - 2}
+                    fill={`${tokens.accent}14`}
+                    stroke={tokens.accent}
+                    strokeWidth={1.5}
+                  >
+                    <title>{`${row.berthName} — spotlighted by the active scenario`}</title>
+                  </rect>
+                )}
 
                 {/* out-of-service hatch overlay */}
                 {row.outOfService && (

@@ -16,6 +16,7 @@ import { useMemo } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
 import { useSimStore } from '@/sim/simStore';
+import { useHighlightMatch } from '@/whatif/useHighlight';
 import { SourceBadge } from '@/provenance/SourceBadge';
 import { tokens } from '@/theme/tokens';
 import { PanelLoading, PanelError, PanelEmpty } from '@/components/common/Panel';
@@ -231,17 +232,20 @@ function StatusChip({ unit }: { unit: PortCraftUnit }) {
   );
 }
 
-function GroupCard({ g }: { g: GroupStats }) {
+function GroupCard({ g, lit, dim }: { g: GroupStats; lit?: boolean; dim?: boolean }) {
   return (
     <div
       style={{
-        border: `1px solid ${tokens.border}`,
+        border: `1px solid ${lit ? tokens.accent : tokens.border}`,
+        boxShadow: lit ? `0 0 0 1px ${tokens.accent}` : 'none',
+        opacity: dim ? 0.45 : 1,
         borderRadius: tokens.radius.md,
         background: tokens.panel,
         padding: tokens.space.md,
         display: 'flex',
         flexDirection: 'column',
         gap: tokens.space.sm,
+        transition: 'opacity 120ms ease',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.space.sm }}>
@@ -289,12 +293,28 @@ function GroupCard({ g }: { g: GroupStats }) {
 
 /* ── panel ───────────────────────────────────────────────────────────── */
 
+/**
+ * Which highlight ids light each craft group. Pilots are ringed via the pilot
+ * boarding ground `PBG` (the id scenarios use for pilotage beats); tugs/mooring
+ * have no dedicated map asset, so they light only when explicitly named.
+ */
+const CRAFT_HIGHLIGHT: Record<CraftType, string[]> = {
+  pilot: ['PBG', 'pilot'],
+  tug: ['tug'],
+  mooring: ['mooring'],
+};
+
 export function PortCraftBoard() {
   // Craft already arrive with scenario shortages (pilots/tugs down) + explicit
   // per-craft outages applied by SimAdapter, so this panel no longer re-applies
   // craftUnderScenario. It refetches whenever the sim version bumps.
   const simVersion = useSimStore((s) => s.version);
   const { data, loading, error } = useAdapterQuery(() => getAdapter().getPortCraft(), [simVersion], 30_000);
+
+  // What-if spotlight: light the craft group the active scenario rings (e.g. M4
+  // pilot shortage → PBG → the Pilots card), in sync with the map.
+  const hl = useHighlightMatch();
+  const litType = (t: CraftType) => CRAFT_HIGHLIGHT[t].some((id) => hl.has(id));
 
   const view = useMemo(() => {
     if (!data) return null;
@@ -403,9 +423,13 @@ export function PortCraftBoard() {
           gap: tokens.space.md,
         }}
       >
-        {groups.map((g) => (
-          <GroupCard key={g.type} g={g} />
-        ))}
+        {(() => {
+          const anyLit = groups.some((g) => litType(g.type));
+          return groups.map((g) => {
+            const lit = litType(g.type);
+            return <GroupCard key={g.type} g={g} lit={lit} dim={anyLit && !lit} />;
+          });
+        })()}
       </div>
     </div>
   );

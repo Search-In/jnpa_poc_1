@@ -17,6 +17,7 @@
  */
 import type {
   Berth,
+  BerthingPlanEntry,
   NavStatus,
   PortCraftUnit,
   Vessel,
@@ -48,19 +49,20 @@ function anchorageCentre(): [number, number] {
  * stage congestion on the map. Placed on a ring around the anchorage / pilot
  * boarding ground and drifted by the sim clock so they visibly move.
  */
-export function spawnedVessels(count: number, clockH: number): Vessel[] {
+export function spawnedVessels(count: number, clockH: number, idOffset = 0): Vessel[] {
   if (count <= 0) return [];
   const [aLng, aLat] = anchorageCentre();
   const out: Vessel[] = [];
   for (let i = 0; i < count; i++) {
+    const idx = i + idOffset; // distinct ids across multiple spawn sources
     // Even spread around a ring; drift the phase with the sim clock.
     const theta = (i / count) * Math.PI * 2 + clockH * 0.05;
     const r = 0.012 + (i % 3) * 0.004;
     const approaching = i % 2 === 0;
     const [cLng, cLat] = approaching ? [PILOT_STATION.lng, PILOT_STATION.lat] : [aLng, aLat];
     out.push({
-      MMSI: `SIM${String(100000 + i)}`,
-      VESSEL_NAME: `SIM Contact ${i + 1}`,
+      MMSI: `SIM${String(100000 + idx)}`,
+      VESSEL_NAME: `SIM Contact ${idx + 1}`,
       VESSEL_TYPE: i % 3 === 0 ? 'Container Ship' : i % 3 === 1 ? 'Tanker' : 'Bulk Carrier',
       NAV_STATUS: approaching ? 'approaching' : 'anchored',
       SOG: approaching ? Number((6 + (i % 4)).toFixed(1)) : 0,
@@ -82,8 +84,18 @@ export function spawnedVessels(count: number, clockH: number): Vessel[] {
  * the approach lanes directly.
  */
 export function applyVessels(base: Vessel[], snap: SimSnapshot): Vessel[] {
-  const { overrides, clockH } = snap;
-  let vessels: Vessel[] = [...base, ...spawnedVessels(overrides.spawnVessels, clockH)];
+  const { overrides, levers, clockH } = snap;
+  // Two spawn sources: the operator's explicit spawnVessels override AND the
+  // `extraArrivals` scenario lever — bunching arrivals must actually APPEAR at
+  // the anchorage/approach (M5 "fog lifts, six arrivals present at once"), not
+  // only slip the plan actuals. Offset the lever contacts' index so their ids
+  // don't collide with the override-spawned ones.
+  const extra = Math.min(levers.extraArrivals, 8);
+  let vessels: Vessel[] = [
+    ...base,
+    ...spawnedVessels(overrides.spawnVessels, clockH),
+    ...spawnedVessels(extra, clockH, overrides.spawnVessels + 1),
+  ];
 
   const force = (status: NavStatus, n: number) => {
     if (n <= 0) return;
@@ -101,6 +113,74 @@ export function applyVessels(base: Vessel[], snap: SimSnapshot): Vessel[] {
   force('anchored', overrides.forceAnchored);
   force('approaching', overrides.forceApproaching);
   return vessels;
+}
+
+/** A call's lever-driven perturbation, split so it can move TAT as well as JIT. */
+interface PlanSlip {
+  /** Hours the *arrival/berthing* (ACTUAL_START) is pushed later — hits JIT + pre-berth delay. */
+  startH: number;
+  /**
+   * Extra hours added to the *service/alongside* interval, i.e. applied to
+   * ACTUAL_END ON TOP of startH. Because ATD moves more than ATA, turnaround
+   * (ATD − ATA) grows — this is what makes TAT respond, not just shift.
+   */
+  serviceH: number;
+}
+
+/**
+ * A call's lever-driven slip, vs the do-nothing baseline. Pure function of the
+ * levers so a rehearsed run reproduces. Two components:
+ *  - startH   pushes the berthing/arrival later (JIT miss + pre-berthing delay):
+ *      weatherSeverity → pilotage hold at anchorage (~4h at full storm)
+ *      pilotsDown      → boarding queue (~0.7h per missing pilot)
+ *      channelDepthDeltaM (loss) → deep-draft calls wait for a higher tide (~3h/m)
+ *      extraArrivals   → bunching compresses slots (~0.25h per extra arrival)
+ *      berthsOut       → a call on a closed berth waits for a compatible one (+3h)
+ *  - serviceH lengthens the alongside interval, so TAT grows (not just shifts):
+ *      tugsDown        → unberthing is slower, extending the turn (~0.5h per tug)
+ *      channelDepthDeltaM (loss) → tighter windows stretch the departure too
+ * Zero when the twin is neutral, so JIT / delays / TAT match the honest baseline.
+ */
+function leverPlanSlip(levers: SimLevers, entry: BerthingPlanEntry): PlanSlip {
+  // Siltation (negative channelDepthDeltaM) → metres of depth lost.
+  const depthLossM = Math.max(0, -levers.channelDepthDeltaM);
+
+  let startH = 0;
+  startH += levers.weatherSeverity * 4; // storm hold
+  startH += levers.pilotsDown * 0.7; // boarding queue
+  startH += depthLossM * 3; // wait for a higher tide (deep-draft window loss)
+  startH += Math.min(levers.extraArrivals, 8) * 0.25; // bunching
+  if (levers.berthsOut.includes(entry.BERTH_ID)) startH += 3; // reassignment wait
+
+  let serviceH = 0;
+  serviceH += levers.tugsDown * 0.5; // slower unberthing extends the turn
+  serviceH += depthLossM * 0.5; // narrower windows stretch the departure
+
+  return { startH, serviceH };
+}
+
+/**
+ * Overlay the berthing plan with lever-driven slip. Non-destructive: for each
+ * call that has actuals, ACTUAL_START moves later by `startH` and ACTUAL_END by
+ * `startH + serviceH`, so the SAME formulas recompute JIT / pre-berthing delay
+ * (from the later berthing) AND turnaround (from the widened alongside interval)
+ * off one perturbed plan. This is the single causal source — the gantt and every
+ * headline KPI read it, so they stay consistent. Neutral levers → identity
+ * (honest baseline preserved).
+ */
+export function applyPlanLevers(base: BerthingPlanEntry[], levers: SimLevers): BerthingPlanEntry[] {
+  return base.map((p) => {
+    if (p.ACTUAL_START === null) return p;
+    const { startH, serviceH } = leverPlanSlip(levers, p);
+    if (startH === 0 && serviceH === 0) return p;
+    const startMs = startH * 3_600_000;
+    const endMs = (startH + serviceH) * 3_600_000;
+    return {
+      ...p,
+      ACTUAL_START: p.ACTUAL_START + startMs,
+      ACTUAL_END: p.ACTUAL_END === null ? null : p.ACTUAL_END + endMs,
+    };
+  });
 }
 
 /** Overlay berths: lever outages (maintenance) then per-berth forced status. */

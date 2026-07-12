@@ -47,6 +47,9 @@ export const NODES: CausalNode[] = [
 
 export const EDGES: CausalEdge[] = [
   { from: 'weather', to: 'windwave', mechanism: 'raises wind/wave above limit' },
+  // Direct weather→queue path: a fog/visibility lift releases a bunch of held
+  // arrivals at once (used by M5, where the chain skips the pilotage-limit node).
+  { from: 'weather', to: 'arrivalQueue', mechanism: 'clearance releases held arrivals' },
   { from: 'windwave', to: 'pilotage', mechanism: 'suspends pilot transfer' },
   { from: 'pilotage', to: 'arrivalQueue', mechanism: 'halted boarding → vessels hold' },
   { from: 'tide', to: 'dukc', mechanism: 'sets available water column' },

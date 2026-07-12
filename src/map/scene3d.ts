@@ -503,7 +503,13 @@ export const graphicsFor3d = {
   vesselStatus: vesselStatusGraphics,
 };
 
-/** Resolve an asset id → [lng,lat] for camera focus (terminals, pilot, anchorages). */
+/**
+ * Resolve an asset id → [lng,lat] for camera focus / highlight ringing.
+ * Covers terminals, anchorages, the pilot boarding ground AND the channel
+ * segments (CH-OUTER…CH-QUAY) — the latter so DUKC/what-if beats that spotlight
+ * a stretch of channel (e.g. M2's CH-INNER) actually ring + fly on the map
+ * instead of silently no-op-ing.
+ */
 export function asset3dPosition(): Map<string, [number, number]> {
   const m = new Map<string, [number, number]>();
   for (const t of TERMINALS) m.set(t.id, [t.lng, t.lat]);
@@ -512,6 +518,12 @@ export function asset3dPosition(): Map<string, [number, number]> {
     const xs = a.ring.map((p) => p[0]);
     const ys = a.ring.map((p) => p[1]);
     m.set(a.id, [xs.reduce((s, x) => s + x, 0) / xs.length, ys.reduce((s, y) => s + y, 0) / ys.length]);
+  }
+  for (const seg of CHANNEL) {
+    // midpoint of the segment path
+    const xs = seg.path.map((p) => p[0]);
+    const ys = seg.path.map((p) => p[1]);
+    m.set(seg.id, [xs.reduce((s, x) => s + x, 0) / xs.length, ys.reduce((s, y) => s + y, 0) / ys.length]);
   }
   m.set(PILOT_STATION.id, [PILOT_STATION.lng, PILOT_STATION.lat]);
   return m;
