@@ -28,10 +28,9 @@ jobs:
 
       # --- Build SPA (mock mode) ---
       - name: Build Vite SPA
-        run: npm run build
+        run: node --max-old-space-size=4096 ./node_modules/.bin/vite build
         env:
           VITE_DATA_MODE: mock
-          NODE_OPTIONS: "--max-old-space-size=2048"
 
       # --- Upload dist as artifact (optional, for debugging) ---
       - name: Upload dist artifact
