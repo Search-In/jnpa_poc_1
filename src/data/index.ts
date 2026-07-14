@@ -11,14 +11,24 @@
 import { env } from './config';
 import { MockAdapter } from './MockAdapter';
 import { ArcGISAdapter } from './ArcGISAdapter';
+import { LiveOverlayAdapter } from './LiveOverlayAdapter';
 import { SimAdapter } from '@/sim/SimAdapter';
 import type { DataAdapter } from './types';
 
+type DataMode = 'mock' | 'live' | 'hybrid';
+
 let singleton: DataAdapter | null = null;
 
-/** Build the base adapter for the mode (without the simulator overlay). */
-export function createBaseAdapter(mode: 'mock' | 'live' = env.dataMode): DataAdapter {
-  return mode === 'live' ? new ArcGISAdapter() : new MockAdapter();
+/**
+ * Build the base adapter for the mode (without the simulator overlay).
+ *   mock   → MockAdapter (offline).
+ *   live   → ArcGISAdapter (real feeds only).
+ *   hybrid → MockAdapter with real aisstream.io vessels composited on top.
+ */
+export function createBaseAdapter(mode: DataMode = env.dataMode): DataAdapter {
+  if (mode === 'live') return new ArcGISAdapter();
+  if (mode === 'hybrid') return new LiveOverlayAdapter(new MockAdapter());
+  return new MockAdapter();
 }
 
 /**
@@ -26,7 +36,7 @@ export function createBaseAdapter(mode: 'mock' | 'live' = env.dataMode): DataAda
  * Simulator page's controls overlay every read. The wrapper is transparent when
  * no override is set, so this is safe as the app-wide default.
  */
-export function createAdapter(mode: 'mock' | 'live' = env.dataMode): DataAdapter {
+export function createAdapter(mode: DataMode = env.dataMode): DataAdapter {
   return new SimAdapter(createBaseAdapter(mode));
 }
 

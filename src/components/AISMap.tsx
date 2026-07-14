@@ -72,6 +72,7 @@ const VESSEL_POPUP = {
         { fieldName: 'COG', label: 'COG (°)' },
         { fieldName: 'HEADING', label: 'Heading (°)' },
         { fieldName: 'BERTH_ID', label: 'Berth' },
+        { fieldName: 'SOURCE', label: 'Source' },
       ],
     },
   ],
@@ -91,6 +92,21 @@ function haloSymbol(status: Vessel['NAV_STATUS']) {
     color: navStatusColor[status] ?? tokens.accent,
     size: 16,
     outline: { color: '#ffffff', width: 1 },
+  };
+}
+
+/**
+ * Distinct ring drawn UNDER a real live-AIS vessel (SOURCE==='live'), so genuine
+ * traffic is unmistakable next to the simulated fleet. A larger, hollow bright
+ * green ring reads as a "live" badge without hiding the vessel's status halo.
+ */
+function liveRing() {
+  return {
+    type: 'simple-marker' as const,
+    style: 'circle' as const,
+    color: [0, 0, 0, 0],
+    size: 24,
+    outline: { color: '#22c55e', width: 2 },
   };
 }
 
@@ -117,6 +133,9 @@ function spriteSymbol(v: Vessel) {
 function vesselToGraphics(v: Vessel): Graphic[] {
   const geometry = new Point({ longitude: v.LON, latitude: v.LAT });
   const attributes = { ...v };
+  // Real live-AIS vessels get a green "LIVE" ring drawn first (underneath).
+  const badge: Graphic[] =
+    v.SOURCE === 'live' ? [new Graphic({ geometry, attributes, symbol: liveRing() })] : [];
   const halo = new Graphic({ geometry, attributes, symbol: haloSymbol(v.NAV_STATUS) });
 
   if (v.NAV_STATUS === 'anchored') {
@@ -131,7 +150,7 @@ function vesselToGraphics(v: Vessel): Graphic[] {
       },
       popupTemplate: VESSEL_POPUP,
     });
-    return [halo, anchor];
+    return [...badge, halo, anchor];
   }
 
   const sprite = new Graphic({
@@ -140,7 +159,7 @@ function vesselToGraphics(v: Vessel): Graphic[] {
     symbol: spriteSymbol(v),
     popupTemplate: VESSEL_POPUP,
   });
-  return [halo, sprite];
+  return [...badge, halo, sprite];
 }
 
 /** Berth renders as a footprint polygon plus a quay/bollard marker at centroid. */

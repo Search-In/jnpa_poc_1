@@ -245,6 +245,7 @@ export function makeVessels(now: number, tick: number): Vessel[] {
       BERTH_ID:
         status === 'moored' || status === 'berthing' ? BERTHS[i % BERTHS.length].BERTH_ID : null,
       TIMESTAMP: now,
+      SOURCE: 'mock' as const,
     };
   });
 }

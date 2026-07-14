@@ -48,6 +48,12 @@ export interface Vessel {
   BERTH_ID: string | null;
   /** Position fix time (epoch ms). */
   TIMESTAMP: number;
+  /**
+   * Provenance of this position: 'live' = a real AIS fix from aisstream.io;
+   * 'mock' (or undefined) = the deterministic simulated fleet. Lets the map/feed
+   * badge real vessels so the twin never passes simulated traffic off as live.
+   */
+  SOURCE?: 'mock' | 'live';
 }
 
 /** A berth (quay position). Maps to the **Berths** layer. */
