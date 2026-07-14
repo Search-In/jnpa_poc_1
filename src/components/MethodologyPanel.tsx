@@ -14,6 +14,7 @@
 
 import { CalciteChip, CalciteIcon } from '@esri/calcite-components-react';
 import { ASSUMPTIONS, OSS } from '@/config/assumptions';
+import { SUITE_ASSUMPTIONS } from '@/config/suiteAssumptions';
 import { SOURCES } from '@/provenance/sources';
 import { tokens } from '@/theme/tokens';
 
@@ -216,6 +217,46 @@ export function MethodologyPanel() {
                   </td>
                   <td style={{ ...TD, color: tokens.textMuted }}>{a.source}</td>
                   <td style={TD}>{a.use}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      {/* 2b) SHARED SUITE REGISTER (A-01..A-06) — identical across UC-1/2/3 */}
+      <Section
+        title="2b · Suite data-provenance register (A-01…A-06)"
+        subtitle="The one numbered register shared by all three use cases (deck slide 6). Each cross-domain KPI delta and simulated feed cites one of these ids; each names the JNPA feed that replaces it post-award."
+      >
+        <div style={{ overflowX: 'auto' }}>
+          <table style={TABLE}>
+            <colgroup>
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '37%' }} />
+              <col style={{ width: '31%' }} />
+              <col style={{ width: '25%' }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style={TH}>ID</th>
+                <th style={TH}>Assumption</th>
+                <th style={TH}>Basis / justification</th>
+                <th style={TH}>Replaced by, post-award</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SUITE_ASSUMPTIONS.map((a) => (
+                <tr key={a.id}>
+                  <td style={{ ...TD, fontWeight: 700, color: tokens.accent }}>{a.id}</td>
+                  <td style={{ ...TD, color: tokens.text }}>
+                    {a.assumption}
+                    <span style={{ color: tokens.textMuted, fontSize: 11 }}>
+                      {' '}· {a.usedBy.join(', ')}
+                    </span>
+                  </td>
+                  <td style={{ ...TD, color: tokens.textMuted }}>{a.basis}</td>
+                  <td style={TD}>{a.replacedBy}</td>
                 </tr>
               ))}
             </tbody>

@@ -60,6 +60,7 @@ import { KPI_TARGETS } from '@/config/targets';
 import type { Berth } from '@/types/domain';
 import { useAppStore } from '@/store/useAppStore';
 import { useSimStore } from '@/sim/simStore';
+import { SCENARIOS, scenarioLevers } from '@/sim/scenarios';
 import { useSimClock } from '@/sim/useSimClock';
 import { useSimReactivity } from '@/sim/useSimReactivity';
 import { tokens } from '@/theme/tokens';
@@ -88,6 +89,26 @@ export function App() {
   }, []);
   useSimClock();
   useSimReactivity();
+
+  // Suite deep-link: `?scenario=<id>` opens straight into a what-if (parity with
+  // UC-2/UC-3), so the Suite DTCCC console can drive UC-1 as part of the
+  // cross-domain Monsoon-Friday chain. Deck/VTM ids map to the native M-ids:
+  //   VTM-1 (ship bunching)->M5 · VTM-2 (adverse weather)->M1 · VTM-3 (tidal
+  //   window closure / 14.5 m draft)->M2 · MONSOON-FRIDAY (suite trigger)->M2.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const raw = q.get('scenario');
+    if (!raw) return;
+    const MAP: Record<string, string> = {
+      'VTM-1': 'M5', 'VTM-2': 'M1', 'VTM-3': 'M2', 'MONSOON-FRIDAY': 'M2',
+    };
+    const id = MAP[raw.toUpperCase()] ?? raw;
+    if (!SCENARIOS.some((s) => s.id === id)) return;
+    const st = useSimStore.getState();
+    if (st.scenarioId != null) return; // don't clobber an in-progress run
+    st.loadScenario(id, scenarioLevers(id));
+    if (q.get('auto') !== '0') st.startTour(id, true);
+  }, []);
 
   const vessels = useAppStore((s) => s.vessels);
   const [berths, setBerths] = useState<Berth[]>([]);
