@@ -29,6 +29,7 @@ import type {
   NavStatus,
   PortCraftUnit,
   PredictionPoint,
+  TideStationsReading,
   Vessel,
   WeatherReading,
 } from '@/types/domain';
@@ -47,6 +48,7 @@ import { env } from './config';
 import { bucketArrivalsDepartures, computeWhatIf } from './MockAdapter';
 import { openAisStream } from './aisstream';
 import { fetchOpenMeteoWeather, parseLonLat } from './weather';
+import { fetchTideStations } from './tide';
 import { validateVessel, TrackQuality, type DqReason } from './quality';
 
 /**
@@ -399,6 +401,13 @@ export class ArcGISAdapter implements DataAdapter {
     // (the open-source met fallback the PoC brief allows).
     const { lat, lon } = parseLonLat(env.liveRegion.center);
     return fetchOpenMeteoWeather(lat, lon);
+  }
+
+  async getTideStations(): Promise<TideStationsReading> {
+    // Interim live source: Open-Meteo Marine per station. Real INCOIS OSF needs
+    // a server-side proxy + data agreement (see docs/INCOIS.md); the panel's
+    // TIDE SourceBadge labels this "interim — pending INCOIS OSF".
+    return fetchTideStations(this.now());
   }
 
   async runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {

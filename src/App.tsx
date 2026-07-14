@@ -33,6 +33,7 @@ import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselFeed } from '@/components/VesselFeed';
+import { VesselTable } from '@/components/VesselTable';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
@@ -47,6 +48,9 @@ import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { WeatherPanel } from '@/components/WeatherPanel';
+import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
+import { TideFieldLegend } from '@/components/TideFieldLegend';
+import { useTideFieldStore } from '@/map/tideFieldStore';
 import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
@@ -60,12 +64,15 @@ import { KPI_TARGETS } from '@/config/targets';
 import type { Berth } from '@/types/domain';
 import { useAppStore } from '@/store/useAppStore';
 import { useSimStore } from '@/sim/simStore';
+import { SCENARIOS, scenarioLevers } from '@/sim/scenarios';
 import { useSimClock } from '@/sim/useSimClock';
 import { useSimReactivity } from '@/sim/useSimReactivity';
 import { tokens } from '@/theme/tokens';
 
 const TABS = [
   { id: 'kpis', label: 'KPI Wall' },
+  { id: 'vessels', label: 'Vessels' },
+  { id: 'tide', label: 'Tide & Sea State' },
   { id: 'gantt', label: '5-Day Berthing' },
   { id: 'plan', label: 'Plan Import' },
   { id: 'dukc', label: 'DUKC / RTUKC' },
@@ -89,6 +96,26 @@ export function App() {
   useSimClock();
   useSimReactivity();
 
+  // Suite deep-link: `?scenario=<id>` opens straight into a what-if (parity with
+  // UC-2/UC-3), so the Suite DTCCC console can drive UC-1 as part of the
+  // cross-domain Monsoon-Friday chain. Deck/VTM ids map to the native M-ids:
+  //   VTM-1 (ship bunching)->M5 · VTM-2 (adverse weather)->M1 · VTM-3 (tidal
+  //   window closure / 14.5 m draft)->M2 · MONSOON-FRIDAY (suite trigger)->M2.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const raw = q.get('scenario');
+    if (!raw) return;
+    const MAP: Record<string, string> = {
+      'VTM-1': 'M5', 'VTM-2': 'M1', 'VTM-3': 'M2', 'MONSOON-FRIDAY': 'M2',
+    };
+    const id = MAP[raw.toUpperCase()] ?? raw;
+    if (!SCENARIOS.some((s) => s.id === id)) return;
+    const st = useSimStore.getState();
+    if (st.scenarioId != null) return; // don't clobber an in-progress run
+    st.loadScenario(id, scenarioLevers(id));
+    if (q.get('auto') !== '0') st.startTour(id, true);
+  }, []);
+
   const vessels = useAppStore((s) => s.vessels);
   const [berths, setBerths] = useState<Berth[]>([]);
   const highlights = useSimStore((s) => s.highlights);
@@ -97,6 +124,8 @@ export function App() {
   const simVersion = useSimStore((s) => s.version);
 
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
+  const tideFieldVisible = useTideFieldStore((s) => s.visible);
+  const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
@@ -227,6 +256,15 @@ export function App() {
                 {mapMode === '3d' && <PlacementToolbar />}
                 <CalciteButton
                   scale="s"
+                  appearance={tideFieldVisible ? 'solid' : 'outline'}
+                  iconStart="temperature"
+                  title="Toggle the INCOIS-style tide & sea-state heatmap field"
+                  onClick={() => toggleTideField()}
+                >
+                  Tide field
+                </CalciteButton>
+                <CalciteButton
+                  scale="s"
                   appearance="outline"
                   iconStart="exclamation-mark-triangle"
                   title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
@@ -258,6 +296,14 @@ export function App() {
               {mapMode === '3d' && (
                 <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
                   <DemoPlayer scene={scene} />
+                </div>
+              )}
+
+              {/* Tide/sea-state colorbar + variable selector — INCOIS-OSF style,
+                  floated bottom-right, shown when the heatmap field is on. */}
+              {tideFieldVisible && (
+                <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 5 }}>
+                  <TideFieldLegend />
                 </div>
               )}
             </div>
@@ -298,6 +344,18 @@ export function App() {
                   <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
                 </Panel>
               </div>
+            </CalciteTab>
+
+            <CalciteTab tab="vessels" selected={activeTab === 'vessels'}>
+              <Panel title="All vessels — live AIS feed" height={640}>
+                <VesselTable />
+              </Panel>
+            </CalciteTab>
+
+            <CalciteTab tab="tide" selected={activeTab === 'tide'}>
+              <Panel title="Tide & Sea State — INCOIS OSF (interim: Open-Meteo Marine)" height={640}>
+                <TideSeaStatePanel />
+              </Panel>
             </CalciteTab>
 
             <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>

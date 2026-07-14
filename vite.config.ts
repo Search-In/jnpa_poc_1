@@ -28,6 +28,39 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       // basicSsl() sets https; this is a no-op when the plugin isn't loaded.
+      proxy: {
+        // AISHub's public station map.json (used by the hybrid live overlay) sends
+        // no CORS header and gates data behind an aishub.net-origin request, so a
+        // direct browser fetch fails. In dev we proxy through the Vite server:
+        // /aishub-proxy/station/2387/map.json → https://www.aishub.net/station/2387/map.json
+        // with the Origin/Referer the endpoint expects. Production needs an
+        // equivalent server-side proxy (documented in docs/AISHUB.md).
+        '/aishub-proxy': {
+          target: 'https://www.aishub.net',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (p) => p.replace(/^\/aishub-proxy/, ''),
+          headers: {
+            Referer: 'https://www.aishub.net/stations/2387',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+        },
+        // INCOIS Ocean State Forecast (tide + sea state). INCOIS exposes no
+        // free, public, CORS-enabled tide/OSF API (its open ERDDAP carries only
+        // satellite winds/SST and sends no CORS header), so a real INCOIS feed
+        // must be proxied server-side. This dev stub is wired for the day an
+        // INCOIS OSF endpoint + data agreement land — point `target` at it and
+        // switch src/data/tide.ts to fetch /incois-osf-proxy/… . Until then the
+        // Tide & Sea State feature runs on the interim Open-Meteo source and this
+        // proxy is dormant. Production needs an equivalent server-side proxy
+        // (documented in docs/INCOIS.md).
+        '/incois-osf-proxy': {
+          target: 'https://samudra.incois.gov.in',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (p) => p.replace(/^\/incois-osf-proxy/, ''),
+        },
+      },
     },
   };
 });

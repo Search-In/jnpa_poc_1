@@ -20,6 +20,7 @@ import type {
   BerthingPlanEntry,
   NavStatus,
   PortCraftUnit,
+  TideStationsReading,
   Vessel,
   WeatherReading,
 } from '@/types/domain';
@@ -206,6 +207,26 @@ export function applyWeather(base: WeatherReading, snap: SimSnapshot): WeatherRe
   const l = snap.levers;
   if (l.weatherSeverity === 0 && l.tideOffsetM === 0 && l.channelDepthDeltaM === 0) return base;
   return weatherAt(snap.clockH, l);
+}
+
+/**
+ * Overlay the per-station tide + sea-state set with the scenario levers, so the
+ * Tide & Sea State panel stays consistent with the weather panel and DUKC under
+ * what-if: the tide offset shifts every station's height, and weather severity
+ * lifts sea state / swell (a storm hits the whole port). Neutral levers pass the
+ * base reading through unchanged. See [[uc1-whatif-consistency]].
+ */
+export function applyTideStations(base: TideStationsReading, snap: SimSnapshot): TideStationsReading {
+  const l = snap.levers;
+  if (l.weatherSeverity === 0 && l.tideOffsetM === 0) return base;
+  const stations = base.stations.map((st) => ({
+    ...st,
+    tideM: Number((st.tideM + l.tideOffsetM).toFixed(2)),
+    seaStateM: Number((st.seaStateM + l.weatherSeverity * 3.0).toFixed(1)),
+    swellM: Number((st.swellM + l.weatherSeverity * 1.5).toFixed(1)),
+    windKt: Number((st.windKt + l.weatherSeverity * 25).toFixed(1)),
+  }));
+  return { ...base, stations };
 }
 
 /** Re-derive a KPI card's signed delta-vs-target after a value nudge. */

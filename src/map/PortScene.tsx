@@ -37,6 +37,12 @@ import {
 import { portAssetLayers } from './portAssets3d';
 import { PORT_CENTER, PILOT_STATION, ANCHORAGES } from './portGeometry';
 import { tokens } from '../theme/tokens';
+import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { useSimStore } from '@/sim/simStore';
+import { getAdapter } from '@/data';
+import { tideFieldLayer, updateTideField } from './tideFieldLayer';
+import { useTideFieldStore } from './tideFieldStore';
+import type MediaLayer from '@arcgis/core/layers/MediaLayer';
 import type { Vessel, Berth } from '@/types/domain';
 
 /** Respect the OS "reduce motion" setting. */
@@ -108,10 +114,25 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     vesselStatus: FeatureLayer;
   } | null>(null);
   const selectionRef = useRef<GraphicsLayer | null>(null);
+  const tideFieldRef = useRef<MediaLayer | null>(null);
   /** Id of the asset the popup is currently anchored to (for popup actions). */
   const lastSelectedRef = useRef<string | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+
+  // Tide & sea-state raster field (same feed the Tide tab + 2D map use, so all
+  // three stay consistent). Rendered as an INCOIS-style interpolated heatmap;
+  // toggled via the scene Layers list. `variable` picks which field is shown.
+  const simVersion = useSimStore((s) => s.version);
+  const { data: tideData } = useAdapterQuery(
+    () => getAdapter().getTideStations(),
+    [simVersion],
+    60_000,
+  );
+  const tideStations = tideData?.stations ?? [];
+  const fieldVar = useTideFieldStore((s) => s.variable);
+  const setFieldRange = useTideFieldStore((s) => s.setRange);
+  const tideVisible = useTideFieldStore((s) => s.visible);
 
   // ---- selection ring (no camera move) ----
   // Drop the amber selection ring on an asset without flying the camera. A plain
@@ -207,13 +228,17 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     };
     layersRef.current = layers;
     const pilot = pilotStationLayer();
+    // Tide & sea-state raster field (off by default; toggled in the Layers list).
+    // Seeded empty; the tide data effect renders + refreshes the heatmap.
+    const tide = tideFieldLayer();
+    tideFieldRef.current = tide;
     // Real glTF port infrastructure (cranes, yard stacks, gates, trucks, tug,
     // berthed ships) placed from positions.json — vendored from UC-2 so UC-1
     // renders on the same surveyed JNPA geography with the same 3D assets.
     const assets = portAssetLayers();
     // Draw order: channel + anchorages (ground washes) under decks/berths, then
     // the static port models, with the pilot marker + live AIS vessels on top.
-    map.addMany([layers.channel, layers.anchorages, layers.decks, layers.berths, ...assets, pilot, layers.vessels, layers.vesselStatus]);
+    map.addMany([layers.channel, layers.anchorages, layers.decks, layers.berths, ...assets, pilot, tide, layers.vessels, layers.vesselStatus]);
 
     const selection = selectionLayer();
     selectionRef.current = selection;
@@ -321,6 +346,7 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
       viewRef.current = null;
       layersRef.current = null;
       selectionRef.current = null;
+      tideFieldRef.current = null;
     };
      
   }, []);
@@ -333,6 +359,19 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     void applyGraphics(layers.vesselStatus, graphicsFor3d.vesselStatus(props.vessels));
     void applyGraphics(layers.berths, graphicsFor3d.berths(props.berths));
   }, [props.vessels, props.berths]);
+
+  // ---- re-render the tide/sea-state raster field on reading or variable change ----
+  useEffect(() => {
+    const layer = tideFieldRef.current;
+    if (!layer) return;
+    const range = updateTideField(layer, tideStations, fieldVar);
+    setFieldRange(range);
+  }, [tideStations, fieldVar, setFieldRange]);
+
+  // Field visibility is store-driven (shared with the 2D map + colorbar).
+  useEffect(() => {
+    if (tideFieldRef.current) tideFieldRef.current.visible = tideVisible;
+  }, [tideVisible]);
 
   // ---- reframe / ring on highlight change ----
   useEffect(() => {

@@ -87,9 +87,24 @@ export const CONNECTORS: ConnectorContract[] = [
   },
   {
     id: 'TIDE',
-    contractVersion: '1.0.0',
-    driversImplemented: ['mock'],
-    providers: [{ name: 'INCOIS tide predictions', probable: true }, { name: 'Copernicus Marine' }],
+    contractVersion: '1.1.0',
+    // Interim live driver = Open-Meteo Marine per station (no key). Real INCOIS
+    // OSF needs a server-side proxy + data agreement (no free public CORS API);
+    // see docs/INCOIS.md and the /incois-osf-proxy Vite proxy stub.
+    driversImplemented: ['mock', 'live'],
+    providers: [
+      {
+        name: 'INCOIS Ocean State Forecast (SAMUDRA)',
+        probable: true,
+        docsUrl: 'https://incois.gov.in/site/services/osf.jsp',
+      },
+      {
+        name: 'Open-Meteo (marine) — interim live',
+        contractStub: true,
+        docsUrl: 'https://open-meteo.com/en/docs/marine-weather-api',
+      },
+      { name: 'Copernicus Marine' },
+    ],
   },
   {
     id: 'BATHY',

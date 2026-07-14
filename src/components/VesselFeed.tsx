@@ -49,10 +49,31 @@ function Row({ v }: { v: Vessel }) {
       />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
-          style={{ fontSize: 12, color: tokens.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}
           title={v.VESSEL_NAME}
         >
-          {v.VESSEL_NAME}
+          <span
+            style={{ fontSize: 12, color: tokens.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          >
+            {v.VESSEL_NAME}
+          </span>
+          {v.SOURCE === 'live' && (
+            <span
+              title="Real AIS position from aisstream.io"
+              style={{
+                flexShrink: 0,
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: 0.4,
+                color: '#052e16',
+                background: '#22c55e',
+                borderRadius: 3,
+                padding: '1px 4px',
+              }}
+            >
+              LIVE
+            </span>
+          )}
         </div>
         <div style={{ fontSize: 10, color: tokens.textMuted }}>
           {v.MMSI} · {v.SOG.toFixed(1)} kn · {Math.round(v.COG)}°

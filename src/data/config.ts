@@ -2,7 +2,13 @@
  * selector read config from one place (and missing-var errors are explicit). */
 
 export interface AppEnv {
-  dataMode: 'mock' | 'live';
+  /**
+   * mock   — offline simulated fleet, zero credentials (default).
+   * live   — real feeds only (Velocity StreamLayer / aisstream), no simulation.
+   * hybrid — simulated JNPA fleet WITH real aisstream.io vessels layered on top
+   *          (LiveOverlayAdapter). Needs VITE_AISSTREAM_TOKEN for the live layer.
+   */
+  dataMode: 'mock' | 'live' | 'hybrid';
   portalUrl: string;
   arcgisApiKey: string;
   oauthAppId: string;
@@ -16,6 +22,29 @@ export interface AppEnv {
     kpiSnapshots: string;
   };
   aisStreamToken: string;
+  /**
+   * AISHub public station-map live overlay (hybrid mode). Real JNPA/Nhava Sheva
+   * vessels scraped from the station's map.json (no API username needed). See
+   * src/data/aishub.ts. Disabled when `enabled` is false.
+   */
+  aisHub: {
+    enabled: boolean;
+    /** Station id covering the target port (2387 = JNPA/Mumbai). */
+    station: string;
+    /** Fetch base — dev proxy prefix by default (CORS + origin gating). */
+    proxyBase: string;
+    /**
+     * Serve the bundled JNPA sample when a live fetch is blocked/empty, so the
+     * demo shows real hulls rather than blank. Turn off for live-only.
+     */
+    useSampleFallback: boolean;
+    /**
+     * AoI box for AISHub DQ validation — the STATION's coverage, wider than the
+     * tight AISStream JNPA box (which would drop half the Mumbai-approaches
+     * hulls the station legitimately reports). [[swLat,swLon],[neLat,neLon]].
+     */
+    aoiBbox: number[][];
+  };
   weatherFeedUrl: string;
   /**
    * Default lookback (hours) for the historical/report widgets (berthing plan,
@@ -86,7 +115,7 @@ const ROTTERDAM_STANDIN_BBOX = [
 void ROTTERDAM_STANDIN_BBOX;
 
 export const env: AppEnv = {
-  dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live') ?? 'mock',
+  dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live' | 'hybrid') ?? 'mock',
   portalUrl: str(import.meta.env.VITE_PORTAL_URL, 'https://www.arcgis.com'),
   arcgisApiKey: str(import.meta.env.VITE_ARCGIS_API_KEY),
   oauthAppId: str(import.meta.env.VITE_OAUTH_APPID),
@@ -100,6 +129,20 @@ export const env: AppEnv = {
     kpiSnapshots: str(import.meta.env.VITE_FS_KPI_SNAPSHOTS_URL),
   },
   aisStreamToken: str(import.meta.env.VITE_AISSTREAM_TOKEN),
+  aisHub: {
+    // On by default in hybrid mode so the JNPA map shows real hulls out of the
+    // box (the bundled sample guarantees content even if the live fetch fails).
+    enabled: str(import.meta.env.VITE_AISHUB_ENABLED, 'true') !== 'false',
+    station: str(import.meta.env.VITE_AISHUB_STATION, '2387'),
+    proxyBase: str(import.meta.env.VITE_AISHUB_PROXY_BASE, '/aishub-proxy'),
+    useSampleFallback: str(import.meta.env.VITE_AISHUB_SAMPLE_FALLBACK, 'true') !== 'false',
+    // Station 2387 coverage (Mumbai/Nhava Sheva approaches), padded slightly.
+    // Overridable via VITE_AISHUB_AOI_BBOX="swLat,swLon,neLat,neLon".
+    aoiBbox: parseBbox(import.meta.env.VITE_AISHUB_AOI_BBOX, [
+      [18.7, 72.45],
+      [19.25, 73.0],
+    ]),
+  },
   weatherFeedUrl: str(import.meta.env.VITE_WEATHER_FEED_URL),
   historyHours: num(import.meta.env.VITE_HISTORY_HOURS, 336),
   liveRegion: {

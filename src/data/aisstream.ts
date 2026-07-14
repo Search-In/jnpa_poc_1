@@ -136,6 +136,7 @@ export function mapAisMessage(msg: unknown): Vessel | null {
     ETA: null,
     BERTH_ID: null,
     TIMESTAMP: Number.isNaN(ts) ? Date.now() : ts,
+    SOURCE: 'live',
   };
 }
 

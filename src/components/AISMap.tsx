@@ -30,7 +30,12 @@ import EsriMap from '@arcgis/core/Map';
 import WebMap from '@arcgis/core/WebMap';
 
 import { useAppStore } from '@/store/useAppStore';
+import { useSimStore } from '@/sim/simStore';
+import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { tideFieldLayer, updateTideField } from '@/map/tideFieldLayer';
+import { useTideFieldStore } from '@/map/tideFieldStore';
+import type MediaLayer from '@arcgis/core/layers/MediaLayer';
 import { env } from '@/data/config';
 import { asset3dPosition } from '@/map/scene3d';
 import { useHighlightIds } from '@/whatif/useHighlight';
@@ -72,10 +77,12 @@ const VESSEL_POPUP = {
         { fieldName: 'COG', label: 'COG (°)' },
         { fieldName: 'HEADING', label: 'Heading (°)' },
         { fieldName: 'BERTH_ID', label: 'Berth' },
+        { fieldName: 'SOURCE', label: 'Source' },
       ],
     },
   ],
 };
+
 
 /** A vessel whose AIS ship type is missing/uncategorised (small craft, or
  *  static data not yet received). These are hidden when the toggle is off. */
@@ -91,6 +98,21 @@ function haloSymbol(status: Vessel['NAV_STATUS']) {
     color: navStatusColor[status] ?? tokens.accent,
     size: 16,
     outline: { color: '#ffffff', width: 1 },
+  };
+}
+
+/**
+ * Distinct ring drawn UNDER a real live-AIS vessel (SOURCE==='live'), so genuine
+ * traffic is unmistakable next to the simulated fleet. A larger, hollow bright
+ * green ring reads as a "live" badge without hiding the vessel's status halo.
+ */
+function liveRing() {
+  return {
+    type: 'simple-marker' as const,
+    style: 'circle' as const,
+    color: [0, 0, 0, 0],
+    size: 24,
+    outline: { color: '#22c55e', width: 2 },
   };
 }
 
@@ -117,6 +139,9 @@ function spriteSymbol(v: Vessel) {
 function vesselToGraphics(v: Vessel): Graphic[] {
   const geometry = new Point({ longitude: v.LON, latitude: v.LAT });
   const attributes = { ...v };
+  // Real live-AIS vessels get a green "LIVE" ring drawn first (underneath).
+  const badge: Graphic[] =
+    v.SOURCE === 'live' ? [new Graphic({ geometry, attributes, symbol: liveRing() })] : [];
   const halo = new Graphic({ geometry, attributes, symbol: haloSymbol(v.NAV_STATUS) });
 
   if (v.NAV_STATUS === 'anchored') {
@@ -131,7 +156,7 @@ function vesselToGraphics(v: Vessel): Graphic[] {
       },
       popupTemplate: VESSEL_POPUP,
     });
-    return [halo, anchor];
+    return [...badge, halo, anchor];
   }
 
   const sprite = new Graphic({
@@ -140,7 +165,7 @@ function vesselToGraphics(v: Vessel): Graphic[] {
     symbol: spriteSymbol(v),
     popupTemplate: VESSEL_POPUP,
   });
-  return [halo, sprite];
+  return [...badge, halo, sprite];
 }
 
 /** Berth renders as a footprint polygon plus a quay/bollard marker at centroid. */
@@ -198,6 +223,7 @@ export function AISMap() {
   const vesselLayerRef = useRef<GraphicsLayer | null>(null);
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
   const assetLayerRef = useRef<GraphicsLayer | null>(null);
+  const tideLayerRef = useRef<MediaLayer | null>(null);
   const selectionLayerRef = useRef<GraphicsLayer | null>(null);
   const [ready, setReady] = useState(false);
   /**
@@ -221,6 +247,19 @@ export function AISMap() {
   const vessels = useAppStore((s) => s.vessels);
   // What-if / guided-tour spotlight ids — ringed on the map, same as PortScene.
   const highlights = useHighlightIds();
+  // Tide & sea-state raster field (same feed the Tide tab uses, so map + table
+  // stay consistent). Re-fetches on a sim override. `variable` picks the field.
+  const simVersion = useSimStore((s) => s.version);
+  const { data: tideData } = useAdapterQuery(
+    () => getAdapter().getTideStations(),
+    [simVersion],
+    60_000
+  );
+  const tideStations = tideData?.stations ?? [];
+  const fieldVar = useTideFieldStore((s) => s.variable);
+  const setFieldRange = useTideFieldStore((s) => s.setRange);
+  const tideVisible = useTideFieldStore((s) => s.visible);
+  const toggleTideVisible = useTideFieldStore((s) => s.toggleVisible);
 
   // Whether to bind the WebMap: only if configured AND not already failed.
   const useWebMap = Boolean(env.webMapId) && !webMapFailed;
@@ -270,13 +309,16 @@ export function AISMap() {
     // Static port infrastructure (cranes, yards, gates, trucks, tug, berthed
     // ships) placed from positions.json — the flat twin of the 3D model fleet.
     const assetLayer = buildPortAssets2dLayer();
+    // Tide & sea-state raster field (off by default; toggled from the legend).
+    const tideLayer = tideFieldLayer();
     // Selection rings sit ON TOP so a highlighted asset reads over everything.
     const selectionLayer = new GraphicsLayer({ title: '_selection' });
     vesselLayerRef.current = vesselLayer;
     berthLayerRef.current = berthLayer;
     assetLayerRef.current = assetLayer;
+    tideLayerRef.current = tideLayer;
     selectionLayerRef.current = selectionLayer;
-    map.addMany([berthLayer, assetLayer, vesselLayer, selectionLayer]);
+    map.addMany([berthLayer, assetLayer, tideLayer, vesselLayer, selectionLayer]);
 
     view
       .when(() => {
@@ -307,6 +349,7 @@ export function AISMap() {
     return () => {
       viewRef.current = null;
       selectionLayerRef.current = null;
+      tideLayerRef.current = null;
       teardownFallback();
       view.destroy();
     };
@@ -344,12 +387,26 @@ export function AISMap() {
     layer.addMany(shown.flatMap(vesselToGraphics));
   }, [vessels, ready, showUnknown]);
 
+  // Re-render the tide/sea-state raster field on reading or variable change.
+  useEffect(() => {
+    const layer = tideLayerRef.current;
+    if (!layer || !ready) return;
+    const range = updateTideField(layer, tideStations, fieldVar);
+    setFieldRange(range);
+  }, [tideStations, fieldVar, ready, setFieldRange]);
+
   // Apply layer visibility toggles.
   useEffect(() => {
     if (vesselLayerRef.current) vesselLayerRef.current.visible = visible.vessels;
     if (berthLayerRef.current) berthLayerRef.current.visible = visible.berths;
     if (assetLayerRef.current) assetLayerRef.current.visible = visible.assets;
   }, [visible]);
+
+  // The tide raster field's visibility is shared (store-driven) so the map, the
+  // legend/colorbar, and the 3D scene stay in lockstep.
+  useEffect(() => {
+    if (tideLayerRef.current) tideLayerRef.current.visible = tideVisible;
+  }, [tideVisible, ready]);
 
   const toggle = (k: LayerKey) => setVisible((v) => ({ ...v, [k]: !v[k] }));
 
@@ -448,6 +505,11 @@ export function AISMap() {
             {label}
           </CalciteLabel>
         ))}
+        {/* Store-driven so it stays in lockstep with the 3D scene + the colorbar. */}
+        <CalciteLabel layout="inline" scale="s" style={{ marginBottom: 2 }}>
+          <CalciteCheckbox checked={tideVisible || undefined} onCalciteCheckboxChange={() => toggleTideVisible()} />
+          Tide &amp; Sea State
+        </CalciteLabel>
         <CalciteLabel layout="inline" scale="s" style={{ marginBottom: 2 }}>
           <CalciteCheckbox
             checked={showUnknown || undefined}

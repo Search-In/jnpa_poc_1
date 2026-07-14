@@ -20,6 +20,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  TideStationsReading,
   Vessel,
   WeatherReading,
 } from '@/types/domain';
@@ -41,6 +42,7 @@ import {
   applyKpis,
   applyPlanLevers,
   applyPortCraft,
+  applyTideStations,
   applyVessels,
   applyWeather,
 } from './applySim';
@@ -126,6 +128,10 @@ export class SimAdapter implements DataAdapter {
 
   async getWeather(): Promise<WeatherReading> {
     return applyWeather(await this.base.getWeather(), snap());
+  }
+
+  async getTideStations(): Promise<TideStationsReading> {
+    return applyTideStations(await this.base.getTideStations(), snap());
   }
 
   async getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]> {

@@ -48,6 +48,12 @@ export interface Vessel {
   BERTH_ID: string | null;
   /** Position fix time (epoch ms). */
   TIMESTAMP: number;
+  /**
+   * Provenance of this position: 'live' = a real AIS fix from aisstream.io;
+   * 'mock' (or undefined) = the deterministic simulated fleet. Lets the map/feed
+   * badge real vessels so the twin never passes simulated traffic off as live.
+   */
+  SOURCE?: 'mock' | 'live';
 }
 
 /** A berth (quay position). Maps to the **Berths** layer. */
@@ -126,6 +132,41 @@ export interface WeatherReading {
   visibilityNm: number;
   /** Tide height above chart datum, metres. */
   tideM: number;
+}
+
+/**
+ * Per-station tide + sea-state reading, keyed to a fixed monitoring point
+ * (terminal, pilot boarding ground, anchorage). One row per station in the
+ * Tide & Sea State overlay/table. Production source is INCOIS OSF; the interim
+ * live source is Open-Meteo Marine (labelled as such via the TIDE SourceBadge).
+ */
+export interface TideStation {
+  /** Stable station id, e.g. 'TS-NSICT'. */
+  STATION_ID: string;
+  /** Human label, e.g. 'NSICT Terminal'. */
+  NAME: string;
+  LAT: number;
+  LON: number;
+  /** Tide height above chart datum, metres. */
+  tideM: number;
+  /** Tide trend at the reading time — rising / falling / slack. */
+  tideTrend: 'rising' | 'falling' | 'slack';
+  /** Significant wave height (sea state), metres. */
+  seaStateM: number;
+  /** Swell height, metres (0 when the source doesn't report it). */
+  swellM: number;
+  /** Wind speed at the station, knots. */
+  windKt: number;
+  /** Wind direction, degrees true. */
+  windDir: number;
+  /** Reading time (epoch ms). */
+  TS: number;
+}
+
+/** The full set of tide/sea-state stations for one poll of the overlay + table. */
+export interface TideStationsReading {
+  TS: number;
+  stations: TideStation[];
 }
 
 /** An ETA prediction paired with the eventual actual, for accuracy KPI. */
