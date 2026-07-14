@@ -13,6 +13,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  TideStationsReading,
   WeatherReading,
 } from '@/types/domain';
 import type { KpiBundle } from '@/types/kpi';
@@ -33,6 +34,7 @@ import {
   makePortCraft,
   makePredictions,
   makeVessels,
+  makeTideStations,
   makeWeather,
 } from './mock/fixtures';
 
@@ -145,6 +147,10 @@ export class MockAdapter implements DataAdapter {
 
   async getWeather(): Promise<WeatherReading> {
     return makeWeather(this.now(), this.tick);
+  }
+
+  async getTideStations(): Promise<TideStationsReading> {
+    return makeTideStations(this.now(), this.tick);
   }
 
   async getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]> {

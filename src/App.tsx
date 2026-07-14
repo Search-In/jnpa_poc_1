@@ -48,6 +48,9 @@ import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { WeatherPanel } from '@/components/WeatherPanel';
+import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
+import { TideFieldLegend } from '@/components/TideFieldLegend';
+import { useTideFieldStore } from '@/map/tideFieldStore';
 import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
@@ -69,6 +72,7 @@ import { tokens } from '@/theme/tokens';
 const TABS = [
   { id: 'kpis', label: 'KPI Wall' },
   { id: 'vessels', label: 'Vessels' },
+  { id: 'tide', label: 'Tide & Sea State' },
   { id: 'gantt', label: '5-Day Berthing' },
   { id: 'plan', label: 'Plan Import' },
   { id: 'dukc', label: 'DUKC / RTUKC' },
@@ -120,6 +124,8 @@ export function App() {
   const simVersion = useSimStore((s) => s.version);
 
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
+  const tideFieldVisible = useTideFieldStore((s) => s.visible);
+  const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
@@ -250,6 +256,15 @@ export function App() {
                 {mapMode === '3d' && <PlacementToolbar />}
                 <CalciteButton
                   scale="s"
+                  appearance={tideFieldVisible ? 'solid' : 'outline'}
+                  iconStart="temperature"
+                  title="Toggle the INCOIS-style tide & sea-state heatmap field"
+                  onClick={() => toggleTideField()}
+                >
+                  Tide field
+                </CalciteButton>
+                <CalciteButton
+                  scale="s"
                   appearance="outline"
                   iconStart="exclamation-mark-triangle"
                   title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
@@ -281,6 +296,14 @@ export function App() {
               {mapMode === '3d' && (
                 <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
                   <DemoPlayer scene={scene} />
+                </div>
+              )}
+
+              {/* Tide/sea-state colorbar + variable selector — INCOIS-OSF style,
+                  floated bottom-right, shown when the heatmap field is on. */}
+              {tideFieldVisible && (
+                <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 5 }}>
+                  <TideFieldLegend />
                 </div>
               )}
             </div>
@@ -326,6 +349,12 @@ export function App() {
             <CalciteTab tab="vessels" selected={activeTab === 'vessels'}>
               <Panel title="All vessels — live AIS feed" height={640}>
                 <VesselTable />
+              </Panel>
+            </CalciteTab>
+
+            <CalciteTab tab="tide" selected={activeTab === 'tide'}>
+              <Panel title="Tide & Sea State — INCOIS OSF (interim: Open-Meteo Marine)" height={640}>
+                <TideSeaStatePanel />
               </Panel>
             </CalciteTab>
 

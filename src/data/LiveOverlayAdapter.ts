@@ -31,6 +31,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  TideStationsReading,
   Vessel,
   WeatherReading,
 } from '@/types/domain';
@@ -257,6 +258,9 @@ export class LiveOverlayAdapter implements DataAdapter {
   }
   getWeather(): Promise<WeatherReading> {
     return this.base.getWeather();
+  }
+  getTideStations(): Promise<TideStationsReading> {
+    return this.base.getTideStations();
   }
   getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]> {
     return this.base.getKpiHistory(window);

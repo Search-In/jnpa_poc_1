@@ -70,9 +70,9 @@ export const SOURCES: SourceMeta[] = [
   {
     id: 'TIDE',
     label: 'Tide',
-    prodSource: 'INCOIS tide predictions',
+    prodSource: 'INCOIS OSF / SAMUDRA (interim: Open-Meteo Marine)',
     cadence: '6 min (predicted), hourly (observed)',
-    role: 'Tide height above chart datum — the DUKC water column.',
+    role: 'Tide height above chart datum + sea state — the DUKC water column.',
   },
   {
     id: 'BATHY',

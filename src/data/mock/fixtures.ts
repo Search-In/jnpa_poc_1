@@ -13,9 +13,12 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  TideStation,
+  TideStationsReading,
   Vessel,
   WeatherReading,
 } from '@/types/domain';
+import { TIDE_STATIONS } from '../tide';
 import {
   TERMINALS,
   channelCentreline,
@@ -363,4 +366,41 @@ export function makeWeather(now: number, tick: number): WeatherReading {
     visibilityNm: Number((6 + rnd() * 4).toFixed(1)),
     tideM: Number((2.5 + Math.sin(tick / 6) * 1.5).toFixed(2)),
   };
+}
+
+/**
+ * Simulated tide + sea-state readings for the fixed station roster (offline /
+ * mock mode). A shared semidiurnal tide phase drives every station's height (so
+ * the whole port rises/falls together, as it physically would), with a small
+ * per-station offset; sea state trends up toward the exposed outer stations.
+ */
+export function makeTideStations(now: number, tick: number): TideStationsReading {
+  // Semidiurnal-ish phase: full cycle every ~12 ticks. Height and its slope one
+  // step earlier give the rising/falling/slack trend.
+  const phase = tick / 6;
+  const height = (p: number, offset: number) => 2.5 + Math.sin(p) * 1.5 + offset;
+  const stations: TideStation[] = TIDE_STATIONS.map((s, i) => {
+    const rnd = seededRandom(41 + i * 13 + tick);
+    const offset = (i - 2) * 0.08; // slight spatial gradient across the port
+    const hNow = height(phase, offset);
+    const hPrev = height(phase - 0.15, offset);
+    const dh = hNow - hPrev;
+    const trend: TideStation['tideTrend'] = dh > 0.02 ? 'rising' : dh < -0.02 ? 'falling' : 'slack';
+    // Outer stations (later in the roster) see rougher water.
+    const exposure = 0.6 + i * 0.18;
+    return {
+      STATION_ID: s.STATION_ID,
+      NAME: s.NAME,
+      LAT: s.LAT,
+      LON: s.LON,
+      tideM: Number(hNow.toFixed(2)),
+      tideTrend: trend,
+      seaStateM: Number((exposure + rnd() * 0.4).toFixed(1)),
+      swellM: Number((exposure * 0.6 + rnd() * 0.3).toFixed(1)),
+      windKt: Number((10 + rnd() * 8).toFixed(1)),
+      windDir: Math.round(220 + rnd() * 40),
+      TS: now,
+    };
+  });
+  return { TS: now, stations };
 }

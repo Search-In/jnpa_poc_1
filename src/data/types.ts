@@ -14,6 +14,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  TideStationsReading,
   Vessel,
   WeatherReading,
 } from '@/types/domain';
@@ -104,6 +105,12 @@ export interface DataAdapter {
 
   /** Latest weather/sea-state reading. */
   getWeather(): Promise<WeatherReading>;
+
+  /**
+   * Per-station tide + sea-state readings for the Tide & Sea State overlay/table.
+   * Production source INCOIS OSF; interim live source Open-Meteo Marine.
+   */
+  getTideStations(): Promise<TideStationsReading>;
 
   /** Persisted KPI snapshots for trend charts over the window. */
   getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]>;
