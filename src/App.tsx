@@ -33,6 +33,7 @@ import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselFeed } from '@/components/VesselFeed';
+import { VesselTable } from '@/components/VesselTable';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
@@ -67,6 +68,7 @@ import { tokens } from '@/theme/tokens';
 
 const TABS = [
   { id: 'kpis', label: 'KPI Wall' },
+  { id: 'vessels', label: 'Vessels' },
   { id: 'gantt', label: '5-Day Berthing' },
   { id: 'plan', label: 'Plan Import' },
   { id: 'dukc', label: 'DUKC / RTUKC' },
@@ -319,6 +321,12 @@ export function App() {
                   <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
                 </Panel>
               </div>
+            </CalciteTab>
+
+            <CalciteTab tab="vessels" selected={activeTab === 'vessels'}>
+              <Panel title="All vessels — live AIS feed" height={640}>
+                <VesselTable />
+              </Panel>
             </CalciteTab>
 
             <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>

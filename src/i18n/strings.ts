@@ -26,6 +26,7 @@ const en: Catalogue = {
   'role.label': 'Role',
   'role.readonly': 'READ-ONLY',
   'tab.kpis': 'KPI Wall',
+  'tab.vessels': 'Vessels',
   'tab.gantt': '5-Day Berthing',
   'tab.plan': 'Plan Import',
   'tab.dukc': 'DUKC / RTUKC',
