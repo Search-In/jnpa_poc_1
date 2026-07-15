@@ -257,8 +257,9 @@ function truckGraphics(): Graphic[] {
     const brg = (hd * Math.PI) / 180;
     const mPerDegLon = 111_320 * Math.cos((p[1] * Math.PI) / 180);
     for (let k = 0; k < TRUCKS_PER_ROUTE; k++) {
-      // Trail trucks ~14 m apart back along the route bearing.
-      const back = k * 14;
+      // Trail trucks back along the route bearing. Spacing exceeds the longest
+      // truck GLB (container-truck ≈ 23 m at height 8) so queued trucks never overlap.
+      const back = k * 26;
       const lng = p[0] - (Math.sin(brg) * back) / mPerDegLon;
       const lat = p[1] - (Math.cos(brg) * back) / M_PER_DEG_LAT;
       out.push(
