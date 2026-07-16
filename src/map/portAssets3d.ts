@@ -259,7 +259,7 @@ function truckGraphics(): Graphic[] {
     for (let k = 0; k < TRUCKS_PER_ROUTE; k++) {
       // Trail trucks back along the route bearing. Spacing exceeds the longest
       // truck GLB (container-truck ≈ 23 m at height 8) so queued trucks never overlap.
-      const back = k * 26;
+      const back = k * 30;
       const lng = p[0] - (Math.sin(brg) * back) / mPerDegLon;
       const lat = p[1] - (Math.cos(brg) * back) / M_PER_DEG_LAT;
       out.push(
