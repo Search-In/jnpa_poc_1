@@ -356,7 +356,7 @@ export function makePredictions(now: number): PredictionPoint[] {
   });
 }
 
-export function makeWeather(now: number, tick: number): WeatherReading {
+export function makeWeather(now: number, tick: number, rainMmHr = 0): WeatherReading {
   const rnd = seededRandom(7 + tick);
   return {
     TS: now,
@@ -365,6 +365,9 @@ export function makeWeather(now: number, tick: number): WeatherReading {
     seaStateM: Number((1.2 + rnd() * 0.8).toFixed(1)),
     visibilityNm: Number((6 + rnd() * 4).toFixed(1)),
     tideM: Number((2.5 + Math.sin(tick / 6) * 1.5).toFixed(2)),
+    // Optional rain — omitted entirely when 0 so the default demo is byte-identical
+    // (the WeatherPanel Rain metric only renders when rainMmHr is present).
+    ...(rainMmHr > 0 ? { rainMmHr: Number(rainMmHr.toFixed(1)) } : {}),
   };
 }
 

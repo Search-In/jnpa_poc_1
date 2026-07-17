@@ -43,6 +43,14 @@ export const NODES: CausalNode[] = [
   { id: 'preBerthDelay', label: 'Pre-berthing delay', domain: 'kpi', desc: 'Time from ready-to-berth to alongside vs target.' },
   { id: 'jit', label: 'Just-In-Time', domain: 'kpi', desc: 'Share of arrivals meeting their just-in-time window.' },
   { id: 'tat', label: 'Vessel TAT', domain: 'kpi', desc: 'Overall turnaround time, pilot-boarding to deboarding.' },
+  // --- UC-1 additive nodes (rain, marine incidents, dredging, berth-release cascade) ---
+  { id: 'rain', label: 'Rainfall', domain: 'weather', desc: 'Rain intensity at the approach (mm/h).', where: ['ANCH-OUTER'] },
+  { id: 'visibility', label: 'Visibility', domain: 'weather', desc: 'Horizontal visibility for safe pilot transfer / navigation.', where: ['PBG'] },
+  { id: 'incident', label: 'Marine incident', domain: 'pilotage', desc: 'Oil spill or accident (collision/grounding) in the approach.', where: ['CH-INNER'] },
+  { id: 'channelClosure', label: 'Fairway closure', domain: 'channel', desc: 'Channel segment closed while a spill is contained / an incident cleared.', where: ['CH-INNER', 'CH-TURN'] },
+  { id: 'dredging', label: 'Dredging', domain: 'channel', desc: 'Maintenance dredging restoring controlling depth.', where: ['CH-INNER'] },
+  { id: 'berthService', label: 'Alongside window', domain: 'berth', desc: 'Service/alongside interval a call occupies its berth.', where: ['NSICT', 'GTI'] },
+  { id: 'berthRelease', label: 'Berth release', domain: 'berth', desc: 'When a berth frees for the next vessel.', where: ['NSICT', 'GTI'] },
 ];
 
 export const EDGES: CausalEdge[] = [
@@ -65,6 +73,18 @@ export const EDGES: CausalEdge[] = [
   { from: 'preBerthDelay', to: 'tat', mechanism: 'adds to turnaround' },
   { from: 'berthingSeq', to: 'jit', mechanism: 'hits/misses JIT windows' },
   { from: 'arrivalQueue', to: 'jit', mechanism: 'queueing misses windows' },
+  // --- UC-1 additive edges (only light up when the new scenarios/levers are set) ---
+  { from: 'rain', to: 'visibility', mechanism: 'heavy rain cuts visibility' },
+  { from: 'visibility', to: 'pilotage', mechanism: 'below minimum suspends transfer' },
+  { from: 'incident', to: 'channelClosure', mechanism: 'spill/accident closes the fairway' },
+  { from: 'incident', to: 'pilotage', mechanism: 'emergency suspends movements' },
+  { from: 'channelClosure', to: 'deepDraftWindow', mechanism: 'removes the transit route' },
+  { from: 'channelClosure', to: 'arrivalQueue', mechanism: 'inbound vessels hold' },
+  { from: 'dredging', to: 'bathymetry', mechanism: 'restores controlling depth' },
+  { from: 'berthingSeq', to: 'berthService', mechanism: 'sets the alongside interval' },
+  { from: 'berthService', to: 'berthRelease', mechanism: 'overrun delays release' },
+  { from: 'berthService', to: 'tat', mechanism: 'longer alongside raises TAT' },
+  { from: 'berthRelease', to: 'jit', mechanism: 'late release slips the next JIT' },
 ];
 
 export const NODE_BY_ID: Record<string, CausalNode> = Object.fromEntries(NODES.map((n) => [n.id, n]));

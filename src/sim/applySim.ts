@@ -143,8 +143,9 @@ interface PlanSlip {
  * Zero when the twin is neutral, so JIT / delays / TAT match the honest baseline.
  */
 function leverPlanSlip(levers: SimLevers, entry: BerthingPlanEntry): PlanSlip {
-  // Siltation (negative channelDepthDeltaM) → metres of depth lost.
-  const depthLossM = Math.max(0, -levers.channelDepthDeltaM);
+  // NET siltation: negative channelDepthDeltaM (loss) offset by dredgeRestoreM
+  // (an additive dredging campaign adds depth back). Both default 0.
+  const depthLossM = Math.max(0, -(levers.channelDepthDeltaM + (levers.dredgeRestoreM ?? 0)));
 
   let startH = 0;
   startH += levers.weatherSeverity * 4; // storm hold
@@ -152,10 +153,15 @@ function leverPlanSlip(levers: SimLevers, entry: BerthingPlanEntry): PlanSlip {
   startH += depthLossM * 3; // wait for a higher tide (deep-draft window loss)
   startH += Math.min(levers.extraArrivals, 8) * 0.25; // bunching
   if (levers.berthsOut.includes(entry.BERTH_ID)) startH += 3; // reassignment wait
+  // UC-1 additive causes (all levers default 0 → no effect on the baseline):
+  startH += Math.min((levers.rainMmHr ?? 0) * 0.05, 3); // rain squall cuts visibility → pilotage hold (≤3h)
+  startH += (levers.oilSpill ?? 0) * 6; // oil spill closes the fairway → transit deferred (≤6h)
+  startH += (levers.accident ?? 0) * 5; // marine accident suspends movements (≤5h)
 
   let serviceH = 0;
   serviceH += levers.tugsDown * 0.5; // slower unberthing extends the turn
   serviceH += depthLossM * 0.5; // narrower windows stretch the departure
+  serviceH += levers.berthWindowExtendH ?? 0; // extended berth/service window → longer alongside → TAT grows
 
   return { startH, serviceH };
 }
@@ -205,7 +211,7 @@ export function applyWeather(base: WeatherReading, snap: SimSnapshot): WeatherRe
   // The derived reading is a strict function of the levers; when neutral it
   // returns essentially the calm baseline, so prefer it whenever any lever is set.
   const l = snap.levers;
-  if (l.weatherSeverity === 0 && l.tideOffsetM === 0 && l.channelDepthDeltaM === 0) return base;
+  if (l.weatherSeverity === 0 && l.tideOffsetM === 0 && l.channelDepthDeltaM === 0 && (l.rainMmHr ?? 0) === 0) return base;
   return weatherAt(snap.clockH, l);
 }
 

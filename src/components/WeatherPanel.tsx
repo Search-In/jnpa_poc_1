@@ -68,6 +68,7 @@ export function WeatherPanel() {
             <Metric label="Sea state" value={data.seaStateM} unit="m" />
             <Metric label="Visibility" value={data.visibilityNm} unit="nm" />
             <Metric label="Tide" value={data.tideM} unit="m" />
+            {data.rainMmHr !== undefined && <Metric label="Rain" value={data.rainMmHr} unit="mm/h" />}
           </>
         )}
       </div>

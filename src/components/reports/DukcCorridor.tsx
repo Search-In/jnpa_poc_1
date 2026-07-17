@@ -30,6 +30,7 @@ import {
   corridorUkc,
   plannedTransits,
   tideNow,
+  channelSegmentsClosed,
   type PlannedTransit,
 } from '@/sim/derive';
 import {
@@ -110,6 +111,11 @@ export function DukcCorridor() {
   // Live corridor colouring at the current tide (re-derives every tick).
   const corridor = useMemo(() => corridorUkc(clockH, levers), [clockH, levers]);
 
+  // Fairway segments closed by an active oil-spill incident (empty by default).
+  // Only non-empty when the oil-spill lever/scenario (M7) is active — the corridor
+  // marks these segments CLOSED and treats them as inactive (no-go), additively.
+  const closed = useMemo(() => new Set(channelSegmentsClosed(levers)), [levers]);
+
   // Per-segment UKC profile for the SELECTED transit (its own draft/hull).
   const profile = useMemo(() => {
     if (!selected) return null;
@@ -117,7 +123,7 @@ export function DukcCorridor() {
     return CHANNEL.map((seg) =>
       computeUkc({
         staticDraftM: selected.staticDraftM,
-        chartedDepthM: seg.chartedDepthM + levers.channelDepthDeltaM,
+        chartedDepthM: seg.chartedDepthM + levers.channelDepthDeltaM + (levers.dredgeRestoreM ?? 0),
         tideM: tide,
         speedKt: 8,
         blockCoef: selected.blockCoef,
@@ -201,7 +207,7 @@ export function DukcCorridor() {
     const tide = tideNow(clockH, levers);
     // Live readout is taken at the controlling (shallowest transited) depth —
     // the pinch point that actually governs the vessel underway.
-    const controlling = Math.min(...CHANNEL.map((s) => s.chartedDepthM + levers.channelDepthDeltaM));
+    const controlling = Math.min(...CHANNEL.map((s) => s.chartedDepthM + levers.channelDepthDeltaM + (levers.dredgeRestoreM ?? 0)));
     // Underway speed a touch faster than the planning speed → more squat live.
     return computeUkc({
       staticDraftM: liveTransit.staticDraftM,
@@ -237,10 +243,14 @@ export function DukcCorridor() {
           {corridor.map(({ seg, ukcM, status, availableM, requiredM }) => {
             const lit = hl.has(seg.id);
             const dim = hl.any && !lit;
+            // A closed segment (oil-spill incident) is inactive: shown greyed +
+            // hatched with a CLOSED label, overriding the UKC status colour.
+            const isClosed = closed.has(seg.id);
+            const topColor = isClosed ? tokens.textMuted : statusColor(status);
             return (
             <div
               key={seg.id}
-              title={`${seg.name} · available ${availableM} m · required ${requiredM} m${lit ? ' · spotlighted by the active scenario' : ''}`}
+              title={`${seg.name} · available ${availableM} m · required ${requiredM} m${isClosed ? ' · CLOSED (marine incident — fairway secured)' : ''}${lit ? ' · spotlighted by the active scenario' : ''}`}
               style={{
                 flex: 1,
                 minWidth: 0,
@@ -249,13 +259,15 @@ export function DukcCorridor() {
                 gap: 2,
                 padding: '8px 6px',
                 borderRadius: tokens.radius.sm,
-                background: lit ? `${tokens.accent}14` : tokens.panelAlt,
-                opacity: dim ? 0.45 : 1,
-                borderTop: `3px solid ${statusColor(status)}`,
+                background: isClosed
+                  ? `repeating-linear-gradient(45deg, ${tokens.panelAlt}, ${tokens.panelAlt} 6px, ${tokens.panel} 6px, ${tokens.panel} 12px)`
+                  : lit ? `${tokens.accent}14` : tokens.panelAlt,
+                opacity: isClosed ? 0.7 : dim ? 0.45 : 1,
+                borderTop: `3px solid ${topColor}`,
                 border: `1px solid ${lit ? tokens.accent : tokens.border}`,
                 boxShadow: lit ? `0 0 0 1px ${tokens.accent}` : 'none',
                 borderTopWidth: 3,
-                borderTopColor: statusColor(status),
+                borderTopColor: topColor,
                 transition: 'opacity 120ms ease',
               }}
             >
@@ -263,11 +275,11 @@ export function DukcCorridor() {
                 {seg.name}
               </span>
               <span style={{ fontSize: 10, color: tokens.textMuted }}>charted {seg.chartedDepthM} m</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: statusColor(status), fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: isClosed ? tokens.textMuted : statusColor(status), fontVariantNumeric: 'tabular-nums' }}>
                 {ukcM.toFixed(2)} m
               </span>
-              <span style={{ fontSize: 9.5, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                UKC · {status === 'noGo' ? 'no-go' : status}
+              <span style={{ fontSize: 9.5, color: isClosed ? tokens.warn : tokens.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: isClosed ? 700 : 400 }}>
+                {isClosed ? '⛔ Closed' : `UKC · ${status === 'noGo' ? 'no-go' : status}`}
               </span>
             </div>
             );
