@@ -33,7 +33,7 @@ const M_TO_NM = 1 / 1852;
 export async function fetchOpenMeteoWeather(lat: number, lon: number): Promise<WeatherReading> {
   const forecastUrl =
     `${FORECAST}?latitude=${lat}&longitude=${lon}` +
-    `&current=wind_speed_10m,wind_direction_10m,visibility&wind_speed_unit=kn`;
+    `&current=wind_speed_10m,wind_direction_10m,visibility,precipitation&wind_speed_unit=kn`;
   const marineUrl =
     `${MARINE}?latitude=${lat}&longitude=${lon}&current=wave_height,sea_level_height_msl`;
 
@@ -59,5 +59,7 @@ export async function fetchOpenMeteoWeather(lat: number, lon: number): Promise<W
     visibilityNm: Number((num(fc.visibility) * M_TO_NM).toFixed(1)),
     // Sea-level height MSL stands in for tide; clamp the typical range.
     tideM: Number(num(mc.sea_level_height_msl).toFixed(2)),
+    // Live precipitation (mm/h) — additive rain support; absent endpoints → 0.
+    rainMmHr: Number(num(fc.precipitation).toFixed(1)),
   };
 }

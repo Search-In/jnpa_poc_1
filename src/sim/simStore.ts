@@ -45,6 +45,17 @@ export interface SimLevers {
   berthsOut: string[];
   /** Extra arrivals compressed into the window (vessel bunching). */
   extraArrivals: number;
+  // --- UC-1 additive levers (default 0/off → identical behaviour when neutral) ---
+  /** Rainfall intensity, mm/hour (weather rain enhancement → visibility → pilotage). */
+  rainMmHr: number;
+  /** Oil-spill severity 0..1 (marine incident → fairway closure + pilotage hold). */
+  oilSpill: number;
+  /** Marine-accident severity 0..1 (collision/grounding → movements suspended). */
+  accident: number;
+  /** Hours the alongside/service window is extended (service overrun → TAT). */
+  berthWindowExtendH: number;
+  /** Metres of controlling depth RESTORED by dredging (offsets siltation loss). */
+  dredgeRestoreM: number;
 }
 
 export const NEUTRAL_LEVERS: SimLevers = {
@@ -55,6 +66,11 @@ export const NEUTRAL_LEVERS: SimLevers = {
   tugsDown: 0,
   berthsOut: [],
   extraArrivals: 0,
+  rainMmHr: 0,
+  oilSpill: 0,
+  accident: 0,
+  berthWindowExtendH: 0,
+  dredgeRestoreM: 0,
 };
 
 /** Berth statuses an operator can force from the simulator. */
@@ -372,7 +388,12 @@ export function hasOverrides(l: SimLevers): boolean {
     l.pilotsDown > 0 ||
     l.tugsDown > 0 ||
     l.berthsOut.length > 0 ||
-    l.extraArrivals > 0
+    l.extraArrivals > 0 ||
+    l.rainMmHr > 0 ||
+    l.oilSpill > 0 ||
+    l.accident > 0 ||
+    l.berthWindowExtendH > 0 ||
+    l.dredgeRestoreM > 0
   );
 }
 

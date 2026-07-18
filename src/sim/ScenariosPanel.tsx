@@ -17,7 +17,7 @@ import {
 } from '@esri/calcite-components-react';
 import { useSimStore, NEUTRAL_LEVERS, hasOverrides, type SimLevers } from '@/sim/simStore';
 import { SCENARIOS } from '@/sim/scenarios';
-import { weatherAt, pilotageSuspended } from '@/sim/derive';
+import { weatherAt, pilotageSuspended, incidentSuspendsMovements } from '@/sim/derive';
 import { SourceBadge } from '@/provenance/SourceBadge';
 import { PanelLoading, PanelError } from '@/components/common/Panel';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
@@ -29,7 +29,17 @@ import { tokens } from '@/theme/tokens';
 interface LeverSpec {
   key: keyof Pick<
     SimLevers,
-    'weatherSeverity' | 'tideOffsetM' | 'channelDepthDeltaM' | 'pilotsDown' | 'tugsDown' | 'extraArrivals'
+    | 'weatherSeverity'
+    | 'tideOffsetM'
+    | 'channelDepthDeltaM'
+    | 'pilotsDown'
+    | 'tugsDown'
+    | 'extraArrivals'
+    | 'rainMmHr'
+    | 'oilSpill'
+    | 'accident'
+    | 'berthWindowExtendH'
+    | 'dredgeRestoreM'
   >;
   label: string;
   min: number;
@@ -48,6 +58,12 @@ const LEVERS: LeverSpec[] = [
   { key: 'pilotsDown', label: 'Pilots unavailable', min: 0, max: 4, step: 1, scale: 1, hint: 'roster shortfall → JIT slip' },
   { key: 'tugsDown', label: 'Tugs unavailable', min: 0, max: 4, step: 1, scale: 1, hint: 'unberthing slip' },
   { key: 'extraArrivals', label: 'Extra arrivals', min: 0, max: 8, step: 1, scale: 1, hint: 'vessel bunching into the window' },
+  // --- UC-1 additive levers (default 0 / OFF — identical baseline when untouched) ---
+  { key: 'rainMmHr', label: 'Rain intensity', min: 0, max: 80, step: 5, scale: 1, unit: 'mm/h', hint: 'rain squall → visibility → pilotage' },
+  { key: 'oilSpill', label: 'Oil spill severity', min: 0, max: 1, step: 0.1, scale: 10, hint: 'fairway closure + movement hold' },
+  { key: 'accident', label: 'Marine accident', min: 0, max: 1, step: 0.1, scale: 10, hint: 'grounding/collision → movements held' },
+  { key: 'berthWindowExtendH', label: 'Extended berth window', min: 0, max: 12, step: 1, scale: 1, unit: 'h', hint: 'service overrun → TAT' },
+  { key: 'dredgeRestoreM', label: 'Dredging restore', min: 0, max: 1, step: 0.1, scale: 10, unit: 'm', hint: 'restores controlling depth (offsets siltation)' },
 ];
 
 function fmtLever(spec: LeverSpec, value: number): string {
@@ -70,7 +86,11 @@ export function Scenarios(_props: { onResult?: (r: unknown) => void }) {
   const berthsQuery = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), []);
 
   const weather = weatherAt(clockH, levers);
-  const suspended = pilotageSuspended(weather);
+  // A marine incident (oil spill / accident) also suspends pilot boarding and
+  // vessel movements while it is active — resumes automatically once cleared
+  // (levers reset). Default levers → incident false → identical to before.
+  const incident = incidentSuspendsMovements(levers);
+  const suspended = pilotageSuspended(weather) || incident;
   const dirty = hasOverrides(levers);
 
   const runScenario = (id: string, lv: Partial<SimLevers>) => {
@@ -313,14 +333,21 @@ export function Scenarios(_props: { onResult?: (r: unknown) => void }) {
           <Readout label="Sea state" value={`${weather.seaStateM.toFixed(1)} m`} />
           <Readout label="Visibility" value={`${weather.visibilityNm.toFixed(1)} NM`} />
           <Readout label="Tide" value={`${weather.tideM.toFixed(2)} m`} />
+          {weather.rainMmHr !== undefined && weather.rainMmHr > 0 && (
+            <Readout label="Rain" value={`${weather.rainMmHr.toFixed(1)} mm/h`} />
+          )}
         </div>
 
         <CalciteNotice open scale="s" kind={suspended ? 'warning' : 'success'} icon={suspended ? 'exclamation-mark-triangle' : 'check-circle'}>
-          <div slot="title">{suspended ? 'Pilotage suspended' : 'Pilotage available'}</div>
+          <div slot="title">
+            {incident ? 'Movements suspended — marine incident' : suspended ? 'Pilotage suspended' : 'Pilotage available'}
+          </div>
           <div slot="message">
-            {suspended
-              ? 'Simulated: synthesised wind / sea-state exceed the pilot-transfer limit under these levers — inbound vessels would hold at the anchorage.'
-              : 'Simulated: synthesised conditions are within the pilot-transfer limit under these levers.'}
+            {incident
+              ? 'Simulated: an oil spill / marine accident is active under these levers — pilot boarding and vessel movements are held until the incident clears.'
+              : suspended
+                ? 'Simulated: synthesised wind / sea-state / visibility exceed the pilot-transfer limit under these levers — inbound vessels would hold at the anchorage.'
+                : 'Simulated: synthesised conditions are within the pilot-transfer limit under these levers.'}
           </div>
         </CalciteNotice>
       </section>

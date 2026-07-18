@@ -132,6 +132,12 @@ export interface WeatherReading {
   visibilityNm: number;
   /** Tide height above chart datum, metres. */
   tideM: number;
+  /**
+   * Rainfall intensity, mm/hour (optional — additive, UC-1 weather enhancement).
+   * Absent on legacy/mock readings that predate rain support; consumers must
+   * treat `undefined` as "no rain data" and never as 0 mm/h implicitly.
+   */
+  rainMmHr?: number;
 }
 
 /**

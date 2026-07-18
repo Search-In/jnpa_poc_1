@@ -22,6 +22,7 @@ import { tokens } from '@/theme/tokens';
 import { istDateTime } from '@/util/format';
 import { SourceBadge } from '@/provenance/SourceBadge';
 import { PanelEmpty, PanelLoading } from '@/components/common/Panel';
+import { TatPredictionCard } from './TatPredictionCard';
 
 const H = 3_600_000;
 
@@ -184,6 +185,9 @@ export function AnalyticsPanel() {
           </div>
         )}
       </section>
+
+      {/* Optional forward TAT forecast (feature model) — hidden until requested. */}
+      <TatPredictionCard />
 
       {/* Optimiser */}
       <section>
