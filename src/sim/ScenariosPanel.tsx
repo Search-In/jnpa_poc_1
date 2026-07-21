@@ -196,8 +196,8 @@ export function Scenarios(_props: { onResult?: (r: unknown) => void }) {
                   {sc.summary}
                 </p>
 
-                <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.space.sm }}>
-                  <CalciteChip scale="s" title={sc.rubric}>
+                <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.space.sm, flexWrap: 'wrap', rowGap: tokens.space.xs }}>
+                  <CalciteChip scale="s" title={sc.rubric} style={{ minWidth: 0, maxWidth: '100%' }}>
                     {sc.rubric}
                   </CalciteChip>
                   <CalciteButton
@@ -205,6 +205,7 @@ export function Scenarios(_props: { onResult?: (r: unknown) => void }) {
                     iconStart={active ? 'check' : 'play'}
                     appearance={active ? 'solid' : 'outline'}
                     onClick={() => runScenario(sc.id, sc.levers)}
+                    style={{ flexShrink: 0, marginLeft: 'auto' }}
                   >
                     {active ? 'Running' : 'Run'}
                   </CalciteButton>
