@@ -34,6 +34,8 @@ import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselFeed } from '@/components/VesselFeed';
 import { VesselTable } from '@/components/VesselTable';
+import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
+import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
@@ -127,6 +129,9 @@ export function App() {
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
   const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
+  // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
+  // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
+  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'upload'>('live');
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
   // SceneView is mounted and can receive the imperative handle. The callback ref
@@ -347,9 +352,36 @@ export function App() {
             </CalciteTab>
 
             <CalciteTab tab="vessels" selected={activeTab === 'vessels'}>
-              <Panel title="All vessels — live AIS feed" height={640}>
-                <VesselTable />
-              </Panel>
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="v-live" selected={vesselSubTab === 'live'} onCalciteTabsActivate={() => setVesselSubTab('live')}>
+                    Live AIS Feed
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-calls" selected={vesselSubTab === 'calls'} onCalciteTabsActivate={() => setVesselSubTab('calls')}>
+                    Vessel Calls
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
+                    Data Upload
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing AIS feed — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="v-live" selected={vesselSubTab === 'live'}>
+                  <Panel title="All vessels — live AIS feed" height={640}>
+                    <VesselTable />
+                  </Panel>
+                </CalciteTab>
+
+                {/* New: UC-3 vessel calls (core.vessel_call). */}
+                <CalciteTab tab="v-calls" selected={vesselSubTab === 'calls'}>
+                  <VesselCallsPanel />
+                </CalciteTab>
+
+                {/* New: UC-3 vessel-call CSV upload. */}
+                <CalciteTab tab="v-upload" selected={vesselSubTab === 'upload'}>
+                  <MarineUploadPanel />
+                </CalciteTab>
+              </CalciteTabs>
             </CalciteTab>
 
             <CalciteTab tab="tide" selected={activeTab === 'tide'}>

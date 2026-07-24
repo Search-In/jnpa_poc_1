@@ -106,3 +106,49 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
+
+/**
+ * Multipart sender. Deliberately sets NO `content-type`: the browser must write
+ * it itself so the generated multipart boundary matches the body. Setting it by
+ * hand (as `send()` does for JSON) produces a boundary-less header and the
+ * gateway rejects the part. Everything else — URL resolution, bearer — matches
+ * `send()`.
+ */
+async function sendForm(path: string, form: FormData, token: string): Promise<Response> {
+  return fetch(uc3Url(path), {
+    method: 'POST',
+    body: form,
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
+/**
+ * Authenticated multipart POST against the UC-3 gateway — the file-upload
+ * counterpart to `http()`, used by the Marine Data-Upload endpoints
+ * (`/marine/validate`, `/marine/upload`).
+ *
+ * Identical control flow to `http()`: the disabled-gate, one 401 retry, the same
+ * descriptive error. Re-sending is safe because a browser `FormData` holding a
+ * `File` is serialised per request, not consumed like a stream.
+ *
+ * @param path suffix relative to `env.uc3.apiBase`, e.g. '/marine/validate'
+ * @throws when UC-3 is disabled, the login fails, or the response is non-2xx
+ */
+export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  if (!env.uc3.enabled) {
+    throw new Error(`[UC3] ${path} — UC-3 integration is disabled (VITE_UC3_ENABLED=false)`);
+  }
+
+  let res = await sendForm(path, form, await getAuthToken());
+
+  if (res.status === 401) {
+    clearAuthToken();
+    res = await sendForm(path, form, await getAuthToken());
+  }
+
+  if (!res.ok) {
+    throw new Error(httpErrorMessage(path, res.status, res.statusText, await readErrorDetail(res)));
+  }
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}

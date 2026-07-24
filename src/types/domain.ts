@@ -224,3 +224,125 @@ export interface ShippingLine {
   /** Advance-list container rows attributed to this carrier. */
   containerCount: number;
 }
+
+/* ==========================================================================
+ * UC-1 Marine — vessel CALLS (UC-3 backed, `core.vessel_call`).
+ *
+ * A vessel CALL is a port VISIT (one row per arrival→departure), sourced from
+ * the NLP-Marine PCS message family (CALINF → BERMAN → BERALT/PLTMEM → VESARR →
+ * VESDEP → CALINV) and normalised by the UC-3 backend.
+ *
+ * This is a DIFFERENT entity from `Vessel` above: `Vessel` is live AIS/simulated
+ * telemetry (position, SOG/COG, nav status) driving the 3D scene and the
+ * simulator; `VesselCall` is scheduling/actuals reference data with no position.
+ * They are NOT joinable today — a call carries IMO/VCN, a Vessel carries MMSI —
+ * so the two must never be merged into one table or one feed.
+ *
+ * Convention (same as ShippingLine): camelCase fields, timestamps as epoch ms
+ * with 0 meaning "unknown/absent", never null.
+ * ========================================================================== */
+
+/** One vessel call (port visit). Mirrors `core.vessel_call`. */
+export interface VesselCall {
+  /** Surrogate key; the only field the UI can reliably key on. */
+  callId: number;
+  /** Full PCS Vessel Call Number, e.g. 'INNSA1BM0R3119'. '' when not yet assigned. */
+  vcn: string;
+  /** Short VIA form, e.g. 'S0561'. Recycles across years — NOT unique. */
+  viaNo: string;
+  /** IMO number. '' when the call is not yet linked to a vessel master row. */
+  imoNo: string;
+  vesselName: string;
+  voyageNo: string;
+  rotationNo: string;
+  /** FK to the terminal dimension; null until reference resolution runs. */
+  terminalId: number | null;
+  /** FK to the berth dimension; null until a berth is allotted/resolved. */
+  berthId: number | null;
+  purpose: string;
+  /** Free-text lifecycle state — the backend deliberately imposes no vocabulary. */
+  status: string;
+  /** Linked customs manifest number, when known. */
+  igmNo: number | null;
+  sourceNote: string;
+  /** Estimated: arrival / berthing / departure (epoch ms; 0 = unknown). */
+  eta: number;
+  etb: number;
+  etd: number;
+  /** Actual: arrival / completion-of-ops / departure (epoch ms; 0 = unknown). */
+  ata: number;
+  atc: number;
+  atd: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * One fine-grained actual on a call (anchored, pilot boarded, all fast, sailed…).
+ * The backend permits REPEATED event types at different timestamps (shifting, a
+ * second anchoring), so consumers must order by `eventTs` and never assume a
+ * milestone appears at most once.
+ */
+export interface VesselCallEvent {
+  eventId: number;
+  callId: number;
+  /** e.g. 'ANCHORED' | 'PILOT_BOARDED' | 'ALL_FAST' | 'SAILED'. Free-text. */
+  eventType: string;
+  /** Epoch ms; 0 = unparseable (the backend requires this column, so 0 is a red flag). */
+  eventTs: number;
+  berthId: number | null;
+  sourceFile: number | null;
+  createdAt: number;
+}
+
+/** Aggregate KPIs over the vessel-call set (UC-1 turnaround / pre-berthing delay). */
+export interface MarineCallStats {
+  total: number;
+  withVcn: number;
+  withoutVcn: number;
+  arrived: number;
+  inPort: number;
+  opsCompleted: number;
+  departed: number;
+  terminals: number;
+  /** Mean (atd − ata) in hours; null when no call has both actuals. */
+  avgTurnaroundHours: number | null;
+  /**
+   * Mean (ata − eta) in hours; null when unavailable. MAY BE NEGATIVE — a vessel
+   * arriving ahead of its ETA is real signal, not an error.
+   */
+  avgPreBerthDelayHours: number | null;
+  byStatus: { status: string; count: number }[];
+  byTerminal: { terminalId: number | null; count: number; inPort: number }[];
+}
+
+/** One row of the Marine CSV import ledger (`core.marine_import_files`). */
+export interface MarineUploadFile {
+  id: number;
+  filename: string;
+  fileHash: string;
+  /** 'CSV' today; the ledger allows XLS/XLSX/PDF for later formats. */
+  physicalFormat: string;
+  uploadedBy: string;
+  /** 'PENDING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED_DUPLICATE'. */
+  status: string;
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+  duplicateRows: number;
+  /** 'UPLOAD' (interactive) | 'DIRECTORY' (CLI importer). */
+  source: string;
+  errorDetail: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One per-row parse/validation error attached to an upload. */
+export interface MarineUploadRowError {
+  id: number;
+  /** 1-based source row; null for file-level (structural) errors. */
+  rowNumber: number | null;
+  errorMessage: string;
+  rawData: string;
+  createdAt: number;
+}
