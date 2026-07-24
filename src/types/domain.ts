@@ -413,3 +413,27 @@ export interface PortCraft {
   /** Raw parsed row + any unparsed remainder (never-drop-client-data). */
   extras: Record<string, unknown>;
 }
+
+/* ==========================================================================
+ * UC-1 Marine — SEA CHANNEL geometry (UC-3 backed, `core.sea_channel`).
+ *
+ * A JNPA navigation channel / anchorage / berth-pocket polygon from the
+ * JNPA_Sea_Channels ESRI shapefile, ingested via the shared marine upload endpoints.
+ * Geometry is GeoJSON reprojected to WGS84 (EPSG:4326) at parse time — the DUKC /
+ * tidal-window static overlay. camelCase; numeric fields null when the source omits.
+ * ========================================================================== */
+export interface SeaChannelGeometry {
+  type: 'Polygon';
+  /** WGS84 rings: [[[lon, lat], …], …]. */
+  coordinates: number[][][];
+}
+
+export interface SeaChannel {
+  channelId: number;
+  name: string;
+  sectionLabel: string;
+  areaHa: number | null;
+  lengthM: number | null;
+  /** GeoJSON Polygon (WGS84), or null if the record carried no geometry. */
+  geometry: SeaChannelGeometry | null;
+}

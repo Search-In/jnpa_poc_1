@@ -23,6 +23,8 @@ import { initialBasemap, installBasemapFallback, isOfflineRequested } from './ba
 import { applyGraphics } from './applyGraphics';
 import {
   channelLayer,
+  seaChannelLayer,
+  seaChannelGraphics,
   anchorageLayer,
   pilotStationLayer,
   terminalDeckLayer,
@@ -34,6 +36,7 @@ import {
   selectionLayer,
   selectionRing,
 } from './scene3d';
+import { fetchSeaChannelGeojson } from '@/data/uc3/seaChannels';
 import { portAssetLayers } from './portAssets3d';
 import { PORT_CENTER, PILOT_STATION, ANCHORAGES } from './portGeometry';
 import { tokens } from '../theme/tokens';
@@ -107,6 +110,7 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
   const viewRef = useRef<SceneView | null>(null);
   const layersRef = useRef<{
     channel: FeatureLayer;
+    seaChannels: FeatureLayer;
     anchorages: FeatureLayer;
     decks: FeatureLayer;
     berths: FeatureLayer;
@@ -220,6 +224,7 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
 
     const layers = {
       channel: channelLayer(),
+      seaChannels: seaChannelLayer(),
       anchorages: anchorageLayer(),
       decks: terminalDeckLayer(),
       berths: berthLayer(p0.berths),
@@ -238,7 +243,10 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     const assets = portAssetLayers();
     // Draw order: channel + anchorages (ground washes) under decks/berths, then
     // the static port models, with the pilot marker + live AIS vessels on top.
-    map.addMany([layers.channel, layers.anchorages, layers.decks, layers.berths, ...assets, pilot, tide, layers.vessels, layers.vesselStatus]);
+    // The uploaded sea-channel overlay sits just ABOVE the synthetic depth ribbon
+    // (so the DUKC channel stays visible underneath) and still UNDER decks/berths;
+    // every existing layer keeps its relative order.
+    map.addMany([layers.channel, layers.seaChannels, layers.anchorages, layers.decks, layers.berths, ...assets, pilot, tide, layers.vessels, layers.vesselStatus]);
 
     const selection = selectionLayer();
     selectionRef.current = selection;
@@ -359,6 +367,27 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     void applyGraphics(layers.vesselStatus, graphicsFor3d.vesselStatus(props.vessels));
     void applyGraphics(layers.berths, graphicsFor3d.berths(props.berths));
   }, [props.vessels, props.berths]);
+
+  // ---- populate the uploaded sea-channel overlay once, from the UC-3 backend ----
+  // Fetched from GET /api/marine/sea-channels/geojson. If UC-3 is off/unreachable or
+  // the backend returns an empty FeatureCollection, the layer stays empty (shows
+  // nothing) — the synthetic channel + everything else are unaffected.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const fc = await fetchSeaChannelGeojson();
+        const layers = layersRef.current;
+        if (!alive || !layers) return;
+        await applyGraphics(layers.seaChannels, seaChannelGraphics(fc.features));
+      } catch {
+        /* UC-3 disabled / offline / no upload yet → nothing to render */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // ---- re-render the tide/sea-state raster field on reading or variable change ----
   useEffect(() => {

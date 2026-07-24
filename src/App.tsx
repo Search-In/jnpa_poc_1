@@ -51,6 +51,7 @@ import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
 import { PortCraftRegisterTable } from '@/components/marine/PortCraftRegisterTable';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
+import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
 import { WeatherPanel } from '@/components/WeatherPanel';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
@@ -134,6 +135,21 @@ export function App() {
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
   const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload'>('live');
+  // DUKC tab sub-view. 'analysis' (the existing DukcCorridor / RTUKC view) is the default
+  // so the tab opens exactly as before; 'channels' hosts the sea-channel section.
+  const [dukcSubTab, setDukcSubTab] = useState<'analysis' | 'channels'>('analysis');
+  // Sea Channels section sub-view (nested under DUKC ▸ Sea Channels): 'data' (the
+  // SeaChannelTable, the default) or 'upload' (MarineUploadPanel + upload history).
+  const [seaChannelSubTab, setSeaChannelSubTab] = useState<'data' | 'upload'>('data');
+  // Bumped after a successful sea-channel import so the sibling SeaChannelTable remounts
+  // and refetches (DUKC ▸ Sea Channels). Presentation-only — no query logic changes.
+  const [seaChannelUploadKey, setSeaChannelUploadKey] = useState(0);
+  // Port Craft tab sub-view. 'list' (the existing board + register, the default) or
+  // 'upload' (MarineUploadPanel + upload history).
+  const [craftSubTab, setCraftSubTab] = useState<'list' | 'upload'>('list');
+  // Bumped after a successful port-craft import so the sibling PortCraftRegisterTable
+  // remounts and refetches. Presentation-only — no query logic changes.
+  const [portCraftUploadKey, setPortCraftUploadKey] = useState(0);
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
   // SceneView is mounted and can receive the imperative handle. The callback ref
@@ -409,17 +425,93 @@ export function App() {
               <PlanImportPanel />
             </CalciteTab>
             <CalciteTab tab="dukc" selected={activeTab === 'dukc'}>
-              <DukcCorridor />
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="d-analysis" selected={dukcSubTab === 'analysis'} onCalciteTabsActivate={() => setDukcSubTab('analysis')}>
+                    DUKC Analysis
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="d-channels" selected={dukcSubTab === 'channels'} onCalciteTabsActivate={() => setDukcSubTab('channels')}>
+                    Sea Channels
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing DUKC / RTUKC view — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="d-analysis" selected={dukcSubTab === 'analysis'}>
+                  <DukcCorridor />
+                </CalciteTab>
+
+                {/* Sea-channel section (DUKC domain) — its own nested Data / Upload tabs,
+                    same inline style as the Vessels sub-tabs. */}
+                <CalciteTab tab="d-channels" selected={dukcSubTab === 'channels'}>
+                  <CalciteTabs layout="inline">
+                    <CalciteTabNav slot="title-group">
+                      <CalciteTabTitle tab="sc-data" selected={seaChannelSubTab === 'data'} onCalciteTabsActivate={() => setSeaChannelSubTab('data')}>
+                        Sea Channel Data
+                      </CalciteTabTitle>
+                      <CalciteTabTitle tab="sc-upload" selected={seaChannelSubTab === 'upload'} onCalciteTabsActivate={() => setSeaChannelSubTab('upload')}>
+                        Data Upload
+                      </CalciteTabTitle>
+                    </CalciteTabNav>
+
+                    {/* Sea-channel register (core.sea_channel) — table only, the DEFAULT. */}
+                    <CalciteTab tab="sc-data" selected={seaChannelSubTab === 'data'}>
+                      <Panel title="Sea channels — UC-3 backend (core.sea_channel, WGS84 GeoJSON)" height={420}>
+                        <SeaChannelTable key={seaChannelUploadKey} />
+                      </Panel>
+                    </CalciteTab>
+
+                    {/* Sea-channel Data Upload + history. Reuses MarineUploadPanel with a
+                        SEA_CHANNEL config; on a successful import it bumps the key above so
+                        SeaChannelTable remounts and refetches. */}
+                    <CalciteTab tab="sc-upload" selected={seaChannelSubTab === 'upload'}>
+                      <MarineUploadPanel
+                        title="Sea-channel data upload — validate → import (UC-3 backend)"
+                        accept=".zip,.shp,application/zip,application/x-zip-compressed"
+                        showTemplate={false}
+                        helpText="Accepts the zipped ESRI shapefile bundle (e.g. JNPA_Sea_Channels.zip). The backend detects the format by content and reprojects to WGS84."
+                        onImported={() => setSeaChannelUploadKey((k) => k + 1)}
+                      />
+                    </CalciteTab>
+                  </CalciteTabs>
+                </CalciteTab>
+              </CalciteTabs>
             </CalciteTab>
             <CalciteTab tab="craft" selected={activeTab === 'craft'}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Existing live-ops board (mock/adapter) — unchanged. */}
-                <PortCraftBoard />
-                {/* New: UC-3 fleet register (core.port_craft) from the client PDF. */}
-                <Panel title="Port-craft fleet register — UC-3 backend (core.port_craft)" height={420}>
-                  <PortCraftRegisterTable />
-                </Panel>
-              </div>
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="pc-list" selected={craftSubTab === 'list'} onCalciteTabsActivate={() => setCraftSubTab('list')}>
+                    Port Craft List
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="pc-upload" selected={craftSubTab === 'upload'} onCalciteTabsActivate={() => setCraftSubTab('upload')}>
+                    Data Upload
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing craft content — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="pc-list" selected={craftSubTab === 'list'}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Existing live-ops board (mock/adapter) — unchanged. */}
+                    <PortCraftBoard />
+                    {/* UC-3 fleet register (core.port_craft) from the client PDF. */}
+                    <Panel title="Port-craft fleet register — UC-3 backend (core.port_craft)" height={420}>
+                      <PortCraftRegisterTable key={portCraftUploadKey} />
+                    </Panel>
+                  </div>
+                </CalciteTab>
+
+                {/* Port-craft Data Upload + history. Reuses MarineUploadPanel with a
+                    PORT_CRAFT (PDF) config; on a successful import it bumps the key above
+                    so PortCraftRegisterTable remounts and refetches. */}
+                <CalciteTab tab="pc-upload" selected={craftSubTab === 'upload'}>
+                  <MarineUploadPanel
+                    title="Port-craft data upload — validate → import (UC-3 backend)"
+                    accept=".pdf,application/pdf"
+                    showTemplate={false}
+                    helpText="Accepts the port-craft register PDF (e.g. Details_of_Port_Crafts.pdf). The backend detects the format by content."
+                    onImported={() => setPortCraftUploadKey((k) => k + 1)}
+                  />
+                </CalciteTab>
+              </CalciteTabs>
             </CalciteTab>
             <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
               <Scenarios />
