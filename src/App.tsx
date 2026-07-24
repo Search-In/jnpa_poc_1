@@ -135,6 +135,10 @@ export function App() {
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
   const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload'>('live');
+  // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
+  // VesselCallsPanel remounts and refetches — without this the calls table keeps the
+  // stale pre-import result. Presentation-only — no query logic changes.
+  const [vesselCallUploadKey, setVesselCallUploadKey] = useState(0);
   // DUKC tab sub-view. 'analysis' (the existing DukcCorridor / RTUKC view) is the default
   // so the tab opens exactly as before; 'channels' hosts the sea-channel section.
   const [dukcSubTab, setDukcSubTab] = useState<'analysis' | 'channels'>('analysis');
@@ -393,9 +397,10 @@ export function App() {
                   </Panel>
                 </CalciteTab>
 
-                {/* New: UC-3 vessel calls (core.vessel_call). */}
+                {/* New: UC-3 vessel calls (core.vessel_call). Keyed on the upload counter so a
+                    successful import on the Data Upload sub-tab remounts it and refetches. */}
                 <CalciteTab tab="v-calls" selected={vesselSubTab === 'calls'}>
-                  <VesselCallsPanel />
+                  <VesselCallsPanel key={vesselCallUploadKey} />
                 </CalciteTab>
 
                 {/* New: UC-3 pilotage movements (core.pilotage). */}
@@ -405,9 +410,10 @@ export function App() {
                   </Panel>
                 </CalciteTab>
 
-                {/* New: UC-3 vessel-call CSV upload. */}
+                {/* New: UC-3 vessel-call upload (CSV + BERMAN/CALINF/VESPRO XML + pilot XLSX).
+                    On a successful import, bump the key so the Vessel Calls sub-tab refetches. */}
                 <CalciteTab tab="v-upload" selected={vesselSubTab === 'upload'}>
-                  <MarineUploadPanel />
+                  <MarineUploadPanel onImported={() => setVesselCallUploadKey((k) => k + 1)} />
                 </CalciteTab>
               </CalciteTabs>
             </CalciteTab>
