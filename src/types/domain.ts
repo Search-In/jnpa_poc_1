@@ -194,3 +194,33 @@ export interface ArrivalsDeparturesBlock {
   arrivals: number;
   departures: number;
 }
+
+/**
+ * A shipping line (ocean carrier) in the shared JNPA registry — the master list
+ * behind `GET /api/shipping-lines/lines` on the UC-3 backend.
+ *
+ * Unlike `Vessel` / `Berth` / `BerthingPlanEntry` above, this does NOT mirror an
+ * ArcGIS Feature Service schema, so it follows the camelCase convention used by
+ * the other non-Feature-Service types here (`WeatherReading`,
+ * `ArrivalsDeparturesBlock`, the prediction fields) rather than UPPER_SNAKE.
+ * Timestamps are epoch ms, matching every other time field in this file.
+ */
+export interface ShippingLine {
+  /** Carrier code as it appears in the source advance lists, e.g. 'KMD'. */
+  lineCode: string;
+  /**
+   * Display name. The backend column `line_name` is currently ALWAYS null — the
+   * importer upserts `line_code` only — so this falls back to `lineCode`. It is
+   * therefore never null here, and a code showing where a name is expected is
+   * correct behaviour, not missing data.
+   */
+  lineName: string;
+  /** How the code was discovered, e.g. 'ADVANCE_LIST'. */
+  source: string;
+  /** First import that produced this code (epoch ms; 0 when unparseable). */
+  firstSeen: number;
+  /** Most recent import touching this code (epoch ms; 0 when unparseable). */
+  lastSeen: number;
+  /** Advance-list container rows attributed to this carrier. */
+  containerCount: number;
+}

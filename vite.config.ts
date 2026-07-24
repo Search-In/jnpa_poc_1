@@ -60,6 +60,23 @@ export default defineConfig(({ mode }) => {
           secure: true,
           rewrite: (p) => p.replace(/^\/incois-osf-proxy/, ''),
         },
+        // UC-3 shared backend gateway (the common /api surface: /api/auth/*,
+        // /api/shipping-lines/*). UC-1 and UC-3 are served from DIFFERENT origins
+        // in production, so a direct browser call would be cross-origin and need
+        // CORS. Instead BOTH tiers proxy /api to the gateway, so the app always
+        // fetches a RELATIVE /api path and stays same-origin — no CORS, no
+        // preflight, and no CORS_ALLOW_ORIGINS change on the gateway. This is the
+        // dev half; production needs the equivalent nginx block in
+        // deploy/nginx.conf (mirroring UC-3's own web/nginx/default.conf).
+        // No `rewrite`: the gateway's routes already live under /api, so the
+        // prefix is forwarded as-is (unlike the two proxies above, which strip it).
+        '/api': {
+          target: env.VITE_GATEWAY_URL || 'http://localhost:8000',
+          changeOrigin: true,
+          // Dev-only: allows pointing at an internal gateway with a self-signed
+          // cert. Production terminates TLS at nginx, which never uses this file.
+          secure: false,
+        },
       },
     },
   };

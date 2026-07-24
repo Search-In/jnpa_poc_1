@@ -20,6 +20,11 @@ interface ImportMetaEnv {
   readonly VITE_MAP_ZOOM?: string;
   readonly VITE_LIVE_REGION_LABEL?: string;
   readonly VITE_LIVE_REGION_IS_TARGET?: string;
+  // UC-3 shared backend (see src/data/config.ts → env.uc3).
+  readonly VITE_UC3_ENABLED?: string;
+  readonly VITE_UC3_API_BASE?: string;
+  readonly VITE_UC3_USERNAME?: string;
+  readonly VITE_UC3_PASSWORD?: string;
 }
 
 interface ImportMeta {

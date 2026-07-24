@@ -14,6 +14,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  ShippingLine,
   TideStationsReading,
   Vessel,
   WeatherReading,
@@ -114,6 +115,16 @@ export interface DataAdapter {
 
   /** Persisted KPI snapshots for trend charts over the window. */
   getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]>;
+
+  /**
+   * Shipping-line (ocean carrier) registry, busiest first.
+   *
+   * Reference master data, not vessel telemetry: the mock driver serves a local
+   * fixture and the live driver reads the shared UC-3 backend, so the list is
+   * available in every mode. It carries no MMSI, so it cannot be joined to
+   * `Vessel` — consumers use it for display/selection only.
+   */
+  getShippingLines(): Promise<ShippingLine[]>;
 
   /** Recompute KPIs under a hypothetical scenario (What-If stub). */
   runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult>;

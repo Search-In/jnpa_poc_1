@@ -13,6 +13,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  ShippingLine,
   TideStationsReading,
   WeatherReading,
 } from '@/types/domain';
@@ -29,6 +30,7 @@ import type {
 } from './types';
 import {
   BERTHS,
+  SHIPPING_LINES,
   makeBerthingPlan,
   makeKpiSnapshots,
   makePortCraft,
@@ -157,6 +159,15 @@ export class MockAdapter implements DataAdapter {
     const now = this.now();
     const { from, to } = resolveWindow(window, now);
     return makeKpiSnapshots(now).filter((s) => s.TS >= from && s.TS <= to);
+  }
+
+  /**
+   * Offline carrier registry. Serves the local fixture and makes NO network call
+   * — mock mode must stay zero-credential and fully offline, so this never
+   * reaches the UC-3 backend even when that integration is enabled.
+   */
+  async getShippingLines(): Promise<ShippingLine[]> {
+    return SHIPPING_LINES;
   }
 
   async runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {

@@ -127,6 +127,22 @@ export const CONNECTORS: ConnectorContract[] = [
     driversImplemented: ['mock'],
     providers: [{ name: 'Marine craft roster', probable: true }],
   },
+  {
+    // Unlike every connector above, this one already reads a REAL production
+    // backend — the shared JNPA gateway UC-3 hosts — so its live driver is not
+    // waiting on a third-party feed. `credentialEnvVar` is deliberately omitted:
+    // there is no external API key to provision (the PoC authenticates with a
+    // demo login against the shared gateway). Production still has to replace
+    // that bundled demo credential with a real service identity, which is why
+    // this is not claimed as fully cut over.
+    id: 'SHIPPING_LINE',
+    contractVersion: '1.0.0',
+    driversImplemented: ['mock', 'live'],
+    providers: [
+      { name: 'Shared JNPA backend (UC-3 gateway)', probable: true, contractStub: true },
+      { name: 'Direct carrier EDI / advance-list feed' },
+    ],
+  },
 ];
 
 export const CONNECTOR_BY_ID = Object.fromEntries(CONNECTORS.map((c) => [c.id, c])) as Record<

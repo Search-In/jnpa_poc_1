@@ -29,6 +29,7 @@ import type {
   NavStatus,
   PortCraftUnit,
   PredictionPoint,
+  ShippingLine,
   TideStationsReading,
   Vessel,
   WeatherReading,
@@ -49,6 +50,7 @@ import { bucketArrivalsDepartures, computeWhatIf } from './MockAdapter';
 import { openAisStream } from './aisstream';
 import { fetchOpenMeteoWeather, parseLonLat } from './weather';
 import { fetchTideStations } from './tide';
+import { fetchShippingLines } from './uc3/shippingLines';
 import { validateVessel, TrackQuality, type DqReason } from './quality';
 
 /**
@@ -408,6 +410,27 @@ export class ArcGISAdapter implements DataAdapter {
     // a server-side proxy + data agreement (see docs/INCOIS.md); the panel's
     // TIDE SourceBadge labels this "interim — pending INCOIS OSF".
     return fetchTideStations(this.now());
+  }
+
+  /**
+   * Shipping-line registry from the SHARED UC-3 backend — not an ArcGIS layer.
+   *
+   * This is the one live read that does not come from a Feature/Stream Layer:
+   * the carrier master lives in the common JNPA gateway (see src/data/uc3/).
+   * Kept behind the same adapter seam so no component ever calls it directly.
+   *
+   * Throws a clear, actionable error when the integration is switched off, per
+   * this adapter's convention of failing loudly rather than rendering a blank
+   * panel.
+   */
+  async getShippingLines(): Promise<ShippingLine[]> {
+    if (!env.uc3.enabled) {
+      throw new Error(
+        '[ArcGISAdapter] No shipping-line source: the UC-3 integration is disabled ' +
+          '(set VITE_UC3_ENABLED=true and point VITE_UC3_API_BASE at the gateway).'
+      );
+    }
+    return fetchShippingLines();
   }
 
   async runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {

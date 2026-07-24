@@ -74,6 +74,35 @@ export interface AppEnv {
     /** True when the region is a coverage stand-in (not JNPA). */
     isStandIn: boolean;
   };
+  /**
+   * UC-3 shared backend (the common JNPA gateway) — the source of Shipping Line
+   * master data (`GET /api/shipping-lines/lines`, RBAC: control room + customs).
+   *
+   * Deliberately INDEPENDENT of `dataMode`: shipping-line rows are real records
+   * from the shared database whether or not the AIS feed is simulated, so mock
+   * mode must not silently imply "no UC-3" and live mode must not imply "UC-3".
+   * Two orthogonal switches — flip this one with VITE_UC3_ENABLED.
+   *
+   * SCOPE HONESTY: `username`/`password` are Vite build-time values, so they are
+   * INLINED INTO THE BUNDLE and readable by anyone with devtools. That is
+   * acceptable only for the PoC demo credential. Production must move the login
+   * server-side (a real sign-in, or token injection at the nginx tier) — the
+   * same posture note as the client-side role scoping in src/auth/roles.ts.
+   */
+  uc3: {
+    /** Master switch. Off → the app never contacts UC-3 (mock stays offline). */
+    enabled: boolean;
+    /**
+     * Path prefix the app calls, NOT an absolute origin. Left relative ("/api")
+     * so the dev proxy (vite.config.ts) and nginx keep the browser same-origin.
+     * Endpoint helpers therefore pass the SUFFIX only ("/auth/login"), never the
+     * full "/api/auth/login" — that would resolve to "/api/api/…".
+     */
+    apiBase: string;
+    /** PoC login (POST {apiBase}/auth/login). See the scope-honesty note above. */
+    username: string;
+    password: string;
+  };
 }
 
 function str(v: string | undefined, fallback = ''): string {
@@ -155,5 +184,14 @@ export const env: AppEnv = {
     isStandIn:
       str(import.meta.env.VITE_AIS_BBOX) !== '' &&
       str(import.meta.env.VITE_LIVE_REGION_IS_TARGET) !== 'true',
+  },
+  uc3: {
+    // On by default so a configured gateway works out of the box; set
+    // VITE_UC3_ENABLED=false to keep the app fully offline (same opt-out idiom
+    // as aisHub.enabled above).
+    enabled: str(import.meta.env.VITE_UC3_ENABLED, 'true') !== 'false',
+    apiBase: str(import.meta.env.VITE_UC3_API_BASE, '/api'),
+    username: str(import.meta.env.VITE_UC3_USERNAME),
+    password: str(import.meta.env.VITE_UC3_PASSWORD),
   },
 };

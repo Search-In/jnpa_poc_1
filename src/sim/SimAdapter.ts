@@ -20,6 +20,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  ShippingLine,
   TideStationsReading,
   Vessel,
   WeatherReading,
@@ -136,6 +137,14 @@ export class SimAdapter implements DataAdapter {
 
   async getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]> {
     return this.base.getKpiHistory(window);
+  }
+
+  /**
+   * Pass-through: the carrier registry is reference data with no simulated
+   * counterpart, so no `applySim` overlay applies to it.
+   */
+  async getShippingLines(): Promise<ShippingLine[]> {
+    return this.base.getShippingLines();
   }
 
   async runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {
