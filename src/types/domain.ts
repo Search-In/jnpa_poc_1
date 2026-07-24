@@ -346,3 +346,42 @@ export interface MarineUploadRowError {
   rawData: string;
   createdAt: number;
 }
+
+/* ==========================================================================
+ * UC-1 Marine — PILOTAGE movements (UC-3 backed, `core.pilotage`).
+ *
+ * One pilot-card movement (INWARD / OUTWARD / SHIFTING) from Pilot_card_data.xlsx,
+ * ingested through the shared marine upload endpoints. Marine-side ACTUALS (pilot
+ * boarded / first line / all fast / disembark), distinct from the vessel-call spine
+ * and from live AIS. camelCase + epoch-ms (0 = unknown), never null, matching the
+ * other UC-3 connectors. Sheet-specific columns are preserved verbatim in `extras`.
+ * ========================================================================== */
+export interface Pilotage {
+  pilotageId: number;
+  /** INWARD | OUTWARD | SHIFTING (the source sheet name). */
+  movementType: string;
+  /** Linked vessel call when resolvable by VIA; null otherwise. */
+  callId: number | null;
+  viaNo: string;
+  imoNo: string;
+  vesselName: string;
+  /** Pilot roster code (e.g. 'JP 91'). */
+  pilotCode: string;
+  vesselCondition: string;
+  fromBerthId: number | null;
+  toBerthId: number | null;
+  draftFwdM: number | null;
+  draftAftM: number | null;
+  /** Marine actuals (epoch ms; 0 = unknown). */
+  pilotBoardedAt: number;
+  firstLineAt: number;
+  allFastAt: number;
+  pilotDisembarkedAt: number;
+  berthVacatedAt: number;
+  anchorDownAt: number;
+  anchorUpAt: number;
+  submittedAt: number;
+  /** Sheet-specific columns not promoted to canonical fields (verbatim). */
+  extras: Record<string, unknown>;
+  importFileId: number | null;
+}

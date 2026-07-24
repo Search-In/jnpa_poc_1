@@ -35,6 +35,7 @@ import { AISMap } from '@/components/AISMap';
 import { VesselFeed } from '@/components/VesselFeed';
 import { VesselTable } from '@/components/VesselTable';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
+import { PilotageTable } from '@/components/marine/PilotageTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
@@ -131,7 +132,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
-  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'upload'>('live');
+  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload'>('live');
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
   // SceneView is mounted and can receive the imperative handle. The callback ref
@@ -360,6 +361,9 @@ export function App() {
                   <CalciteTabTitle tab="v-calls" selected={vesselSubTab === 'calls'} onCalciteTabsActivate={() => setVesselSubTab('calls')}>
                     Vessel Calls
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-pilotage" selected={vesselSubTab === 'pilotage'} onCalciteTabsActivate={() => setVesselSubTab('pilotage')}>
+                    Pilotage
+                  </CalciteTabTitle>
                   <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
@@ -375,6 +379,13 @@ export function App() {
                 {/* New: UC-3 vessel calls (core.vessel_call). */}
                 <CalciteTab tab="v-calls" selected={vesselSubTab === 'calls'}>
                   <VesselCallsPanel />
+                </CalciteTab>
+
+                {/* New: UC-3 pilotage movements (core.pilotage). */}
+                <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
+                  <Panel title="Pilotage movements — UC-3 backend (core.pilotage)" height={640}>
+                    <PilotageTable />
+                  </Panel>
                 </CalciteTab>
 
                 {/* New: UC-3 vessel-call CSV upload. */}
