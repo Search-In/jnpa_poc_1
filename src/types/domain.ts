@@ -385,3 +385,31 @@ export interface Pilotage {
   extras: Record<string, unknown>;
   importFileId: number | null;
 }
+
+/* ==========================================================================
+ * UC-1 Marine — PORT CRAFT register (UC-3 backed, `core.port_craft`).
+ *
+ * The static tug/launch fleet REGISTER from Details_of_Port_Crafts.pdf (particulars:
+ * LOA, bollard pull, owner, engines), ingested via the shared marine upload endpoints.
+ * DISTINCT from `PortCraftUnit` above — that is live-ops telemetry (status / assigned
+ * MMSI / response time) from the mock adapter; this is the reference register. The two
+ * are never merged. camelCase; numeric particulars are null when the PDF omits them.
+ * ========================================================================== */
+export interface PortCraft {
+  craftId: number;
+  name: string;
+  /** Tug | Launch | Pilot Launch | VIP Launch | … */
+  craftType: string;
+  ownedOrHired: string;
+  ownerName: string;
+  /** As printed — mixed 'Apr-18' / '2020'. */
+  yearBuilt: string;
+  loaM: number | null;
+  breadthM: number | null;
+  draftM: number | null;
+  mainEngines: string;
+  bollardPullT: number | null;
+  designSpeedKn: number | null;
+  /** Raw parsed row + any unparsed remainder (never-drop-client-data). */
+  extras: Record<string, unknown>;
+}

@@ -48,6 +48,7 @@ import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
 import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
+import { PortCraftRegisterTable } from '@/components/marine/PortCraftRegisterTable';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { WeatherPanel } from '@/components/WeatherPanel';
@@ -411,7 +412,14 @@ export function App() {
               <DukcCorridor />
             </CalciteTab>
             <CalciteTab tab="craft" selected={activeTab === 'craft'}>
-              <PortCraftBoard />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Existing live-ops board (mock/adapter) — unchanged. */}
+                <PortCraftBoard />
+                {/* New: UC-3 fleet register (core.port_craft) from the client PDF. */}
+                <Panel title="Port-craft fleet register — UC-3 backend (core.port_craft)" height={420}>
+                  <PortCraftRegisterTable />
+                </Panel>
+              </div>
             </CalciteTab>
             <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
               <Scenarios />
