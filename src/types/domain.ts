@@ -225,6 +225,28 @@ export interface ShippingLine {
   containerCount: number;
 }
 
+/**
+ * Dashboard counts for the Shipping Lines layer, from `GET /api/shipping-lines/summary`
+ * (the `totals` block). Every field is a count (0 against an empty backend). camelCase +
+ * epoch-agnostic, matching the ShippingLine convention above.
+ */
+export interface ShippingLinesSummary {
+  /** Import-ledger files processed. */
+  files: number;
+  /** IAL/EAL advance-list line items. */
+  advanceContainers: number;
+  /** Distinct container numbers across the advance lists. */
+  distinctContainers: number;
+  /** EDO / CODECO delivery orders. */
+  deliveryOrders: number;
+  /** Carrier codes in the registry. */
+  shippingLines: number;
+  /** Advance-list rows carrying a Bill of Lading. */
+  withBl: number;
+  /** Import files that failed. */
+  failedFiles: number;
+}
+
 /* ==========================================================================
  * UC-1 Marine — vessel CALLS (UC-3 backed, `core.vessel_call`).
  *

@@ -46,6 +46,9 @@ import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
 import { BerthingStats } from '@/components/berthing/BerthingStats';
 import { BerthingReportsTable } from '@/components/berthing/BerthingReportsTable';
 import { BerthingUploadPanel } from '@/components/berthing/BerthingUploadPanel';
+import { ShippingLinesTable } from '@/components/shipping/ShippingLinesTable';
+import { ShippingLinesSummaryCards } from '@/components/shipping/ShippingLinesSummaryCards';
+import { ShippingLinesUploadPanel } from '@/components/shipping/ShippingLinesUploadPanel';
 import { PlanImportPanel } from '@/planning/PlanImportPanel';
 import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
@@ -137,7 +140,13 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
-  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload'>('live');
+  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload' | 'shipping'>('live');
+  // Shipping Lines section sub-view (nested under Vessels ▸ Shipping Lines): 'registry'
+  // (summary + carrier table, the default) or 'upload' (advance-list Data Upload).
+  const [shippingSubTab, setShippingSubTab] = useState<'registry' | 'upload'>('registry');
+  // Bumped after a successful shipping-line import so the sibling registry + summary
+  // remount and refetch. Presentation-only — no query logic changes.
+  const [shippingRegistryKey, setShippingRegistryKey] = useState(0);
   // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
   // VesselCallsPanel remounts and refetches — without this the calls table keeps the
   // stale pre-import result. Presentation-only — no query logic changes.
@@ -398,6 +407,9 @@ export function App() {
                   <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-shipping" selected={vesselSubTab === 'shipping'} onCalciteTabsActivate={() => setVesselSubTab('shipping')}>
+                    Shipping Lines
+                  </CalciteTabTitle>
                 </CalciteTabNav>
 
                 {/* Existing AIS feed — unchanged, and the DEFAULT sub-tab. */}
@@ -424,6 +436,41 @@ export function App() {
                     On a successful import, bump the key so the Vessel Calls sub-tab refetches. */}
                 <CalciteTab tab="v-upload" selected={vesselSubTab === 'upload'}>
                   <MarineUploadPanel onImported={() => setVesselCallUploadKey((k) => k + 1)} />
+                </CalciteTab>
+
+                {/* New: UC-3 Shipping Lines (jnpa.sl_* carrier registry + advance lists) — a
+                    marine reference entity, its own nested Registry / Data Upload tabs, same
+                    inline style as the DUKC ▸ Sea Channels sub-tabs. */}
+                <CalciteTab tab="v-shipping" selected={vesselSubTab === 'shipping'}>
+                  <CalciteTabs layout="inline">
+                    <CalciteTabNav slot="title-group">
+                      <CalciteTabTitle tab="sl-registry" selected={shippingSubTab === 'registry'} onCalciteTabsActivate={() => setShippingSubTab('registry')}>
+                        Registry
+                      </CalciteTabTitle>
+                      <CalciteTabTitle tab="sl-upload" selected={shippingSubTab === 'upload'} onCalciteTabsActivate={() => setShippingSubTab('upload')}>
+                        Data Upload
+                      </CalciteTabTitle>
+                    </CalciteTabNav>
+
+                    {/* Summary cards + carrier registry — the DEFAULT. Keyed on the upload
+                        counter so a successful import remounts + refetches both. */}
+                    <CalciteTab tab="sl-registry" selected={shippingSubTab === 'registry'}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} key={shippingRegistryKey}>
+                        <Panel title="Shipping lines — UC-3 backend (jnpa.shipping_lines)" minHeight={120}>
+                          <ShippingLinesSummaryCards />
+                        </Panel>
+                        <Panel title="Carrier registry" height={520}>
+                          <ShippingLinesTable />
+                        </Panel>
+                      </div>
+                    </CalciteTab>
+
+                    {/* Advance-list / delivery-order Data Upload (IAL/EAL/EDO). On import,
+                        bump the key so the Registry sub-tab refetches. */}
+                    <CalciteTab tab="sl-upload" selected={shippingSubTab === 'upload'}>
+                      <ShippingLinesUploadPanel onImported={() => setShippingRegistryKey((k) => k + 1)} />
+                    </CalciteTab>
+                  </CalciteTabs>
                 </CalciteTab>
               </CalciteTabs>
             </CalciteTab>
