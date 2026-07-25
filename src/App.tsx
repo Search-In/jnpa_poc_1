@@ -43,6 +43,9 @@ import { SimControls } from '@/sim/SimControls';
 import { PlacementToolbar } from '@/map/PlacementToolbar';
 import { Panel } from '@/components/common/Panel';
 import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
+import { BerthingStats } from '@/components/berthing/BerthingStats';
+import { BerthingReportsTable } from '@/components/berthing/BerthingReportsTable';
+import { BerthingUploadPanel } from '@/components/berthing/BerthingUploadPanel';
 import { PlanImportPanel } from '@/planning/PlanImportPanel';
 import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
@@ -154,6 +157,13 @@ export function App() {
   // Bumped after a successful port-craft import so the sibling PortCraftRegisterTable
   // remounts and refetches. Presentation-only — no query logic changes.
   const [portCraftUploadKey, setPortCraftUploadKey] = useState(0);
+  // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
+  // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
+  // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
+  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'upload'>('plan');
+  // Bumped after a successful berthing import so the sibling Terminal Reports view
+  // remounts and refetches. Presentation-only — no query logic changes.
+  const [berthingReportsKey, setBerthingReportsKey] = useState(0);
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
   // SceneView is mounted and can receive the imperative handle. The callback ref
@@ -425,7 +435,43 @@ export function App() {
             </CalciteTab>
 
             <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>
-              <BerthGantt5Day />
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="b-plan" selected={berthingSubTab === 'plan'} onCalciteTabsActivate={() => setBerthingSubTab('plan')}>
+                    5-Day Plan
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-reports" selected={berthingSubTab === 'reports'} onCalciteTabsActivate={() => setBerthingSubTab('reports')}>
+                    Terminal Reports
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-upload" selected={berthingSubTab === 'upload'} onCalciteTabsActivate={() => setBerthingSubTab('upload')}>
+                    Data Upload
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing sim/adapter berth-plan gantt — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="b-plan" selected={berthingSubTab === 'plan'}>
+                  <BerthGantt5Day />
+                </CalciteTab>
+
+                {/* New: UC-3 per-terminal berthing REPORT actuals (jnpa.berthing_reports).
+                    Keyed on the upload counter so a successful import remounts + refetches. */}
+                <CalciteTab tab="b-reports" selected={berthingSubTab === 'reports'}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} key={berthingReportsKey}>
+                    <Panel title="Berthing reports — UC-3 backend (jnpa.berthing_reports)" minHeight={120}>
+                      <BerthingStats />
+                    </Panel>
+                    <Panel title="Terminal berthing reports" height={520}>
+                      <BerthingReportsTable />
+                    </Panel>
+                  </div>
+                </CalciteTab>
+
+                {/* New: berthing Data Upload (PDF/CSV/XLS/XLSX). On import, bump the key
+                    so the Terminal Reports sub-tab refetches. */}
+                <CalciteTab tab="b-upload" selected={berthingSubTab === 'upload'}>
+                  <BerthingUploadPanel onImported={() => setBerthingReportsKey((k) => k + 1)} />
+                </CalciteTab>
+              </CalciteTabs>
             </CalciteTab>
             <CalciteTab tab="plan" selected={activeTab === 'plan'}>
               <PlanImportPanel />

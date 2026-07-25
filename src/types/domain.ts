@@ -437,3 +437,53 @@ export interface SeaChannel {
   /** GeoJSON Polygon (WGS84), or null if the record carried no geometry. */
   geometry: SeaChannelGeometry | null;
 }
+
+/* ==========================================================================
+ * Berthing Reports (UC-III module 7, UC-3 backed, `jnpa.berthing_reports`).
+ *
+ * The reported per-terminal berthing vessel-call for the five JNPA container terminals
+ * (APMT / BMCT / NSFT / NSICT / NSIGT), parsed from the daily terminal reports and
+ * ingested through the Berthing Data-Upload endpoints. This is the ACTUALS layer
+ * (EXPECTED → … → DEPARTED), DISTINCT from the forward-looking `BerthingPlanEntry`
+ * 5-Day plan above — the two are never merged. camelCase; timestamps are epoch ms
+ * (0 = unknown), text fields '' rather than null, matching the other UC-3 connectors.
+ * ========================================================================== */
+export interface BerthingReport {
+  id: number;
+  /** APMT | BMCT | NSFT | NSICT | NSIGT. */
+  terminal: string;
+  vesselName: string;
+  /** Absent in every source file today — kept for forward-compatibility ('' when unknown). */
+  imoNumber: string;
+  /** JNPA rotation / VIA no (e.g. S0561). */
+  voyageNumber: string;
+  shippingLine: string;
+  /** NSFT reports carry no berth column → '' there. */
+  berthNumber: string;
+  /** EXPECTED | ARRIVED | BERTH_ASSIGNED | BERTHING_STARTED | CARGO_OPERATION | COMPLETED | DEPARTED. */
+  status: string;
+  sourceFile: string;
+  /** Lifecycle timestamps (epoch ms; 0 = unknown). */
+  eta: number;
+  ata: number;
+  berthingTime: number;
+  departureTime: number;
+  cargoOperationStart: number;
+  cargoOperationEnd: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Aggregate KPIs over the berthing-report set (per-terminal counts + berth time). */
+export interface BerthingStats {
+  total: number;
+  expected: number;
+  arrived: number;
+  berthed: number;
+  completed: number;
+  departed: number;
+  terminals: number;
+  /** Mean (departure − ata) in hours; null when no call has both. */
+  avgBerthHours: number | null;
+  byTerminal: { terminal: string; count: number; berthed: number }[];
+}
