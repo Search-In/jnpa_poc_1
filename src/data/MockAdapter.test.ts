@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MockAdapter, bucketArrivalsDepartures, computeWhatIf } from './MockAdapter';
+import { SHIPPING_LINES } from './mock/fixtures';
 import type { BerthingPlanEntry } from '@/types/domain';
 
 const H = 3_600_000;
@@ -124,5 +125,49 @@ describe('MockAdapter', () => {
     const adapter = new MockAdapter();
     const plan = await adapter.getBerthPlan({ lastHours: 48 });
     expect(plan.length).toBeGreaterThan(0);
+  });
+});
+
+describe('MockAdapter.getShippingLines', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('serves the local fixture, busiest first', async () => {
+    const lines = await new MockAdapter().getShippingLines();
+    expect(lines).toEqual(SHIPPING_LINES);
+    expect(lines.length).toBeGreaterThan(0);
+    // Same ordering contract as the live endpoint (container_count DESC).
+    const counts = lines.map((l) => l.containerCount);
+    expect([...counts].sort((a, b) => b - a)).toEqual(counts);
+  });
+
+  it('makes NO network call — mock mode stays fully offline', async () => {
+    // The whole point of the mock driver: zero credentials, zero I/O. If this
+    // ever reaches the UC-3 backend the offline demo is broken.
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await new MockAdapter().getShippingLines();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('every fixture row satisfies the domain contract', async () => {
+    for (const l of await new MockAdapter().getShippingLines()) {
+      expect(l.lineCode).toBeTruthy();
+      // lineName is never null: it falls back to the code, exactly as the live
+      // mapper does for the backend's always-null line_name.
+      expect(l.lineName).toBe(l.lineCode);
+      expect(Number.isFinite(l.firstSeen)).toBe(true);
+      expect(Number.isFinite(l.lastSeen)).toBe(true);
+      expect(l.containerCount).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('is deterministic across calls and instances', async () => {
+    const a = await new MockAdapter().getShippingLines();
+    const b = await new MockAdapter().getShippingLines();
+    expect(a).toEqual(b);
   });
 });

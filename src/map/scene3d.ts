@@ -27,6 +27,7 @@ import {
   type TerminalQuay,
 } from './portGeometry';
 import { navStatusColor, tokens, ukcColor } from '../theme/tokens';
+import type { SeaChannelFeatureCollection } from '@/data/uc3/seaChannels';
 import { istTime } from '../util/format';
 import type { Vessel, Berth } from '@/types/domain';
 
@@ -154,6 +155,80 @@ export function anchorageLayer(): FeatureLayer {
     } as never,
     elevationInfo: { mode: 'on-the-ground' } as never,
   });
+}
+
+// ---- UC-3 sea channels (uploaded shapefile geometry) -----------------------
+// A SEPARATE overlay for the real JNPA_Sea_Channels polygons (core.sea_channel),
+// fetched from /api/marine/sea-channels/geojson. It is ADDITIVE: the synthetic
+// depth-graded CHANNEL polyline (channelLayer, above) and the DUKC calc are
+// untouched — this semi-transparent fill sits above the synthetic ribbon so the
+// DUKC channel stays visible underneath. Seeded empty; populated by a PortScene
+// data effect (empty FeatureCollection → nothing rendered).
+export function seaChannelLayer(): FeatureLayer {
+  return new FeatureLayer({
+    title: 'Sea channels (uploaded)',
+    source: [] as unknown as Graphic[],
+    objectIdField: 'objectId',
+    geometryType: 'polygon',
+    spatialReference: { wkid: 4326 },
+    fields: [
+      { name: 'objectId', type: 'oid' },
+      { name: 'chanId', type: 'integer' },
+      { name: 'name', type: 'string' },
+      { name: 'section', type: 'string' },
+      { name: 'area', type: 'double' },
+    ],
+    renderer: {
+      type: 'simple',
+      symbol: {
+        type: 'polygon-3d',
+        symbolLayers: [
+          { type: 'fill', material: { color: [34, 197, 194, 0.18] }, outline: { color: [13, 148, 136, 0.85], size: 1.5 } },
+        ],
+      },
+    } as never,
+    labelingInfo: [
+      {
+        labelExpressionInfo: { expression: '$feature.name' },
+        symbol: { type: 'label-3d', symbolLayers: [{ type: 'text', material: { color: tokens.textMuted }, halo: { color: [255, 255, 255, 1], size: 1 }, size: 9 }] },
+      },
+    ] as never,
+    popupTemplate: {
+      title: '🌊 {name}',
+      content: popupFields([
+        { fieldName: 'section', label: 'Section' },
+        { fieldName: 'area', label: 'Area (ha)' },
+      ]),
+      actions: POPUP_ACTIONS,
+    } as never,
+    elevationInfo: { mode: 'on-the-ground' } as never,
+  });
+}
+
+/** Build ArcGIS polygon graphics from the /sea-channels/geojson FeatureCollection.
+ *  Pure: coordinates are already [lon,lat] WGS84 (reprojected server-side), so the
+ *  GeoJSON rings map directly onto ArcGIS Polygon rings (wkid 4326). */
+export function seaChannelGraphics(features: SeaChannelFeatureCollection['features']): Graphic[] {
+  const out: Graphic[] = [];
+  features.forEach((f, i) => {
+    const g = f.geometry;
+    if (!g || g.type !== 'Polygon' || !Array.isArray(g.coordinates)) return;
+    const props = (f.properties ?? {}) as Record<string, unknown>;
+    const chanId = Number(props.channel_id ?? i);
+    out.push(
+      new Graphic({
+        geometry: new Polygon({ rings: g.coordinates as number[][][], spatialReference: { wkid: 4326 } }),
+        attributes: {
+          objectId: stableOid(`seachan:${chanId}`),
+          chanId: Number.isFinite(chanId) ? chanId : i,
+          name: String(props.name ?? 'Channel'),
+          section: String(props.section_label ?? ''),
+          area: Number(props.area_ha ?? 0),
+        },
+      }),
+    );
+  });
+  return out;
 }
 
 export function pilotStationLayer(): GraphicsLayer {

@@ -13,6 +13,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  ShippingLine,
   TideStation,
   TideStationsReading,
   Vessel,
@@ -97,6 +98,41 @@ export const BERTHS: Berth[] = [
   termBerth('BMCT-1', 'BMCT Berth 1', 'BMCT', 1000, 16.5, 'reserved', 0),
   termBerth('BMCT-2', 'BMCT Berth 2', 'BMCT', 1000, 16.5, 'maintenance', 1),
   termBerth('JNPCT-1', 'JNPCT Berth 1', 'JNPCT', 300, 13.5, 'available', 0),
+];
+
+/**
+ * Shipping-line registry for the offline driver.
+ *
+ * Static reference data, so it is a plain const like BERTHS above rather than a
+ * `make*(now)` generator — there is nothing time-varying to simulate.
+ *
+ * The codes and the code-shaped names are REAL: they are carriers that appear in
+ * the shared JNPA registry, mirrored here so mock mode looks like the live list
+ * instead of inventing fictional carriers. `lineName` equals `lineCode` for the
+ * same reason it does on the live path — the backend's `line_name` column is
+ * null for every row, so there is no name to show and no hardcoded mapping to
+ * invent. Timestamps are fixed (not `Date.now()`) to keep the fixture
+ * deterministic, matching the seeded-PRNG ethos of this file.
+ */
+const FIXTURE_FIRST_SEEN = Date.parse('2026-07-21T05:40:28.758Z');
+const FIXTURE_LAST_SEEN = Date.parse('2026-07-21T05:41:20.600Z');
+
+const mockLine = (lineCode: string, containerCount: number): ShippingLine => ({
+  lineCode,
+  lineName: lineCode,
+  source: 'ADVANCE_LIST',
+  firstSeen: FIXTURE_FIRST_SEEN,
+  lastSeen: FIXTURE_LAST_SEEN,
+  containerCount,
+});
+
+/** Busiest first — the same ordering the live endpoint returns. */
+export const SHIPPING_LINES: ShippingLine[] = [
+  mockLine('ESA', 1534),
+  mockLine('KMD', 1417),
+  mockLine('RCL', 959),
+  mockLine('CCS', 145),
+  mockLine('EGI', 143),
 ];
 
 const VESSEL_SEED = [

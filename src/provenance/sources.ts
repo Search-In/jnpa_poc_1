@@ -24,7 +24,7 @@ export type SourceState =
   | 'IMPUTED' // model-based estimate with widening confidence band
   | 'OFFLINE'; // no data — manual-entry fallback form is the only input
 
-/** The seven production sources the twin integrates (spec B1.2). */
+/** The production sources the twin integrates (spec B1.2). */
 export type SourceId =
   | 'AIS'
   | 'VTS' // VTS / pilotage movement orders
@@ -32,7 +32,8 @@ export type SourceId =
   | 'TIDE' // INCOIS tide / DUKC predictive inputs
   | 'BATHY' // channel depth / bathymetry survey
   | 'BERTH_PLAN' // berthing-plan feed (stakeholder schedule)
-  | 'CRAFT'; // port-craft (pilot/tug/mooring) roster
+  | 'CRAFT' // port-craft (pilot/tug/mooring) roster
+  | 'SHIPPING_LINE'; // carrier registry from the shared JNPA backend (UC-3)
 
 export interface SourceMeta {
   id: SourceId;
@@ -94,6 +95,17 @@ export const SOURCES: SourceMeta[] = [
     prodSource: 'Marine craft roster (pilot/tug/mooring)',
     cadence: 'on change',
     role: 'Finite pilot/tug/mooring resources and their assignments.',
+  },
+  {
+    // The only source already reading a real production backend: the shared JNPA
+    // gateway UC-3 hosts, over the same RDS the other use cases use. It needs no
+    // third-party credential, which is why its readiness row differs from the
+    // feeds above.
+    id: 'SHIPPING_LINE',
+    label: 'Shipping lines',
+    prodSource: 'Shared JNPA backend (UC-3 gateway → jnpa.shipping_lines)',
+    cadence: 'on import (advance lists)',
+    role: 'Ocean-carrier registry by line code, with per-carrier container volume.',
   },
 ];
 
