@@ -53,8 +53,7 @@ import { PlanImportPanel } from '@/planning/PlanImportPanel';
 import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
-import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
-import { PortCraftRegisterTable } from '@/components/marine/PortCraftRegisterTable';
+import { PortCraftPage } from '@/components/marine/PortCraftPage';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
@@ -160,12 +159,8 @@ export function App() {
   // Bumped after a successful sea-channel import so the sibling SeaChannelTable remounts
   // and refetches (DUKC ▸ Sea Channels). Presentation-only — no query logic changes.
   const [seaChannelUploadKey, setSeaChannelUploadKey] = useState(0);
-  // Port Craft tab sub-view. 'list' (the existing board + register, the default) or
-  // 'upload' (MarineUploadPanel + upload history).
-  const [craftSubTab, setCraftSubTab] = useState<'list' | 'upload'>('list');
-  // Bumped after a successful port-craft import so the sibling PortCraftRegisterTable
-  // remounts and refetches. Presentation-only — no query logic changes.
-  const [portCraftUploadKey, setPortCraftUploadKey] = useState(0);
+  // Port Craft tab: analysis section + Fleet Register / Data Upload tabs. Its sub-tab
+  // and post-import refresh state now live inside <PortCraftPage>.
   // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
   // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
   // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
@@ -575,42 +570,12 @@ export function App() {
                 </CalciteTab>
               </CalciteTabs>
             </CalciteTab>
+            {/* Port Craft — Overview (default) / Fleet Register / Data Upload internal
+                tabs. Composition lives in <PortCraftPage>, which also snaps back to
+                Overview on a guided-tour beat since the `tab: 'craft'` steps narrate
+                the resource board. */}
             <CalciteTab tab="craft" selected={activeTab === 'craft'}>
-              <CalciteTabs layout="inline">
-                <CalciteTabNav slot="title-group">
-                  <CalciteTabTitle tab="pc-list" selected={craftSubTab === 'list'} onCalciteTabsActivate={() => setCraftSubTab('list')}>
-                    Port Craft List
-                  </CalciteTabTitle>
-                  <CalciteTabTitle tab="pc-upload" selected={craftSubTab === 'upload'} onCalciteTabsActivate={() => setCraftSubTab('upload')}>
-                    Data Upload
-                  </CalciteTabTitle>
-                </CalciteTabNav>
-
-                {/* Existing craft content — unchanged, and the DEFAULT sub-tab. */}
-                <CalciteTab tab="pc-list" selected={craftSubTab === 'list'}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {/* Existing live-ops board (mock/adapter) — unchanged. */}
-                    <PortCraftBoard />
-                    {/* UC-3 fleet register (core.port_craft) from the client PDF. */}
-                    <Panel title="Port-craft fleet register — UC-3 backend (core.port_craft)" height={420}>
-                      <PortCraftRegisterTable key={portCraftUploadKey} />
-                    </Panel>
-                  </div>
-                </CalciteTab>
-
-                {/* Port-craft Data Upload + history. Reuses MarineUploadPanel with a
-                    PORT_CRAFT (PDF) config; on a successful import it bumps the key above
-                    so PortCraftRegisterTable remounts and refetches. */}
-                <CalciteTab tab="pc-upload" selected={craftSubTab === 'upload'}>
-                  <MarineUploadPanel
-                    title="Port-craft data upload — validate → import (UC-3 backend)"
-                    accept=".pdf,application/pdf"
-                    showTemplate={false}
-                    helpText="Accepts the port-craft register PDF (e.g. Details_of_Port_Crafts.pdf). The backend detects the format by content."
-                    onImported={() => setPortCraftUploadKey((k) => k + 1)}
-                  />
-                </CalciteTab>
-              </CalciteTabs>
+              <PortCraftPage />
             </CalciteTab>
             <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
               <Scenarios />
