@@ -492,6 +492,77 @@ export interface SeaChannel {
 }
 
 /* ==========================================================================
+ * UC-1 Marine — BATHYMETRY (UC-3 backed, `core.bathymetry_survey/_sounding`).
+ *
+ * Depth soundings extracted from the JNPA multibeam chart PDFs (or pushed as canonical
+ * JSON) through the shared marine upload endpoints. A survey is one chart; a sounding is
+ * one plotted depth on it.
+ *
+ * Two properties drive the UI and are NOT defects:
+ *  • `depthM` is metres BELOW Chart Datum, and `aboveDesign` marks a shoal plotted red —
+ *    the sounding is shallower than the design depth, i.e. a hazard, not a deep spot.
+ *  • Coordinates are NULLABLE. Charts whose page->UTM grid could not be fitted carry only
+ *    page coordinates, so any map overlay must skip those rather than assume 0/0.
+ * camelCase; numeric fields null when the source omits. Surveys are few (~12); soundings
+ * are MANY (15k-30k per survey), so they are always read scoped + paginated.
+ * ========================================================================== */
+export interface BathymetrySurvey {
+  surveyId: number;
+  /** Natural key — the chart's drawing number. */
+  drawingNo: string;
+  sectionLabel: string;
+  /** Design depth below Chart Datum (m), null when the title block omits it. */
+  designDepthM: number | null;
+  surveyStart: string;
+  surveyEnd: string;
+  surveyVessel: string;
+  /** Soundings currently stored for this survey (0 before its chart is imported). */
+  soundingCount: number;
+}
+
+/** UTM Zone 43N (EPSG:32643) extent of a survey's georeferenced soundings. */
+export interface BathymetryBBox {
+  minEastingM: number | null;
+  maxEastingM: number | null;
+  minNorthingM: number | null;
+  maxNorthingM: number | null;
+}
+
+export interface BathymetrySurveyStats {
+  surveyId: number;
+  drawingNo: string;
+  designDepthM: number | null;
+  soundingCount: number;
+  /** Soundings shallower than design depth (plotted red on the chart). */
+  aboveDesignCount: number;
+  /** Soundings carrying easting/northing; may be 0 on a page-space-only chart. */
+  georeferencedCount: number;
+  minDepthM: number | null;
+  maxDepthM: number | null;
+  avgDepthM: number | null;
+  /** Null when the survey has no georeferenced soundings. */
+  bbox: BathymetryBBox | null;
+}
+
+export interface BathymetrySounding {
+  soundingId: number;
+  surveyId: number;
+  /** UTM 43N; null on an ungeoreferenced chart. */
+  eastingM: number | null;
+  northingM: number | null;
+  /** WGS84; null on an ungeoreferenced chart. */
+  lat: number | null;
+  lon: number | null;
+  /** Metres below Chart Datum. */
+  depthM: number;
+  /** True = shallower than design depth (shoal). */
+  aboveDesign: boolean;
+  /** Chart page coordinates — always present, the fallback locator. */
+  pageXPt: number | null;
+  pageYPt: number | null;
+}
+
+/* ==========================================================================
  * Berthing Reports (UC-III module 7, UC-3 backed, `jnpa.berthing_reports`).
  *
  * The reported per-terminal berthing vessel-call for the five JNPA container terminals
@@ -539,4 +610,196 @@ export interface BerthingStats {
   /** Mean (departure − ata) in hours; null when no call has both. */
   avgBerthHours: number | null;
   byTerminal: { terminal: string; count: number; berthed: number }[];
+}
+
+/* ==========================================================================
+ * UC-1 Shipping Lines — cargo documents (UC-3 backed).
+ *
+ * The document layer behind the carrier registry above: IAL/EAL advance-list
+ * container line items (`core.advance_list_container`) and EDO/CODECO delivery
+ * orders (`core.delivery_order_line`), plus the import ledger
+ * (`core.sl_import_file`).
+ *
+ * Convention (same as ShippingLine): camelCase fields, timestamps as epoch ms
+ * with 0 meaning "unknown/absent", never null; free-text as '' never null;
+ * genuinely optional numerics stay `number | null` so "absent" is not shown as 0.
+ * ========================================================================== */
+
+/** One IAL/EAL advance-list container line item. */
+export interface AdvanceListItem {
+  /** Stable list key. The server's `id` when present, else a composite of the
+   *  row's business key and position — identity never gates whether a row renders. */
+  id: string;
+  /** Import-ledger file this row came from. */
+  importFileId: number | null;
+  /** 'IAL' (import) | 'EAL' (export) — derived by the backend from `direction`. */
+  listType: string;
+  /** Terminal code, e.g. 'NSICT'. */
+  terminal: string;
+  containerNo: string;
+  isoCode: string;
+  /** ISO code passed the backend's checksum validation. */
+  containerValidIso: boolean;
+  /** 'FULL' | 'EMPTY' | '' — derived by the backend from `load_status`. */
+  freightKind: string;
+  /** 'IMPORT' | 'EXPORT' | 'TRANSHIP' | 'OTHER' | ''. */
+  category: string;
+  /** Normalised to kg by the backend (MT sources are multiplied). */
+  grossWeightKg: number | null;
+  /** Source unit before normalisation ('KG' | 'MT' | ''). */
+  weightSourceUom: string;
+  /** Port of loading / discharge (UN/LOCODE-ish source values). */
+  pol: string;
+  pod: string;
+  destination: string;
+  /** Carrier code; joins the registry's `lineCode`. */
+  shippingLineCode: string;
+  /** Composite vessel+voyage+call string, e.g. 'KMIS0276'. NOT the VCN. */
+  vesselVisit: string;
+  voyage: string;
+  billOfLading: string;
+  sealNo: string;
+  reeferStatus: string;
+  reeferTemp: number | null;
+  /** IMDG dangerous-goods class (slot 1 only). */
+  imdgCode: string;
+  unNumber: string;
+  departureMode: string;
+  nominatedCfs: string;
+  /** Row ingest time (epoch ms; 0 when unknown) — the only date this row carries. */
+  createdAt: number;
+}
+
+/** One EDO / CODECO delivery-order line. */
+export interface DeliveryOrder {
+  /** Stable list key — see AdvanceListItem.id. */
+  id: string;
+  /** CODECO common reference — the closest thing to an "EDO number". */
+  commonRefNumber: string;
+  containerNo: string;
+  isoCode: string;
+  containerValidIso: boolean;
+  /** Equipment status, used as the row's status chip. */
+  equipmentStatus: string;
+  /** Agent code. NOT the same field as the registry's carrier code. */
+  shippingAgentCode: string;
+  /** Vessel Call Number, matching `core.vessel_call.vcn` by value. */
+  vcn: string;
+  imoNumber: string;
+  loadingPort: string;
+  destPort: string;
+  finalPod: string;
+  deliveryMode: string;
+  gatePassNo: string;
+  vehicleNo: string;
+  gateNumber: string;
+  /** Timestamps as epoch ms; 0 when absent. */
+  arrivalTs: number;
+  receiptDate: number;
+  gatePassTs: number;
+  issuedTs: number;
+  createdAt: number;
+}
+
+/** One row of the shipping-lines import ledger (upload history). */
+export interface ShippingUploadFile {
+  /** Stable list key — see AdvanceListItem.id. */
+  id: string;
+  /** Original file name as uploaded. */
+  sourceFile: string;
+  /** 'IAL' | 'EAL' | 'EDO'. */
+  listType: string;
+  terminal: string;
+  /** 'CSV' | 'XLS' | 'XLSX' | 'CODECO_XML'. */
+  physicalFormat: string;
+  recordCount: number;
+  importedCount: number;
+  errorCount: number;
+  /** 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED_DUPLICATE' | 'PENDING'. */
+  importStatus: string;
+  errorDetail: string;
+  uploadedBy: string;
+  /** 'UPLOAD' (through the UI) | 'DIRECTORY' (bulk importer). */
+  source: string;
+  createdAt: number;
+}
+
+/* ==========================================================================
+ * UC-1 Performance & Daily Reports (UC-3 backed, READ-ONLY).
+ *
+ * Mirrors `/api/performance` — the official JNPA Daily Status Report, monthly JN
+ * Port TEU and NLDS/LDB analytics tables (`core.perf_*`). This is a reporting
+ * surface: UC-1 only reads it, never writes, and it is served by the UC-3 gateway
+ * rather than by the DataAdapter chain.
+ *
+ * Convention note — DATES ARE KEPT AS 'YYYY-MM-DD' STRINGS here, deliberately
+ * departing from the epoch-ms convention used for instants elsewhere in this file.
+ * `report_date` is a calendar date, not a point in time; converting it to epoch ms
+ * would pin it to a timezone and can shift it a day either side of IST. It is also
+ * the value the gateway expects back in `date` / `from` / `to` parameters.
+ * ========================================================================== */
+
+/** One headline metric set. Every field is nullable — a report may omit a section. */
+export interface PerformanceMetrics {
+  totalTeus: number | null;
+  totalTonnes: number | null;
+  vesselCalls: number | null;
+  yardOccupancyPct: number | null;
+  gateTotalTeus: number | null;
+  gateInTeus: number | null;
+  gateOutTeus: number | null;
+  totalPendencyTeus: number | null;
+  reeferAvailableSlots: number | null;
+  reeferTotalSlots: number | null;
+}
+
+/** `GET /performance/kpi` — headline metrics plus day-over-day deltas. */
+export interface PerformanceKpi {
+  /** Report date these metrics describe, 'YYYY-MM-DD'. */
+  reportDate: string;
+  /** The previous report used for the deltas; '' when this is the earliest report. */
+  prevReportDate: string;
+  metrics: PerformanceMetrics;
+  /**
+   * Signed change vs `prevReportDate`, per metric. A key is ABSENT (null) when the
+   * gateway could not compute it — either metric missing on either day. Never 0 as
+   * a stand-in for "unknown".
+   */
+  deltas: Partial<Record<keyof PerformanceMetrics, number | null>>;
+}
+
+/** `GET /performance/daily/traffic` — container TEU + rail movements per terminal. */
+export interface PerformanceTraffic {
+  /** Stable list key — composite, since the row has no surrogate id. */
+  id: string;
+  reportDate: string;
+  terminalCode: string;
+  /** 'DAY' | 'MONTH' | 'YEAR' — the aggregation grain of the row. */
+  period: string;
+  vessels: number | null;
+  impTeus: number | null;
+  expTeus: number | null;
+  totalTeus: number | null;
+  rakes: number | null;
+  railDisTeus: number | null;
+  railLdgTeus: number | null;
+  railTotalTeus: number | null;
+}
+
+/** `GET /performance/terminals` — the canonical terminal dimension. */
+export interface PerformanceTerminal {
+  code: string;
+  fullName: string;
+  operator: string;
+  terminalType: string;
+  isContainer: boolean;
+  sortOrder: number | null;
+}
+
+/** `GET /performance/meta` — which report dates exist. */
+export interface PerformanceMeta {
+  /** Newest first, as returned by the gateway. */
+  reportDates: string[];
+  /** '' when no daily report has been imported yet. */
+  latestReportDate: string;
 }
