@@ -509,3 +509,115 @@ export interface BerthingStats {
   avgBerthHours: number | null;
   byTerminal: { terminal: string; count: number; berthed: number }[];
 }
+
+/* ==========================================================================
+ * UC-1 Shipping Lines — cargo documents (UC-3 backed).
+ *
+ * The document layer behind the carrier registry above: IAL/EAL advance-list
+ * container line items (`core.advance_list_container`) and EDO/CODECO delivery
+ * orders (`core.delivery_order_line`), plus the import ledger
+ * (`core.sl_import_file`).
+ *
+ * Convention (same as ShippingLine): camelCase fields, timestamps as epoch ms
+ * with 0 meaning "unknown/absent", never null; free-text as '' never null;
+ * genuinely optional numerics stay `number | null` so "absent" is not shown as 0.
+ * ========================================================================== */
+
+/** One IAL/EAL advance-list container line item. */
+export interface AdvanceListItem {
+  /** Stable list key. The server's `id` when present, else a composite of the
+   *  row's business key and position — identity never gates whether a row renders. */
+  id: string;
+  /** Import-ledger file this row came from. */
+  importFileId: number | null;
+  /** 'IAL' (import) | 'EAL' (export) — derived by the backend from `direction`. */
+  listType: string;
+  /** Terminal code, e.g. 'NSICT'. */
+  terminal: string;
+  containerNo: string;
+  isoCode: string;
+  /** ISO code passed the backend's checksum validation. */
+  containerValidIso: boolean;
+  /** 'FULL' | 'EMPTY' | '' — derived by the backend from `load_status`. */
+  freightKind: string;
+  /** 'IMPORT' | 'EXPORT' | 'TRANSHIP' | 'OTHER' | ''. */
+  category: string;
+  /** Normalised to kg by the backend (MT sources are multiplied). */
+  grossWeightKg: number | null;
+  /** Source unit before normalisation ('KG' | 'MT' | ''). */
+  weightSourceUom: string;
+  /** Port of loading / discharge (UN/LOCODE-ish source values). */
+  pol: string;
+  pod: string;
+  destination: string;
+  /** Carrier code; joins the registry's `lineCode`. */
+  shippingLineCode: string;
+  /** Composite vessel+voyage+call string, e.g. 'KMIS0276'. NOT the VCN. */
+  vesselVisit: string;
+  voyage: string;
+  billOfLading: string;
+  sealNo: string;
+  reeferStatus: string;
+  reeferTemp: number | null;
+  /** IMDG dangerous-goods class (slot 1 only). */
+  imdgCode: string;
+  unNumber: string;
+  departureMode: string;
+  nominatedCfs: string;
+  /** Row ingest time (epoch ms; 0 when unknown) — the only date this row carries. */
+  createdAt: number;
+}
+
+/** One EDO / CODECO delivery-order line. */
+export interface DeliveryOrder {
+  /** Stable list key — see AdvanceListItem.id. */
+  id: string;
+  /** CODECO common reference — the closest thing to an "EDO number". */
+  commonRefNumber: string;
+  containerNo: string;
+  isoCode: string;
+  containerValidIso: boolean;
+  /** Equipment status, used as the row's status chip. */
+  equipmentStatus: string;
+  /** Agent code. NOT the same field as the registry's carrier code. */
+  shippingAgentCode: string;
+  /** Vessel Call Number, matching `core.vessel_call.vcn` by value. */
+  vcn: string;
+  imoNumber: string;
+  loadingPort: string;
+  destPort: string;
+  finalPod: string;
+  deliveryMode: string;
+  gatePassNo: string;
+  vehicleNo: string;
+  gateNumber: string;
+  /** Timestamps as epoch ms; 0 when absent. */
+  arrivalTs: number;
+  receiptDate: number;
+  gatePassTs: number;
+  issuedTs: number;
+  createdAt: number;
+}
+
+/** One row of the shipping-lines import ledger (upload history). */
+export interface ShippingUploadFile {
+  /** Stable list key — see AdvanceListItem.id. */
+  id: string;
+  /** Original file name as uploaded. */
+  sourceFile: string;
+  /** 'IAL' | 'EAL' | 'EDO'. */
+  listType: string;
+  terminal: string;
+  /** 'CSV' | 'XLS' | 'XLSX' | 'CODECO_XML'. */
+  physicalFormat: string;
+  recordCount: number;
+  importedCount: number;
+  errorCount: number;
+  /** 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED_DUPLICATE' | 'PENDING'. */
+  importStatus: string;
+  errorDetail: string;
+  uploadedBy: string;
+  /** 'UPLOAD' (through the UI) | 'DIRECTORY' (bulk importer). */
+  source: string;
+  createdAt: number;
+}
