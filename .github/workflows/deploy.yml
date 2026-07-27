@@ -41,6 +41,10 @@ jobs:
       - name: Build Vite Application
         env:
           VITE_DATA_MODE: mock
+          VITE_UC3_ENABLED: "true"
+          VITE_UC3_API_BASE: "/api"
+          VITE_UC3_USERNAME: ${{ secrets.VITE_UC3_USERNAME }}
+          VITE_UC3_PASSWORD: ${{ secrets.VITE_UC3_PASSWORD }}
         run: |
           node --max-old-space-size=4096 ./node_modules/.bin/vite build
 
