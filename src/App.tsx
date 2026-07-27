@@ -54,6 +54,7 @@ import { PortCraftPage } from '@/components/marine/PortCraftPage';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
+import { BathymetryPage } from '@/components/marine/BathymetryPage';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
@@ -150,7 +151,7 @@ export function App() {
   const [vesselCallUploadKey, setVesselCallUploadKey] = useState(0);
   // DUKC tab sub-view. 'analysis' (the existing DukcCorridor / RTUKC view) is the default
   // so the tab opens exactly as before; 'channels' hosts the sea-channel section.
-  const [dukcSubTab, setDukcSubTab] = useState<'analysis' | 'channels'>('analysis');
+  const [dukcSubTab, setDukcSubTab] = useState<'analysis' | 'channels' | 'bathymetry'>('analysis');
   // Sea Channels section sub-view (nested under DUKC ▸ Sea Channels): 'data' (the
   // SeaChannelTable, the default) or 'upload' (MarineUploadPanel + upload history).
   const [seaChannelSubTab, setSeaChannelSubTab] = useState<'data' | 'upload'>('data');
@@ -495,6 +496,9 @@ export function App() {
                   <CalciteTabTitle tab="d-channels" selected={dukcSubTab === 'channels'} onCalciteTabsActivate={() => setDukcSubTab('channels')}>
                     Sea Channels
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="d-bathymetry" selected={dukcSubTab === 'bathymetry'} onCalciteTabsActivate={() => setDukcSubTab('bathymetry')}>
+                    Bathymetry
+                  </CalciteTabTitle>
                 </CalciteTabNav>
 
                 {/* Existing DUKC / RTUKC view — unchanged, and the DEFAULT sub-tab. */}
@@ -535,6 +539,14 @@ export function App() {
                       />
                     </CalciteTab>
                   </CalciteTabs>
+                </CalciteTab>
+
+                {/* Bathymetry (DUKC domain) — Overview (default) / Surveys / Data Upload.
+                    Composition lives in <BathymetryPage>, mirroring <PortCraftPage>. It sits
+                    here rather than as a top-level tab because the soundings ARE the survey
+                    evidence behind the charted depths this corridor computes UKC from. */}
+                <CalciteTab tab="d-bathymetry" selected={dukcSubTab === 'bathymetry'}>
+                  <BathymetryPage />
                 </CalciteTab>
               </CalciteTabs>
             </CalciteTab>

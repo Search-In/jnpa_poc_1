@@ -461,6 +461,77 @@ export interface SeaChannel {
 }
 
 /* ==========================================================================
+ * UC-1 Marine — BATHYMETRY (UC-3 backed, `core.bathymetry_survey/_sounding`).
+ *
+ * Depth soundings extracted from the JNPA multibeam chart PDFs (or pushed as canonical
+ * JSON) through the shared marine upload endpoints. A survey is one chart; a sounding is
+ * one plotted depth on it.
+ *
+ * Two properties drive the UI and are NOT defects:
+ *  • `depthM` is metres BELOW Chart Datum, and `aboveDesign` marks a shoal plotted red —
+ *    the sounding is shallower than the design depth, i.e. a hazard, not a deep spot.
+ *  • Coordinates are NULLABLE. Charts whose page->UTM grid could not be fitted carry only
+ *    page coordinates, so any map overlay must skip those rather than assume 0/0.
+ * camelCase; numeric fields null when the source omits. Surveys are few (~12); soundings
+ * are MANY (15k-30k per survey), so they are always read scoped + paginated.
+ * ========================================================================== */
+export interface BathymetrySurvey {
+  surveyId: number;
+  /** Natural key — the chart's drawing number. */
+  drawingNo: string;
+  sectionLabel: string;
+  /** Design depth below Chart Datum (m), null when the title block omits it. */
+  designDepthM: number | null;
+  surveyStart: string;
+  surveyEnd: string;
+  surveyVessel: string;
+  /** Soundings currently stored for this survey (0 before its chart is imported). */
+  soundingCount: number;
+}
+
+/** UTM Zone 43N (EPSG:32643) extent of a survey's georeferenced soundings. */
+export interface BathymetryBBox {
+  minEastingM: number | null;
+  maxEastingM: number | null;
+  minNorthingM: number | null;
+  maxNorthingM: number | null;
+}
+
+export interface BathymetrySurveyStats {
+  surveyId: number;
+  drawingNo: string;
+  designDepthM: number | null;
+  soundingCount: number;
+  /** Soundings shallower than design depth (plotted red on the chart). */
+  aboveDesignCount: number;
+  /** Soundings carrying easting/northing; may be 0 on a page-space-only chart. */
+  georeferencedCount: number;
+  minDepthM: number | null;
+  maxDepthM: number | null;
+  avgDepthM: number | null;
+  /** Null when the survey has no georeferenced soundings. */
+  bbox: BathymetryBBox | null;
+}
+
+export interface BathymetrySounding {
+  soundingId: number;
+  surveyId: number;
+  /** UTM 43N; null on an ungeoreferenced chart. */
+  eastingM: number | null;
+  northingM: number | null;
+  /** WGS84; null on an ungeoreferenced chart. */
+  lat: number | null;
+  lon: number | null;
+  /** Metres below Chart Datum. */
+  depthM: number;
+  /** True = shallower than design depth (shoal). */
+  aboveDesign: boolean;
+  /** Chart page coordinates — always present, the fallback locator. */
+  pageXPt: number | null;
+  pageYPt: number | null;
+}
+
+/* ==========================================================================
  * Berthing Reports (UC-III module 7, UC-3 backed, `jnpa.berthing_reports`).
  *
  * The reported per-terminal berthing vessel-call for the five JNPA container terminals
