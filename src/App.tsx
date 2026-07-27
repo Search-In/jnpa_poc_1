@@ -32,7 +32,6 @@ import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
-import { VesselFeed } from '@/components/VesselFeed';
 import { VesselTable } from '@/components/VesselTable';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
 import { PilotageTable } from '@/components/marine/PilotageTable';
@@ -47,15 +46,14 @@ import { BerthingStats } from '@/components/berthing/BerthingStats';
 import { BerthingReportsTable } from '@/components/berthing/BerthingReportsTable';
 import { BerthingUploadPanel } from '@/components/berthing/BerthingUploadPanel';
 import { ShippingLinesPage } from '@/components/shipping/ShippingLinesPage';
+import { PerformanceReportsPage } from '@/components/performance/PerformanceReportsPage';
 import { PlanImportPanel } from '@/planning/PlanImportPanel';
-import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
 import { PortCraftPage } from '@/components/marine/PortCraftPage';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
-import { WeatherPanel } from '@/components/WeatherPanel';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
@@ -67,7 +65,6 @@ import { WorkflowComposer } from '@/workflow/WorkflowComposer';
 import { ConnectorReadiness } from '@/console/ConnectorReadiness';
 import { AnalyticsPanel } from '@/planning/AnalyticsPanel';
 import { MethodologyPanel } from '@/components/MethodologyPanel';
-import { ExportToolbar } from '@/reports/ExportToolbar';
 import { KPI_TARGETS } from '@/config/targets';
 import type { Berth } from '@/types/domain';
 import { useAppStore } from '@/store/useAppStore';
@@ -93,7 +90,10 @@ const TABS = [
   { id: 'workflows', label: 'Workflows' },
   { id: 'analytics', label: 'Analytics & JIT' },
   { id: 'connectors', label: 'Connectors' },
-  { id: 'reports', label: 'Reports' },
+  // Renamed only — the id stays 'reports' so nothing that addresses this tab (and no
+  // guided-tour step) has to change. Content is now Overview / Daily Traffic /
+  // Operational, the last being the original Reports panels moved verbatim.
+  { id: 'reports', label: 'Performance & Reports' },
   { id: 'methodology', label: 'Methodology' },
 ] as const;
 
@@ -566,21 +566,11 @@ export function App() {
             <CalciteTab tab="connectors" selected={activeTab === 'connectors'}>
               <ConnectorReadiness />
             </CalciteTab>
+            {/* Performance & Reports — Overview / Daily Traffic (both read-only over
+                /api/performance) + Operational, which holds the original Reports
+                panels verbatim. Composition lives in <PerformanceReportsPage>. */}
             <CalciteTab tab="reports" selected={activeTab === 'reports'}>
-              <ExportToolbar />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
-                <Panel title="Arrivals & Departures (4h blocks)" minHeight={260}>
-                  <ArrivalsDepartures />
-                </Panel>
-                <Panel title="Weather & Sea-State" minHeight={260}>
-                  <WeatherPanel />
-                </Panel>
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <Panel title="Live Vessel Feed (priority order)" height={360}>
-                    <VesselFeed />
-                  </Panel>
-                </div>
-              </div>
+              <PerformanceReportsPage />
             </CalciteTab>
             <CalciteTab tab="methodology" selected={activeTab === 'methodology'}>
               <MethodologyPanel />

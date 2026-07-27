@@ -621,3 +621,83 @@ export interface ShippingUploadFile {
   source: string;
   createdAt: number;
 }
+
+/* ==========================================================================
+ * UC-1 Performance & Daily Reports (UC-3 backed, READ-ONLY).
+ *
+ * Mirrors `/api/performance` — the official JNPA Daily Status Report, monthly JN
+ * Port TEU and NLDS/LDB analytics tables (`core.perf_*`). This is a reporting
+ * surface: UC-1 only reads it, never writes, and it is served by the UC-3 gateway
+ * rather than by the DataAdapter chain.
+ *
+ * Convention note — DATES ARE KEPT AS 'YYYY-MM-DD' STRINGS here, deliberately
+ * departing from the epoch-ms convention used for instants elsewhere in this file.
+ * `report_date` is a calendar date, not a point in time; converting it to epoch ms
+ * would pin it to a timezone and can shift it a day either side of IST. It is also
+ * the value the gateway expects back in `date` / `from` / `to` parameters.
+ * ========================================================================== */
+
+/** One headline metric set. Every field is nullable — a report may omit a section. */
+export interface PerformanceMetrics {
+  totalTeus: number | null;
+  totalTonnes: number | null;
+  vesselCalls: number | null;
+  yardOccupancyPct: number | null;
+  gateTotalTeus: number | null;
+  gateInTeus: number | null;
+  gateOutTeus: number | null;
+  totalPendencyTeus: number | null;
+  reeferAvailableSlots: number | null;
+  reeferTotalSlots: number | null;
+}
+
+/** `GET /performance/kpi` — headline metrics plus day-over-day deltas. */
+export interface PerformanceKpi {
+  /** Report date these metrics describe, 'YYYY-MM-DD'. */
+  reportDate: string;
+  /** The previous report used for the deltas; '' when this is the earliest report. */
+  prevReportDate: string;
+  metrics: PerformanceMetrics;
+  /**
+   * Signed change vs `prevReportDate`, per metric. A key is ABSENT (null) when the
+   * gateway could not compute it — either metric missing on either day. Never 0 as
+   * a stand-in for "unknown".
+   */
+  deltas: Partial<Record<keyof PerformanceMetrics, number | null>>;
+}
+
+/** `GET /performance/daily/traffic` — container TEU + rail movements per terminal. */
+export interface PerformanceTraffic {
+  /** Stable list key — composite, since the row has no surrogate id. */
+  id: string;
+  reportDate: string;
+  terminalCode: string;
+  /** 'DAY' | 'MONTH' | 'YEAR' — the aggregation grain of the row. */
+  period: string;
+  vessels: number | null;
+  impTeus: number | null;
+  expTeus: number | null;
+  totalTeus: number | null;
+  rakes: number | null;
+  railDisTeus: number | null;
+  railLdgTeus: number | null;
+  railTotalTeus: number | null;
+}
+
+/** `GET /performance/terminals` — the canonical terminal dimension. */
+export interface PerformanceTerminal {
+  code: string;
+  fullName: string;
+  operator: string;
+  terminalType: string;
+  isContainer: boolean;
+  sortOrder: number | null;
+}
+
+/** `GET /performance/meta` — which report dates exist. */
+export interface PerformanceMeta {
+  /** Newest first, as returned by the gateway. */
+  reportDates: string[];
+  /** '' when no daily report has been imported yet. */
+  latestReportDate: string;
+}
