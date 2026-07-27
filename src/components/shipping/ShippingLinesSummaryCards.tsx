@@ -1,11 +1,12 @@
 /**
- * <ShippingLinesSummaryCards> — the dashboard KPI row for the Vessels ▸ Shipping Lines
- * sub-tab. Reads `/api/shipping-lines/summary` via the UC-3 connector and renders the
+ * <ShippingLinesSummaryCards> — the dashboard KPI row for the Shipping Lines ▸ Overview
+ * tab. Reads `/api/shipping-lines/summary` via the UC-3 connector and renders the
  * KpiStrip card-grid idiom (auto-fit minmax cards on tokens.panelAlt).
  *
  * UC-3-backed layer counts (advance-list containers, delivery orders, carriers) over the
- * jnpa.sl_* tables. Against an empty backend every count is 0 by design; the failed-files
- * card is a data-quality signal.
+ * core.advance_list_container / core.delivery_order_line / core.ref_shipping_line tables.
+ * Against an empty backend every count is 0 by design; the failed-files card is a
+ * data-quality signal.
  */
 
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';

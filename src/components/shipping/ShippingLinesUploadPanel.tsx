@@ -1,5 +1,5 @@
 /**
- * <ShippingLinesUploadPanel> — the Vessels ▸ Shipping Lines ▸ Data Upload sub-tab.
+ * <ShippingLinesUploadPanel> — the Shipping Lines ▸ Data Upload tab.
  * Drives the shipping-lines Data-Upload workflow (validate → preview → import) through
  * the UC-3 shippingLines connector. No transport logic lives here — it only orchestrates
  * the connector and renders results.
@@ -11,8 +11,8 @@
  * by content, so `accept` is only the OS dialog hint.
  *
  * RBAC: mirrors the other upload panels — a read-only role sees the controls disabled
- * with a lock notice. A successful import calls `onImported` so the sibling registry /
- * summary can refresh.
+ * with a lock notice. A successful import calls `onImported` so the sibling Overview and
+ * Carrier Registry tabs can both refresh.
  */
 
 import { useRef, useState } from 'react';
