@@ -8,7 +8,7 @@ export interface AppEnv {
    * hybrid — simulated JNPA fleet WITH real aisstream.io vessels layered on top
    *          (LiveOverlayAdapter). Needs VITE_AISSTREAM_TOKEN for the live layer.
    */
-  dataMode: 'mock' | 'live' | 'hybrid';
+  dataMode: 'mock' | 'live' | 'hybrid' | 'uc3';
   portalUrl: string;
   arcgisApiKey: string;
   oauthAppId: string;
@@ -144,7 +144,7 @@ const ROTTERDAM_STANDIN_BBOX = [
 void ROTTERDAM_STANDIN_BBOX;
 
 export const env: AppEnv = {
-  dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live' | 'hybrid') ?? 'mock',
+  dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live' | 'hybrid' | 'uc3') ?? 'mock',
   portalUrl: str(import.meta.env.VITE_PORTAL_URL, 'https://www.arcgis.com'),
   arcgisApiKey: str(import.meta.env.VITE_ARCGIS_API_KEY),
   oauthAppId: str(import.meta.env.VITE_OAUTH_APPID),

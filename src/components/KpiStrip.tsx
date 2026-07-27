@@ -39,6 +39,23 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
   const color = deltaColor(key, kpi.deltaPct);
   const arrow = kpi.deltaPct > 0 ? '▲' : kpi.deltaPct < 0 ? '▼' : '–';
 
+  // Spec UI-041 card anatomy: definition + arrival-time basis + baseline source
+  // ride on the card (tooltip + footer) when the adapter supplies them. A KPI the
+  // corpus cannot measure (sampleN 0 + note) renders '—' and its explanation —
+  // never a fabricated zero.
+  const unmeasurable = kpi.sampleN === 0 && !!kpi.note;
+  const tooltip = [
+    kpi.definition && `Definition: ${kpi.definition}`,
+    kpi.basis && `Basis: ${kpi.basis}`,
+    kpi.baselineSource && `Baseline: ${kpi.baselineSource}`,
+    kpi.vsBaselinePct !== undefined &&
+      `Measured vs published baseline: ${signedPct(kpi.vsBaselinePct)}`,
+    kpi.note && `Note: ${kpi.note}`,
+    kpi.sampleN !== undefined && `n = ${kpi.sampleN}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   return (
     <div
       className="app-region"
@@ -54,24 +71,67 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
       }}
       role="group"
       aria-label={`${kpi.label}${lit ? ' — spotlighted by the active scenario' : ''}`}
+      title={tooltip || undefined}
     >
-      <div style={{ fontSize: 11, color: tokens.textMuted, minHeight: 26 }}>{kpi.label}</div>
+      <div style={{ fontSize: 11, color: tokens.textMuted, minHeight: 26 }}>
+        {kpi.label}
+        {tooltip && (
+          <span aria-hidden style={{ marginLeft: 4, cursor: 'help', opacity: 0.7 }}>ⓘ</span>
+        )}
+      </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
         <span style={{ fontSize: 26, fontWeight: 700, color: tokens.text, lineHeight: 1 }}>
-          {kpi.value}
+          {unmeasurable ? '—' : kpi.value}
         </span>
-        {kpi.unit && <span style={{ fontSize: 13, color: tokens.textMuted }}>{kpi.unit}</span>}
+        {!unmeasurable && kpi.unit && (
+          <span style={{ fontSize: 13, color: tokens.textMuted }}>{kpi.unit}</span>
+        )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontSize: 11, color, fontWeight: 600 }} aria-label={`delta vs target ${signedPct(kpi.deltaPct)}`}>
-          {arrow} {signedPct(kpi.deltaPct)}
-        </span>
-        <span style={{ fontSize: 10, color: tokens.textMuted }}>
-          target {kpi.target}
-          {kpi.unit}
-        </span>
-      </div>
-      <Sparkline points={kpi.trend} color={color === tokens.textMuted ? tokens.accent : color} height={24} width={140} />
+      {unmeasurable ? (
+        <div style={{ fontSize: 10, color: tokens.textMuted, lineHeight: 1.35 }}>{kpi.note}</div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontSize: 11, color, fontWeight: 600 }} aria-label={`delta vs target ${signedPct(kpi.deltaPct)}`}>
+            {arrow} {signedPct(kpi.deltaPct)}
+          </span>
+          <span style={{ fontSize: 10, color: tokens.textMuted }}>
+            target {kpi.target}
+            {kpi.unit}
+          </span>
+        </div>
+      )}
+      {!unmeasurable && (
+        <Sparkline points={kpi.trend} color={color === tokens.textMuted ? tokens.accent : color} height={24} width={140} />
+      )}
+      {/* Spec UI-041: the published-baseline line. When JNPA publishes a figure for
+          this KPI, show it with the measured-vs-published delta — the tender's
+          "improvement vs current baseline operations", against a REAL number. */}
+      {kpi.baselineValue !== undefined ? (
+        <div style={{ fontSize: 9.5, color: tokens.textMuted, lineHeight: 1.35 }}>
+          <span style={{ fontWeight: 700 }}>
+            JNPA baseline {kpi.baselineValue}
+            {kpi.unit} {kpi.baselinePeriod ? `(${kpi.baselinePeriod})` : ''}
+          </span>
+          {kpi.vsBaselinePct !== undefined && (
+            <span
+              style={{
+                marginLeft: 4,
+                fontWeight: 700,
+                color: deltaColor(key, kpi.vsBaselinePct),
+              }}
+            >
+              {signedPct(kpi.vsBaselinePct)} vs baseline
+            </span>
+          )}
+          <div>jnport.gov.in ▸ Reports ▸ Operating Performance Profile</div>
+        </div>
+      ) : (
+        kpi.baselineSource && (
+          <div style={{ fontSize: 9, color: tokens.textMuted, lineHeight: 1.3 }}>
+            {kpi.baselineSource}
+          </div>
+        )
+      )}
     </div>
   );
 }

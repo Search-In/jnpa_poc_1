@@ -12,22 +12,26 @@ import { env } from './config';
 import { MockAdapter } from './MockAdapter';
 import { ArcGISAdapter } from './ArcGISAdapter';
 import { LiveOverlayAdapter } from './LiveOverlayAdapter';
+import { Uc3Adapter } from './Uc3Adapter';
 import { SimAdapter } from '@/sim/SimAdapter';
 import type { DataAdapter } from './types';
 
-type DataMode = 'mock' | 'live' | 'hybrid';
+type DataMode = 'mock' | 'live' | 'hybrid' | 'uc3';
 
 let singleton: DataAdapter | null = null;
 
 /**
  * Build the base adapter for the mode (without the simulator overlay).
  *   mock   → MockAdapter (offline).
- *   live   → ArcGISAdapter (real feeds only).
+ *   live   → ArcGISAdapter (Stream/Feature Layers only).
  *   hybrid → MockAdapter with real aisstream.io vessels composited on top.
+ *   uc3    → Uc3Adapter (ingested JNPA corpus via the UC-3 gateway) with the
+ *            aisstream.io overlay on top — real records below, real AIS above.
  */
 export function createBaseAdapter(mode: DataMode = env.dataMode): DataAdapter {
   if (mode === 'live') return new ArcGISAdapter();
   if (mode === 'hybrid') return new LiveOverlayAdapter(new MockAdapter());
+  if (mode === 'uc3') return new LiveOverlayAdapter(new Uc3Adapter());
   return new MockAdapter();
 }
 

@@ -56,6 +56,10 @@ import { DelayTrend } from '@/components/reports/DelayTrend';
 import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
 import { PortCraftRegisterTable } from '@/components/marine/PortCraftRegisterTable';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
+import { PredictionAccuracy } from '@/components/reports/PredictionAccuracy';
+import { PortCraftPerformance } from '@/components/reports/PortCraftPerformance';
+import { PilotPerformancePanel } from '@/components/marine/PilotPerformancePanel';
+import { PreBerthingBoard } from '@/components/marine/PreBerthingBoard';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
 import { WeatherPanel } from '@/components/WeatherPanel';
@@ -169,7 +173,7 @@ export function App() {
   // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
   // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
   // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
-  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'upload'>('plan');
+  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'preberth' | 'upload'>('plan');
   // Bumped after a successful berthing import so the sibling Terminal Reports view
   // remounts and refetches. Presentation-only — no query logic changes.
   const [berthingReportsKey, setBerthingReportsKey] = useState(0);
@@ -389,6 +393,11 @@ export function App() {
                 <Panel title="Average Vessel TAT vs target" minHeight={260}>
                   <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
                 </Panel>
+                {/* Spec UI-044 (screen M-09): predicted-vs-actual arrival accuracy —
+                    previously built but never mounted (audit item D9). */}
+                <Panel title="ETA Prediction Accuracy" minHeight={260}>
+                  <PredictionAccuracy />
+                </Panel>
               </div>
             </CalciteTab>
 
@@ -490,6 +499,9 @@ export function App() {
                   <CalciteTabTitle tab="b-reports" selected={berthingSubTab === 'reports'} onCalciteTabsActivate={() => setBerthingSubTab('reports')}>
                     Terminal Reports
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-preberth" selected={berthingSubTab === 'preberth'} onCalciteTabsActivate={() => setBerthingSubTab('preberth')}>
+                    Pre-Berthing Board
+                  </CalciteTabTitle>
                   <CalciteTabTitle tab="b-upload" selected={berthingSubTab === 'upload'} onCalciteTabsActivate={() => setBerthingSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
@@ -498,6 +510,12 @@ export function App() {
                 {/* Existing sim/adapter berth-plan gantt — unchanged, and the DEFAULT sub-tab. */}
                 <CalciteTab tab="b-plan" selected={berthingSubTab === 'plan'}>
                   <BerthGantt5Day />
+                </CalciteTab>
+
+                {/* Spec M-08 / UI-040: the backward-chaining Pre-Berthing Status Board —
+                    for a target berthing, everything that must be true and by when. */}
+                <CalciteTab tab="b-preberth" selected={berthingSubTab === 'preberth'}>
+                  <PreBerthingBoard />
                 </CalciteTab>
 
                 {/* New: UC-3 per-terminal berthing REPORT actuals (jnpa.berthing_reports).
@@ -591,6 +609,15 @@ export function App() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {/* Existing live-ops board (mock/adapter) — unchanged. */}
                     <PortCraftBoard />
+                    {/* Spec UI-039 (screen M-07): pilot board→all-fast as a DISTRIBUTION
+                        (median · P90 per pilot) from the ingested pilot cards. */}
+                    <Panel title="Pilot performance — board → all fast (median · P90)" minHeight={260}>
+                      <PilotPerformancePanel />
+                    </Panel>
+                    {/* Utilisation/response strip — previously built, never mounted (D9). */}
+                    <Panel title="Craft utilisation & response" minHeight={240}>
+                      <PortCraftPerformance />
+                    </Panel>
                     {/* UC-3 fleet register (core.port_craft) from the client PDF. */}
                     <Panel title="Port-craft fleet register — UC-3 backend (core.port_craft)" height={420}>
                       <PortCraftRegisterTable key={portCraftUploadKey} />
