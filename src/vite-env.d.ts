@@ -25,6 +25,12 @@ interface ImportMetaEnv {
   readonly VITE_UC3_API_BASE?: string;
   readonly VITE_UC3_USERNAME?: string;
   readonly VITE_UC3_PASSWORD?: string;
+  // NLDS Logistics Data Bank container track (see src/data/config.ts → env.ldb).
+  readonly VITE_LDB_ENABLED?: string;
+  readonly VITE_LDB_PROXY_BASE?: string;
+  readonly VITE_LDB_ACCESS_TOKEN?: string;
+  readonly VITE_LDB_MOBILE_NO?: string;
+  readonly VITE_LDB_SAMPLE_FALLBACK?: string;
 }
 
 interface ImportMeta {

@@ -44,3 +44,11 @@ body {
   border: 1px solid var(--app-border);
   border-radius: 4px;
 }
+
+/* Vessels ▸ Track by Container — stack sidebar + map on narrow panels. */
+@media (max-width: 900px) {
+  .container-track-split {
+    grid-template-columns: 1fr !important;
+  }
+}
+
