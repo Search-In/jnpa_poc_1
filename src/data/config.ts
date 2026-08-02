@@ -104,19 +104,22 @@ export interface AppEnv {
     password: string;
   };
   /**
-   * NLDS Logistics Data Bank container tracking (`/apigateway/track/cntr/`).
-   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx; LDB itself
-   * is cross-origin and token-gated.
+   * NLDS Logistics Data Bank container tracking — same guest searate auth as
+   * ldb.co.in: mobile OTP → sessionStorage.searateToken → POST /apigateway/track/cntr/.
+   * One OTP session tracks any container until the JWT expires (401).
    */
   ldb: {
     enabled: boolean;
     /** Relative proxy prefix → https://ldb.co.in */
     proxyBase: string;
-    /** Optional bearer for the LDB apigateway (public calls return UNAUTHORIZED). */
+    /**
+     * Optional bootstrap searateToken (paste from LDB sessionStorage). Prefer
+     * in-app OTP verify which stores the same key.
+     */
     accessToken: string;
-    /** Default mobileNo query param used by LDB's track endpoint. */
+    /** Default mobile for the OTP login form. */
     mobileNo: string;
-    /** Serve bundled sample when the live call fails (demo-friendly default). */
+    /** Serve CCLU7468361 bundled sample only when live track fails. */
     useSampleFallback: boolean;
   };
 }

@@ -1,7 +1,70 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { fileURLToPath, URL } from 'node:url';
+
+/**
+ * Dev proxy for LDB. Azure App Gateway WAF 403s when the browser's
+ * Origin/Referer/Accept (localhost, text/html) are forwarded. A custom
+ * middleware re-fetches with clean same-site headers — more reliable than
+ * http-proxy header overrides.
+ */
+function ldbDevProxy(): Plugin {
+  return {
+    name: 'ldb-dev-proxy',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/ldb-proxy')) {
+          next();
+          return;
+        }
+        const targetPath = req.url.replace(/^\/ldb-proxy/, '') || '/';
+        const targetUrl = `https://ldb.co.in${targetPath}`;
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          }
+          const method = (req.method ?? 'GET').toUpperCase();
+          const headers: Record<string, string> = {
+            Accept: 'application/json',
+            Origin: 'https://ldb.co.in',
+            Referer: 'https://ldb.co.in/ldb/searate/',
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          };
+          if (req.headers.authorization) {
+            headers.Authorization = String(req.headers.authorization);
+          }
+          if (req.headers['content-type']) {
+            headers['Content-Type'] = String(req.headers['content-type']);
+          } else if (method !== 'GET' && method !== 'HEAD') {
+            headers['Content-Type'] = 'application/json';
+          }
+          const upstream = await fetch(targetUrl, {
+            method,
+            headers,
+            body: method === 'GET' || method === 'HEAD' ? undefined : Buffer.concat(chunks),
+          });
+          const buf = Buffer.from(await upstream.arrayBuffer());
+          res.statusCode = upstream.status;
+          const ct = upstream.headers.get('content-type');
+          if (ct) res.setHeader('Content-Type', ct);
+          res.end(buf);
+        } catch (err) {
+          res.statusCode = 502;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(
+            JSON.stringify({
+              error: 'LDB proxy failed',
+              detail: err instanceof Error ? err.message : String(err),
+            }),
+          );
+        }
+      });
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -12,7 +75,7 @@ export default defineConfig(({ mode }) => {
   const useHttps = env.VITE_DEV_HTTPS === 'true';
 
   return {
-    plugins: [react(), ...(useHttps ? [basicSsl()] : [])],
+    plugins: [react(), ldbDevProxy(), ...(useHttps ? [basicSsl()] : [])],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -77,16 +140,7 @@ export default defineConfig(({ mode }) => {
           // cert. Production terminates TLS at nginx, which never uses this file.
           secure: false,
         },
-        // NLDS Logistics Data Bank container track (Vessels ▸ Track by Container).
-        // LDB is cross-origin and token-gated; the browser calls /ldb-proxy/… and
-        // Vite forwards to https://ldb.co.in. Production needs the matching
-        // nginx location in deploy/nginx.conf.
-        '/ldb-proxy': {
-          target: 'https://ldb.co.in',
-          changeOrigin: true,
-          secure: true,
-          rewrite: (p) => p.replace(/^\/ldb-proxy/, ''),
-        },
+        // LDB is handled by ldbDevProxy() plugin (WAF-safe header rewrite).
       },
     },
   };
