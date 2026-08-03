@@ -77,6 +77,16 @@ export default defineConfig(({ mode }) => {
           // cert. Production terminates TLS at nginx, which never uses this file.
           secure: false,
         },
+        // NLDS Logistics Data Bank container track (Vessels ▸ Track by Container).
+        // LDB is cross-origin and token-gated; the browser calls /ldb-proxy/… and
+        // Vite forwards to https://ldb.co.in. Production needs the matching
+        // nginx location in deploy/nginx.conf.
+        '/ldb-proxy': {
+          target: 'https://ldb.co.in',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (p) => p.replace(/^\/ldb-proxy/, ''),
+        },
       },
     },
   };

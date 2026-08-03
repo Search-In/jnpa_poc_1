@@ -36,6 +36,7 @@ import { VesselTable } from '@/components/VesselTable';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
 import { PilotageTable } from '@/components/marine/PilotageTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
+import { ContainerTrackPanel } from '@/components/marine/ContainerTrackPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
@@ -144,7 +145,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
-  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload'>('live');
+  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload' | 'track'>('live');
   // Shipping Lines is now a top-level module — its sub-tab and post-import refresh
   // state live inside <ShippingLinesPage>.
   // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
@@ -408,6 +409,9 @@ export function App() {
                   <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-track" selected={vesselSubTab === 'track'} onCalciteTabsActivate={() => setVesselSubTab('track')}>
+                    Track by Container
+                  </CalciteTabTitle>
                 </CalciteTabNav>
 
                 {/* Existing AIS feed — unchanged, and the DEFAULT sub-tab. */}
@@ -434,6 +438,12 @@ export function App() {
                     On a successful import, bump the key so the Vessel Calls sub-tab refetches. */}
                 <CalciteTab tab="v-upload" selected={vesselSubTab === 'upload'}>
                   <MarineUploadPanel onImported={() => setVesselCallUploadKey((k) => k + 1)} />
+                </CalciteTab>
+
+                {/* NLDS / LDB container track by id — SeaRates-shaped UI under
+                    /apigateway/track/cntr/ (see src/data/ldb). */}
+                <CalciteTab tab="v-track" selected={vesselSubTab === 'track'}>
+                  <ContainerTrackPanel />
                 </CalciteTab>
 
               </CalciteTabs>

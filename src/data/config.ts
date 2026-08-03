@@ -103,6 +103,22 @@ export interface AppEnv {
     username: string;
     password: string;
   };
+  /**
+   * NLDS Logistics Data Bank container tracking (`/apigateway/track/cntr/`).
+   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx; LDB itself
+   * is cross-origin and token-gated.
+   */
+  ldb: {
+    enabled: boolean;
+    /** Relative proxy prefix → https://ldb.co.in */
+    proxyBase: string;
+    /** Optional bearer for the LDB apigateway (public calls return UNAUTHORIZED). */
+    accessToken: string;
+    /** Default mobileNo query param used by LDB's track endpoint. */
+    mobileNo: string;
+    /** Serve bundled sample when the live call fails (demo-friendly default). */
+    useSampleFallback: boolean;
+  };
 }
 
 function str(v: string | undefined, fallback = ''): string {
@@ -193,5 +209,12 @@ export const env: AppEnv = {
     apiBase: str(import.meta.env.VITE_UC3_API_BASE, '/api'),
     username: str(import.meta.env.VITE_UC3_USERNAME),
     password: str(import.meta.env.VITE_UC3_PASSWORD),
+  },
+  ldb: {
+    enabled: str(import.meta.env.VITE_LDB_ENABLED, 'true') !== 'false',
+    proxyBase: str(import.meta.env.VITE_LDB_PROXY_BASE, '/ldb-proxy'),
+    accessToken: str(import.meta.env.VITE_LDB_ACCESS_TOKEN),
+    mobileNo: str(import.meta.env.VITE_LDB_MOBILE_NO),
+    useSampleFallback: str(import.meta.env.VITE_LDB_SAMPLE_FALLBACK, 'true') !== 'false',
   },
 };
