@@ -217,3 +217,29 @@ export function buildPortAssets2dLayer(): GraphicsLayer {
   layer.addMany(g);
   return layer;
 }
+
+/**
+ * The `kind` values that are VESSELS rather than port infrastructure: the
+ * berthed hero ships and the harbour tug.
+ */
+const VESSEL_KINDS = new Set(['berthed', 'tug']);
+
+/**
+ * Drive the two halves of this layer independently.
+ *
+ * The 2D map draws every port asset in ONE GraphicsLayer (unlike the 3D scene,
+ * which has a layer per asset class), so a single `layer.visible` would tie the
+ * decorative hulls to the cranes/yards/gates/trucks. They answer to different
+ * controls: infrastructure to the "Port Assets" checkbox, hulls to "Vessel
+ * Tracks" and to the live-AIS overlay (which must not leave invented ships
+ * alongside real AIS positions). Hence per-GRAPHIC visibility.
+ */
+export function setPortAssets2dVisible(
+  layer: GraphicsLayer,
+  opts: { infrastructure: boolean; vessels: boolean },
+): void {
+  layer.graphics.forEach((graphic) => {
+    const kind = (graphic.attributes as { kind?: string } | undefined)?.kind;
+    graphic.visible = kind && VESSEL_KINDS.has(kind) ? opts.vessels : opts.infrastructure;
+  });
+}

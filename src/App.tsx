@@ -59,6 +59,8 @@ import { BathymetryPage } from '@/components/marine/BathymetryPage';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
+import { useLiveVesselStore } from '@/map/liveVesselStore';
+import { env } from '@/data/config';
 import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
@@ -110,6 +112,16 @@ export function App() {
   useSimClock();
   useSimReactivity();
 
+  // The live-AIS overlay starts OFF on every load, so first paint never depends
+  // on a gateway call and no session ever comes up claiming to show real traffic
+  // the operator didn't ask for. The store already defaults to false and is not
+  // persisted; this mount-time reset additionally covers Vite HMR in dev, where
+  // module state SURVIVES a hot update and would otherwise leave the overlay on
+  // across what looks like a fresh start.
+  useEffect(() => {
+    useLiveVesselStore.getState().setEnabled(false);
+  }, []);
+
   // Suite deep-link: `?scenario=<id>` opens straight into a what-if (parity with
   // UC-2/UC-3), so the Suite DTCCC console can drive UC-1 as part of the
   // cross-domain Monsoon-Friday chain. Deck/VTM ids map to the native M-ids:
@@ -140,6 +152,14 @@ export function App() {
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
   const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
+  // Live AIS overlay (real MarineTraffic-sourced traffic via the shared gateway).
+  // Shared store, not local state, so the toggle survives a 2D↔3D flip.
+  const liveAisOn = useLiveVesselStore((s) => s.enabled);
+  const toggleLiveAis = useLiveVesselStore((s) => s.toggle);
+  const liveAisCount = useLiveVesselStore((s) => s.count);
+  const liveAisError = useLiveVesselStore((s) => s.error);
+  const liveAisLoading = useLiveVesselStore((s) => s.loading);
+  const liveAisAvailable = env.liveAis.enabled && env.uc3.enabled;
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
@@ -295,6 +315,26 @@ export function App() {
                 )}
                 {/* 3D asset placement editing (shared positions.json workflow). */}
                 {mapMode === '3d' && <PlacementToolbar />}
+                {/* Live AIS — real vessel positions from the shared gateway's
+                    MarineTraffic proxy. Replaces the simulated fleet on the map
+                    (never overlays it), in both 2D and 3D. */}
+                {liveAisAvailable && (
+                  <CalciteButton
+                    scale="s"
+                    appearance={liveAisOn ? 'solid' : 'outline'}
+                    kind={liveAisError ? 'danger' : 'brand'}
+                    iconStart="satellite-3"
+                    loading={liveAisOn && liveAisLoading ? true : undefined}
+                    title={
+                      liveAisError
+                        ? `Live AIS feed error — showing the last good positions. ${liveAisError}`
+                        : 'Show REAL live AIS traffic (MarineTraffic, via the shared JNPA gateway) instead of the simulated fleet'
+                    }
+                    onClick={() => toggleLiveAis()}
+                  >
+                    {liveAisOn ? `Live AIS · ${liveAisCount}` : 'Live AIS'}
+                  </CalciteButton>
+                )}
                 <CalciteButton
                   scale="s"
                   appearance={tideFieldVisible ? 'solid' : 'outline'}
