@@ -1,19 +1,30 @@
 /**
  * NLDS Logistics Data Bank container-track connector.
  *
- * Live call (via Vite / nginx proxy — LDB sends no usable CORS for our origin):
- *   GET {proxyBase}/apigateway/track/cntr/?cntrNo=…&mobileNo=…
- * Optional bearer: VITE_LDB_ACCESS_TOKEN (the public gateway rejects unauthenticated
- * calls with UNAUTHORIZED).
+ * Same auth + API as ldb.co.in guest searate:
+ *   POST {proxy}/apigateway/track/cntr/?cntrNo=…&mobileNo=…
+ *   Authorization: Bearer <sessionStorage.searateToken>
  *
- * When the live call fails and sample fallback is on, returns the bundled
- * CCLU7468361-shaped demo so the NLDS-style UI stays demoable offline.
+ * Token comes from mobile OTP (`otp-sms/generate` + `otp-sms/verify`). One
+ * verified session tracks ANY container until LDB returns 401.
  */
 
 import { env } from '@/data/config';
+import { classifyLdbFailure } from './failure';
 import { mapTrackResponse } from './mapper';
-import { sampleContainerTrack } from './sample';
+import { SAMPLE_CONTAINER_NO, sampleContainerTrack } from './sample';
+import {
+  clearSearateToken,
+  getSearateToken,
+  LdbAuthRequiredError,
+  mobileNoFromToken,
+} from './token';
 import type { ContainerTrackResult } from './types';
+
+/** ISO 6346 owner-code + serial + check digit: 4 letters + 7 digits (e.g. CCLU7468361). */
+export function isValidContainerNo(raw: string): boolean {
+  return /^[A-Z]{4}\d{7}$/.test(raw.trim().toUpperCase());
+}
 
 export function ldbTrackUrl(cntrNo: string, mobileNo: string, proxyBase = env.ldb.proxyBase): string {
   const root = proxyBase.replace(/\/+$/, '');
@@ -24,42 +35,85 @@ export function ldbTrackUrl(cntrNo: string, mobileNo: string, proxyBase = env.ld
   return `${root}/apigateway/track/cntr/?${q.toString()}`;
 }
 
-async function fetchLive(cntrNo: string, mobileNo: string): Promise<ContainerTrackResult> {
-  if (!env.ldb.enabled) {
-    throw new Error('[LDB] container track is disabled (VITE_LDB_ENABLED=false)');
-  }
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (env.ldb.accessToken) {
-    headers.Authorization = `Bearer ${env.ldb.accessToken}`;
-  }
+function isUnauthorizedPayload(json: unknown, status: number): boolean {
+  if (status === 401 || status === 403) return true;
+  if (!json || typeof json !== 'object') return false;
+  const rec = json as Record<string, unknown>;
+  const code = String(rec.statusCode ?? rec.status ?? '').toUpperCase();
+  const err = String(rec.error ?? rec.description ?? rec.message ?? '').toUpperCase();
+  return (
+    code === 'UNAUTHORIZED' ||
+    err.includes('UNAUTHORIZED') ||
+    err.includes('TOKEN VALIDATION') ||
+    err.includes('ACCESS DENIED') ||
+    err.includes('TOKEN EXPIRE')
+  );
+}
 
-  const res = await fetch(ldbTrackUrl(cntrNo, mobileNo), { headers });
+async function fetchTrackOnce(
+  cntrNo: string,
+  mobileNo: string,
+  bearer: string,
+): Promise<ContainerTrackResult> {
+  // LDB Angular client uses POST (empty body) + query params — match that.
+  const res = await fetch(ldbTrackUrl(cntrNo, mobileNo), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${bearer}`,
+    },
+    body: '{}',
+  });
   const text = await res.text();
   let json: unknown = null;
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    throw new Error(`[LDB] track → non-JSON body (HTTP ${res.status})`);
+    throw new Error('Couldn’t look up this container. Please try again.');
+  }
+
+  if (isUnauthorizedPayload(json, res.status)) {
+    clearSearateToken();
+    throw new LdbAuthRequiredError(
+      'Your session expired. Please verify your mobile number again.',
+    );
   }
 
   if (!res.ok) {
-    const detail =
-      json && typeof json === 'object'
-        ? JSON.stringify(json).slice(0, 240)
-        : text.slice(0, 240);
-    throw new Error(`[LDB] track → HTTP ${res.status} ${res.statusText} — ${detail}`);
+    throw new Error('Couldn’t look up this container. Please try again.');
   }
 
   const mapped = mapTrackResponse(json, cntrNo, false);
   if (!mapped) {
-    throw new Error('[LDB] track → response had no container payload');
+    throw new Error('No tracking details found for this container.');
   }
   return mapped;
 }
 
+async function fetchLive(cntrNo: string, mobileNoHint: string): Promise<ContainerTrackResult> {
+  if (!env.ldb.enabled) {
+    throw new Error('Container tracking is currently unavailable.');
+  }
+
+  const bearer = getSearateToken();
+  if (!bearer) {
+    throw new LdbAuthRequiredError(
+      'Please verify your mobile number to track a container.',
+    );
+  }
+
+  // Prefer mobile from the signed-in session over the form hint.
+  const mobile = mobileNoFromToken(bearer) || mobileNoHint.trim() || env.ldb.mobileNo;
+  if (!mobile) {
+    throw new LdbAuthRequiredError('Please verify your mobile number again.');
+  }
+
+  return fetchTrackOnce(cntrNo, mobile, bearer);
+}
+
 /**
- * Track a container by id. Prefers the live LDB gateway; falls back to the
- * bundled sample when configured.
+ * Track a container by id. Requires an OTP-verified searateToken (shared for
+ * every container until expiry).
  */
 export async function trackContainerById(
   cntrNo: string,
@@ -67,13 +121,36 @@ export async function trackContainerById(
 ): Promise<ContainerTrackResult> {
   const no = cntrNo.trim().toUpperCase();
   if (!no) throw new Error('Container number is required');
+  if (!isValidContainerNo(no)) {
+    throw new Error('Enter a valid container number (4 letters + 7 digits, e.g. CCLU7468361)');
+  }
 
   try {
     return await fetchLive(no, mobileNo || env.ldb.mobileNo);
   } catch (err) {
-    if (env.ldb.useSampleFallback) {
-      return sampleContainerTrack(no);
+    // Auth-required must reach the operator: it is the one failure they can act
+    // on ("verify your mobile number"), and answering it with a demo track would
+    // hide the only actionable state this panel has.
+    if (err instanceof LdbAuthRequiredError) throw err;
+
+    // The sample is served ONLY for the container it actually describes. Any
+    // other number would otherwise render CCLU7468361's journey with the typed
+    // number swapped in — a fabricated record presented as a lookup result.
+    if (env.ldb.useSampleFallback && no === SAMPLE_CONTAINER_NO) {
+      // Carry WHY forward. With the fallback on, a dead proxy, an empty record
+      // and a switched-off integration otherwise render as the same
+      // successful-looking demo track — which is exactly what makes a live
+      // switch-over impossible to verify.
+      const { reason, detail } = classifyLdbFailure(err);
+      return { ...sampleContainerTrack(), sampleReason: reason, sampleDetail: detail };
     }
-    throw err instanceof Error ? err : new Error(String(err));
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      reason.startsWith('Couldn’t') || reason.startsWith('No tracking') || reason.startsWith('Enter')
+        ? reason
+        : `Couldn’t track ${no}. Please try again.`,
+    );
   }
 }
+
+export { LdbAuthRequiredError };

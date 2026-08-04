@@ -433,6 +433,13 @@ export class ArcGISAdapter implements DataAdapter {
     return fetchShippingLines();
   }
 
+  /**
+   * NOTE: live mode deliberately reuses the SAME linear stub as the mock adapter
+   * (`computeWhatIf`) — there is no real recompute over the feature data behind
+   * this. Only the baseline KPIs it perturbs are live. The model is stated in the
+   * result's `note` and in the assumptions register (`whatIfModel`), so the
+   * distinction is visible on screen rather than buried here.
+   */
   async runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {
     const bundle = await this.getKPIs();
     return computeWhatIf(scenario, bundle.jitPct.value, bundle.avgTat.value, this.now());

@@ -1,14 +1,13 @@
 /**
  * Vessels ▸ Track by Container — NLDS Logistics Data Bank–style container track UI.
  *
- * Layout mirrors https://ldb.co.in/ldb/searate/… :
- *   search → summary (id / type / status / origin–destination timeline) →
- *   Routes | Vessel | Demurrage sidebar + world route map.
+ * Same guest auth as https://ldb.co.in/ldb/searate/… :
+ *   mobile OTP → searateToken → track any container until JWT expires.
  *
- * Data: GET /ldb-proxy/apigateway/track/cntr/?cntrNo=&mobileNo= (see src/data/ldb).
+ * Layout: OTP login → search → summary → Routes | Vessel | Demurrage + map.
  */
 
-import { useState, type FormEvent, type CSSProperties } from 'react';
+import { useEffect, useState, type FormEvent, type CSSProperties } from 'react';
 import {
   CalciteButton,
   CalciteInput,
@@ -17,10 +16,21 @@ import {
   CalciteSegmentedControl,
   CalciteSegmentedControlItem,
 } from '@esri/calcite-components-react';
-import { Panel, PanelLoading } from '@/components/common/Panel';
+import { Panel, PanelLoading, TechnicalDetails } from '@/components/common/Panel';
+import { ldbFallbackMessage } from '@/data/ldb/failure';
 import { ContainerTrackMap } from '@/components/marine/ContainerTrackMap';
 import { env } from '@/data/config';
-import { trackContainerById } from '@/data/ldb/track';
+import {
+  LdbAuthRequiredError,
+  trackContainerById,
+} from '@/data/ldb/track';
+import {
+  clearSearateToken,
+  generateSearateOtp,
+  hasSearateSession,
+  mobileNoFromToken,
+  verifySearateOtp,
+} from '@/data/ldb/token';
 import type { ContainerTrackResult } from '@/data/ldb/types';
 import { tokens } from '@/theme/tokens';
 
@@ -53,13 +63,99 @@ const badgeBase: CSSProperties = {
   lineHeight: 1.4,
 };
 
+const formBarStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 10,
+  alignItems: 'flex-start',
+  padding: '10px 12px',
+  background: tokens.panelAlt,
+  border: `1px solid ${tokens.border}`,
+  borderRadius: tokens.radius.sm,
+};
+
 export function ContainerTrackPanel() {
   const [containerNo, setContainerNo] = useState('CCLU7468361');
   const [mobileNo, setMobileNo] = useState(env.ldb.mobileNo);
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [authed, setAuthed] = useState(false);
+  const [sessionMobile, setSessionMobile] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [track, setTrack] = useState<ContainerTrackResult | null>(null);
   const [sideTab, setSideTab] = useState<SideTab>('routes');
+
+  function syncSession() {
+    const ok = hasSearateSession();
+    setAuthed(ok);
+    setSessionMobile(ok ? mobileNoFromToken() : null);
+    if (ok) {
+      const fromJwt = mobileNoFromToken();
+      if (fromJwt) setMobileNo(fromJwt);
+    }
+  }
+
+  useEffect(() => {
+    syncSession();
+  }, []);
+
+  function requireReauth(message: string) {
+    clearSearateToken();
+    setAuthed(false);
+    setSessionMobile(null);
+    setOtpSent(false);
+    setOtp('');
+    setTrack(null);
+    setError(message);
+  }
+
+  async function onSendOtp(e?: FormEvent) {
+    e?.preventDefault();
+    setAuthBusy(true);
+    setError(null);
+    setAuthMessage(null);
+    try {
+      await generateSearateOtp(mobileNo);
+      setOtpSent(true);
+      setAuthMessage(`Code sent to ${mobileNo.trim()}. Enter it below to continue.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function onVerifyOtp(e?: FormEvent) {
+    e?.preventDefault();
+    setAuthBusy(true);
+    setError(null);
+    setAuthMessage(null);
+    try {
+      await verifySearateOtp(mobileNo, otp);
+      syncSession();
+      setOtp('');
+      setOtpSent(false);
+      setAuthMessage('You’re signed in. Enter a container number to track it.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function onSignOut() {
+    clearSearateToken();
+    setAuthed(false);
+    setSessionMobile(null);
+    setOtpSent(false);
+    setOtp('');
+    setTrack(null);
+    setAuthMessage(null);
+    setError(null);
+  }
 
   async function onSearch(e?: FormEvent) {
     e?.preventDefault();
@@ -76,78 +172,169 @@ export function ContainerTrackPanel() {
       setSideTab('routes');
     } catch (err) {
       setTrack(null);
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof LdbAuthRequiredError) {
+        requireReauth(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <Panel title="Track by container ID — NLDS / LDB searate" height={720}>
+    <Panel title="Track by container" height={720}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
-        <form
-          onSubmit={onSearch}
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 10,
-            alignItems: 'flex-start',
-            padding: '10px 12px',
-            background: tokens.panelAlt,
-            border: `1px solid ${tokens.border}`,
-            borderRadius: tokens.radius.sm,
-          }}
-        >
-          <CalciteLabel scale="s" style={{ flex: '1 1 220px', margin: 0, color: tokens.text }}>
-            Container No.
-            <CalciteInput
-              scale="m"
-              value={containerNo}
-              placeholder="Enter Container No."
-              onCalciteInputInput={(ev) => setContainerNo(ev.target.value ?? '')}
-            />
-          </CalciteLabel>
-          <CalciteLabel scale="s" style={{ flex: '0 1 160px', margin: 0, color: tokens.text }}>
-            Mobile (LDB)
-            <CalciteInput
-              scale="m"
-              value={mobileNo}
-              placeholder="Optional mobileNo"
-              onCalciteInputInput={(ev) => setMobileNo(ev.target.value ?? '')}
-            />
-          </CalciteLabel>
-          {/* Invisible label keeps the button on the same baseline as the inputs. */}
-          <CalciteLabel scale="s" style={{ flex: '0 0 auto', margin: 0, color: tokens.text }}>
-            <span aria-hidden style={{ visibility: 'hidden' }}>
-              Track
-            </span>
-            <CalciteButton type="submit" iconStart="search" scale="m" width="full" loading={loading || undefined}>
-              Track
-            </CalciteButton>
-          </CalciteLabel>
-        </form>
+        {!authed ? (
+          <form onSubmit={otpSent ? onVerifyOtp : onSendOtp} style={formBarStyle}>
+            <CalciteLabel scale="s" style={{ flex: '0 1 180px', margin: 0, color: tokens.text }}>
+              Mobile number
+              <CalciteInput
+                scale="m"
+                value={mobileNo}
+                placeholder="10-digit mobile"
+                maxLength={10}
+                onCalciteInputInput={(ev) => setMobileNo(ev.target.value ?? '')}
+              />
+            </CalciteLabel>
+            {otpSent && (
+              <CalciteLabel scale="s" style={{ flex: '0 1 140px', margin: 0, color: tokens.text }}>
+                Verification code
+                <CalciteInput
+                  scale="m"
+                  value={otp}
+                  placeholder="6-digit code"
+                  maxLength={6}
+                  onCalciteInputInput={(ev) => setOtp(ev.target.value ?? '')}
+                />
+              </CalciteLabel>
+            )}
+            <CalciteLabel scale="s" style={{ flex: '0 0 auto', margin: 0, color: tokens.text }}>
+              <span aria-hidden style={{ visibility: 'hidden' }}>
+                Auth
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {!otpSent ? (
+                  <CalciteButton type="submit" iconStart="mobile" scale="m" loading={authBusy || undefined}>
+                    Send code
+                  </CalciteButton>
+                ) : (
+                  <>
+                    <CalciteButton type="submit" iconStart="check" scale="m" loading={authBusy || undefined}>
+                      Verify
+                    </CalciteButton>
+                    <CalciteButton
+                      type="button"
+                      appearance="outline"
+                      scale="m"
+                      disabled={authBusy || undefined}
+                      onClick={() => {
+                        setOtpSent(false);
+                        setOtp('');
+                        setAuthMessage(null);
+                      }}
+                    >
+                      Change number
+                    </CalciteButton>
+                  </>
+                )}
+              </div>
+            </CalciteLabel>
+          </form>
+        ) : (
+          <form onSubmit={onSearch} style={formBarStyle}>
+            <CalciteLabel scale="s" style={{ flex: '1 1 220px', margin: 0, color: tokens.text }}>
+              Container No.
+              <CalciteInput
+                scale="m"
+                value={containerNo}
+                placeholder="Enter Container No."
+                onCalciteInputInput={(ev) => setContainerNo(ev.target.value ?? '')}
+              />
+            </CalciteLabel>
+            <CalciteLabel scale="s" style={{ flex: '0 0 auto', margin: 0, color: tokens.text }}>
+              <span aria-hidden style={{ visibility: 'hidden' }}>
+                Track
+              </span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <CalciteButton type="submit" iconStart="search" scale="m" loading={loading || undefined}>
+                  Track
+                </CalciteButton>
+                <CalciteButton type="button" appearance="outline" scale="m" onClick={onSignOut}>
+                  Sign out
+                </CalciteButton>
+              </div>
+            </CalciteLabel>
+            {sessionMobile && (
+              <div
+                style={{
+                  flex: '1 1 100%',
+                  fontSize: 11,
+                  color: tokens.textMuted,
+                  marginTop: -4,
+                }}
+              >
+                Signed in as {sessionMobile}
+              </div>
+            )}
+          </form>
+        )}
 
+        {authMessage && !error && (
+          <CalciteNotice open kind="success" icon="check-circle" scale="s">
+            <div slot="message">{authMessage}</div>
+          </CalciteNotice>
+        )}
+
+        {/* NOT routed through the shared PanelError, deliberately. That helper
+            translates raw connector strings ("[UC3] … HTTP 500 …") into operator
+            language, but this panel's connector already emits operator language
+            at the source (see track.ts / token.ts) — and this notice additionally
+            distinguishes "you are not signed in" from "the lookup failed", which
+            PanelError has no way to know. */}
         {error && (
           <CalciteNotice open kind="danger" icon="exclamation-mark-triangle" scale="s">
-            <div slot="title">Track failed</div>
+            <div slot="title">{authed ? 'Couldn’t track' : 'Sign in needed'}</div>
             <div slot="message">{error}</div>
           </CalciteNotice>
         )}
 
-        {loading && !track && <PanelLoading label="Fetching container track…" />}
+        {loading && !track && <PanelLoading label="Looking up container…" />}
 
-        {!loading && !track && !error && (
+        {!loading && !track && !error && authed && (
           <CalciteNotice open kind="info" icon="information" scale="s">
             <div slot="message">
-              Enter a container number to load NLDS-style ocean tracking (LDB{' '}
-              <code>/apigateway/track/cntr/</code>
-              ). Without a live token the bundled sample for CCLU7468361 is shown.
+              Enter a container number (4 letters + 7 digits) to see its journey.
+            </div>
+          </CalciteNotice>
+        )}
+
+        {!authed && !error && !authMessage && (
+          <CalciteNotice open kind="info" icon="information" scale="s">
+            <div slot="message">
+              Enter your mobile number to receive a one-time code, then track any container.
             </div>
           </CalciteNotice>
         )}
 
         {track && (
           <>
+            {/* The sample-fallback state, stated where it cannot be missed.
+                It replaces a 10px amber caption inside SummaryBar that was
+                effectively invisible on a projector — and, more importantly, said
+                only THAT the sample was used, never why. With the fallback on by
+                default, a rejected token and a switched-off integration otherwise
+                render as the same successful-looking demo track. */}
+            {track.fromSample && (
+              <CalciteNotice open kind="warning" icon="exclamation-mark-triangle" scale="s">
+                <div slot="title">Showing bundled sample data — not live LDB</div>
+                <div slot="message">
+                  {ldbFallbackMessage(track.sampleReason ?? 'error')} This is the bundled
+                  CCLU7468361 demo track, not a live NLDS record.
+                  {track.sampleDetail && <TechnicalDetails detail={track.sampleDetail} />}
+                </div>
+              </CalciteNotice>
+            )}
             <SummaryBar track={track} />
             <div
               style={{
@@ -309,10 +496,11 @@ function SummaryBar({ track }: { track: ContainerTrackResult }) {
               }}
             />
           </div>
+          {/* No "Demo data" caption here any more: the sample state is stated in
+              full — with the REASON it fired — in the notice above the card. A
+              10px caption inside the summary bar is invisible on a projector, and
+              two signals for one state is one too many. */}
           <div style={{ fontSize: 12, color: tokens.textMuted }}>⚓ {track.carrierName}</div>
-          {track.fromSample && (
-            <div style={{ fontSize: 10, color: tokens.warn, marginTop: 4 }}>Sample / offline fallback</div>
-          )}
         </div>
 
         <div style={{ textAlign: 'right' }}>
