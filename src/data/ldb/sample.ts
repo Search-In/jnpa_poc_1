@@ -1,10 +1,14 @@
 /**
  * Bundled demo track for CCLU7468361 — mirrors the NLDS / SeaRates UI the PoC
- * is modelled on (JNPT → Shanghai, OOCL / XIN SHANGHAI). Used when the live
- * LDB gateway is unreachable or unauthenticated.
+ * is modelled on (JNPT → Shanghai, OOCL / XIN SHANGHAI). Used ONLY for this
+ * demo id when the live LDB gateway is unreachable — never stamped onto other
+ * container numbers (that made every search look identical).
  */
 
 import type { ContainerTrackResult } from './types';
+
+/** The only container id that may receive the bundled offline sample. */
+export const SAMPLE_CONTAINER_NO = 'CCLU7468361';
 
 /** Approximate India → SE Asia → China sea path (lat, lng) for the sample map. */
 const SAMPLE_PATH: Array<{ lat: number; lng: number }> = [
@@ -22,8 +26,8 @@ const SAMPLE_PATH: Array<{ lat: number; lng: number }> = [
   { lat: 31.23, lng: 121.47 },
 ];
 
-export function sampleContainerTrack(containerNo = 'CCLU7468361'): ContainerTrackResult {
-  const no = containerNo.trim().toUpperCase() || 'CCLU7468361';
+export function sampleContainerTrack(): ContainerTrackResult {
+  const no = SAMPLE_CONTAINER_NO;
   return {
     containerNo: no,
     sizeType: "40' High Cube Dry",

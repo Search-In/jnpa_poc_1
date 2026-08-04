@@ -104,6 +104,9 @@ export interface AppEnv {
     password: string;
   };
   /**
+   * NLDS Logistics Data Bank container tracking — same guest searate auth as
+   * ldb.co.in: mobile OTP → sessionStorage.searateToken → POST /apigateway/track/cntr/.
+   * One OTP session tracks any container until the JWT expires (401).
    * Live AIS overlay — REAL vessel positions from the shared UC-3 gateway's
    * MarineTraffic proxy (`GET /api/marine/vessels/live`). Rides on `uc3` (same
    * base, same bearer), so it needs no origin/credential of its own; turning
@@ -132,11 +135,14 @@ export interface AppEnv {
     enabled: boolean;
     /** Relative proxy prefix → https://ldb.co.in */
     proxyBase: string;
-    /** Optional bearer for the LDB apigateway (public calls return UNAUTHORIZED). */
+    /**
+     * Optional bootstrap searateToken (paste from LDB sessionStorage). Prefer
+     * in-app OTP verify which stores the same key.
+     */
     accessToken: string;
-    /** Default mobileNo query param used by LDB's track endpoint. */
+    /** Default mobile for the OTP login form. */
     mobileNo: string;
-    /** Serve bundled sample when the live call fails (demo-friendly default). */
+    /** Serve CCLU7468361 bundled sample only when live track fails. */
     useSampleFallback: boolean;
   };
 }
