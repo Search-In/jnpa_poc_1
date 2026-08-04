@@ -67,6 +67,20 @@ describe('computeWhatIf', () => {
     expect(r.note).toContain('baseline unchanged');
   });
 
+  /**
+   * The note used to list the scenario inputs but never the model, leaving a
+   * reader free to assume the deltas came from a recompute over the plan. They
+   * come from a linear stub, and every result must say so — including the
+   * no-input case, where the numbers look most authoritative.
+   */
+  it('always discloses the model, not just the scenario inputs', () => {
+    for (const r of [computeWhatIf({}, 80, 24, T0), computeWhatIf({ delayHours: 2 }, 80, 24, T0)]) {
+      expect(r.note).toMatch(/linear stub/i);
+      expect(r.note).toMatch(/5 pp JIT/);
+      expect(r.note).toMatch(/[Nn]ot a queueing/);
+    }
+  });
+
   it('never drives JIT below 0', () => {
     const r = computeWhatIf({ delayHours: 100 }, 80, 24, T0);
     expect(r.jitPctAfter).toBe(0);

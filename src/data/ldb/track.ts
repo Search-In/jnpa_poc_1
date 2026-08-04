@@ -10,6 +10,7 @@
  */
 
 import { env } from '@/data/config';
+import { classifyLdbFailure } from './failure';
 import { mapTrackResponse } from './mapper';
 import { SAMPLE_CONTAINER_NO, sampleContainerTrack } from './sample';
 import {
@@ -127,9 +128,21 @@ export async function trackContainerById(
   try {
     return await fetchLive(no, mobileNo || env.ldb.mobileNo);
   } catch (err) {
+    // Auth-required must reach the operator: it is the one failure they can act
+    // on ("verify your mobile number"), and answering it with a demo track would
+    // hide the only actionable state this panel has.
     if (err instanceof LdbAuthRequiredError) throw err;
+
+    // The sample is served ONLY for the container it actually describes. Any
+    // other number would otherwise render CCLU7468361's journey with the typed
+    // number swapped in — a fabricated record presented as a lookup result.
     if (env.ldb.useSampleFallback && no === SAMPLE_CONTAINER_NO) {
-      return sampleContainerTrack();
+      // Carry WHY forward. With the fallback on, a dead proxy, an empty record
+      // and a switched-off integration otherwise render as the same
+      // successful-looking demo track — which is exactly what makes a live
+      // switch-over impossible to verify.
+      const { reason, detail } = classifyLdbFailure(err);
+      return { ...sampleContainerTrack(), sampleReason: reason, sampleDetail: detail };
     }
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(

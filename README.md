@@ -16,12 +16,23 @@ viewer can never mistake demo data for a live JNPA feed. No claimed JNPA baselin
 every figure is framed as a target or a simulated result under stated assumptions
 (see the in-app Methodology & Assumptions register).
 
-It runs in **two interchangeable data modes** behind one adapter interface:
+It runs in **three interchangeable data modes** behind one adapter interface:
 
 | Mode | `VITE_DATA_MODE` | Source | Needs credentials? |
 |------|------------------|--------|--------------------|
 | **Mock** (default) | `mock` | Deterministic Nhava Sheva fixtures + simulated AIS stream + sim clock | **No** — demos instantly, fully offline |
 | **Live** | `live` | ArcGIS Velocity Stream Layer + Hosted Feature Layers, or AISStream.io fallback | Yes |
+| **Hybrid** | `hybrid` | The mock fleet **with real AISStream/AISHub vessels composited on top**, badged LIVE on the map and feed | Yes (`VITE_AISSTREAM_TOKEN`) |
+
+> **There is no `uc3` data mode.** UC-3 gateway data — shipping lines, vessel calls,
+> pilotage, bathymetry, performance, the live-AIS map overlay — is **orthogonal** to
+> `VITE_DATA_MODE` and switched by `VITE_UC3_ENABLED` (see *UC-3 shared backend* in
+> `.env.example`). The two are independent on purpose: gateway records are real
+> whether or not the AIS fleet is simulated.
+>
+> An unrecognised `VITE_DATA_MODE` now **fails the build**. It used to fall through
+> to `mock` silently, which meant a typo produced a dashboard of invented vessels
+> that looked exactly like a working one.
 
 > **Live AIS coverage note.** JNPA/Indian waters have no *free* public AIS feed.
 > The demo runs on JNPA geography with a simulated feed by default. Only if you
@@ -66,6 +77,15 @@ npm run lint         # ESLint (0 warnings enforced)
 npm run build        # production build → dist/
 npm run preview      # serve the production build
 npm run publish:layers   # publish seed CSVs as Hosted Feature Layers (see below)
+```
+
+Connectivity pre-flight — run these **before** debugging app code, so a dead
+gateway or a missing credential is ruled out first:
+
+```bash
+node scripts/probe-uc3.mjs                    # UC-3 gateway through the Vite dev proxy
+node scripts/probe-uc3.mjs https://<host>/api # …or straight at a deployed gateway
+node scripts/probe-aisstream.mjs              # AISStream token + coverage
 ```
 
 ---
@@ -208,9 +228,18 @@ src/
   store/       Zustand store (live vessels, connection, KPIs)
   theme/       tokens.ts — the ONLY place colour literals live
 seed/          one CSV per Feature Layer
-scripts/       publish-feature-layers.mjs
-docs/          ARCHITECTURE.md, KPI_DEFINITIONS.md
+scripts/       publish-feature-layers.mjs, probe-uc3.mjs, probe-aisstream.mjs
+docs/          ARCHITECTURE.md, KPI_DEFINITIONS.md, DEPLOYMENT.md
 ```
+
+### External connectors — one doc each
+
+| Connector | Doc | What it needs |
+|---|---|---|
+| Live AIS (MarineTraffic, via the UC-3 gateway) | [`docs/LIVE_AIS.md`](docs/LIVE_AIS.md) | `VITE_UC3_*` (no credential of its own) |
+| NLDS / LDB container track | [`docs/LDB.md`](docs/LDB.md) | mobile **OTP** in-app + the `/ldb-proxy` proxy (no API key to provision) |
+| AISHub public station overlay | [`docs/AISHUB.md`](docs/AISHUB.md) | none (station map.json, proxied) |
+| INCOIS tide / ocean state | [`docs/INCOIS.md`](docs/INCOIS.md) | data agreement — runs on Open-Meteo meanwhile |
 
 ## Quality bar
 

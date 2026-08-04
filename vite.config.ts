@@ -2,6 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { fileURLToPath, URL } from 'node:url';
+import { resolveDataMode } from './src/data/dataMode';
 
 /**
  * Dev proxy for LDB. Azure App Gateway WAF 403s when the browser's
@@ -69,6 +70,20 @@ function ldbDevProxy(): Plugin {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+
+  // Fail the BUILD on an unrecognised VITE_DATA_MODE rather than shipping a
+  // bundle that silently serves simulated vessels as if they were real. This is
+  // the enforcement point that matters for CI: a typo in the deploy workflow's
+  // env block stops the pipeline instead of reaching an evaluator. The same
+  // resolver runs in the browser (src/data/config.ts) for values injected after
+  // the build, which this check cannot see.
+  const dataMode = resolveDataMode(env.VITE_DATA_MODE);
+  if (dataMode.warning) {
+    throw new Error(
+      `Refusing to build. ${dataMode.warning} ` +
+        `Set a valid VITE_DATA_MODE, or unset it to choose the "mock" default deliberately.`,
+    );
+  }
   // ArcGIS OAuth app registration rejects http:// redirect URIs. Set
   // VITE_DEV_HTTPS=true to serve the dev server over https://localhost:5173
   // (self-signed cert; accept the one-time browser warning).

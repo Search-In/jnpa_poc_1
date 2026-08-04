@@ -15,7 +15,7 @@
  * Popups show MMSI / SOG / COG / ETA.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
@@ -268,7 +268,11 @@ export function AISMap() {
     [simVersion],
     60_000
   );
-  const tideStations = tideData?.stations ?? [];
+  // Memoised on purpose, not to quieten a lint rule — see the identical note in
+  // PortScene. `tideData?.stations ?? []` is a new array identity every render
+  // and feeds the tide effect below, which rebuilds the MediaLayer raster and
+  // writes `setRange` into a store with no equality guard.
+  const tideStations = useMemo(() => tideData?.stations ?? [], [tideData]);
   const fieldVar = useTideFieldStore((s) => s.variable);
   const setFieldRange = useTideFieldStore((s) => s.setRange);
   const tideVisible = useTideFieldStore((s) => s.visible);

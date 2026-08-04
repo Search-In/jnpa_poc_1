@@ -7,7 +7,9 @@ Evidence that the Track-A (mock-data-primary) hardening programme meets its gate
 ---
 
 ## Gate 1 — Automated test suite
-- **158 tests, 18 files, all green** (`npm test`).
+- **525 tests, 48 files, all green** (`npm test`). *(Re-counted 2026-08-04; the
+  previously recorded 158/18 predates the UC-3 connector, marine, shipping-lines
+  and live-AIS suites.)*
 - Coverage: **68.78% statements · 90.22% branch · 85.86% functions** overall (`vitest --coverage`).
 - Critical-path branch coverage is at/above the 90% bar the programme asks for, concentrated in the pure engines:
   - Ingest data-quality firewall — `src/data/quality.ts` (17 tests).
@@ -20,7 +22,12 @@ Evidence that the Track-A (mock-data-primary) hardening programme meets its gate
 
 ## Gate 2 — Build & static quality
 - `tsc -b --noEmit` — **clean**.
-- `eslint . --max-warnings 0` — **clean**.
+- `eslint . --max-warnings 0` — **clean**. *(Re-verified 2026-08-04. It had drifted
+  to 5 warnings; the two `tideStations` ones were a real per-render raster rebuild,
+  now memoised. The whole exemption surface is two justified
+  `eslint-disable-next-line`s in `src/map/PortScene.tsx` — both explaining why the
+  scene-init effect's `[]` is load-bearing — plus one `src/main.tsx` override in
+  `eslint.config.js`. No CI job enforced this gate until `.github/workflows/ci.yml`.)*
 - `npm run build` — **succeeds** (`dist/` produced).
 - `npm audit` — **0 vulnerabilities** (prod and dev).
 

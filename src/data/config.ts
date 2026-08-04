@@ -1,14 +1,26 @@
 /** Typed access to the Vite build-time env. Centralised so adapters and the
  * selector read config from one place (and missing-var errors are explicit). */
 
+import { resolveDataMode, type DataMode } from './dataMode';
+
 export interface AppEnv {
   /**
    * mock   — offline simulated fleet, zero credentials (default).
    * live   — real feeds only (Velocity StreamLayer / aisstream), no simulation.
    * hybrid — simulated JNPA fleet WITH real aisstream.io vessels layered on top
    *          (LiveOverlayAdapter). Needs VITE_AISSTREAM_TOKEN for the live layer.
+   *
+   * Validated by `resolveDataMode` (src/data/dataMode.ts) — an unrecognised value
+   * can no longer masquerade as a working configuration. See `dataModeWarning`.
    */
-  dataMode: 'mock' | 'live' | 'hybrid';
+  dataMode: DataMode;
+  /**
+   * Set when `VITE_DATA_MODE` held something unrecognised and we fell back to
+   * mock. Surfaced three ways so it cannot be missed: the build fails
+   * (vite.config.ts), the console logs it, and ConfigWarningBanner shows it in
+   * the header for values injected after the build.
+   */
+  dataModeWarning: string | null;
   portalUrl: string;
   arcgisApiKey: string;
   oauthAppId: string;
@@ -185,8 +197,20 @@ const ROTTERDAM_STANDIN_BBOX = [
 ];
 void ROTTERDAM_STANDIN_BBOX;
 
+// Resolved once, at module load. `vite.config.ts` runs the SAME resolver at build
+// time and throws, so in a normal build this warning is already impossible; it
+// still fires for a value injected into a prebuilt bundle (nginx substitution, a
+// hand-edited config) which the build could not have seen.
+const resolvedDataMode = resolveDataMode(import.meta.env.VITE_DATA_MODE);
+if (resolvedDataMode.warning) {
+  // console.error, not warn: this is the difference between real and invented
+  // vessels on screen, and it is the only signal a headless/CI consumer gets.
+  console.error(`[config] ${resolvedDataMode.warning}`);
+}
+
 export const env: AppEnv = {
-  dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live' | 'hybrid') ?? 'mock',
+  dataMode: resolvedDataMode.mode,
+  dataModeWarning: resolvedDataMode.warning,
   portalUrl: str(import.meta.env.VITE_PORTAL_URL, 'https://www.arcgis.com'),
   arcgisApiKey: str(import.meta.env.VITE_ARCGIS_API_KEY),
   oauthAppId: str(import.meta.env.VITE_OAUTH_APPID),
