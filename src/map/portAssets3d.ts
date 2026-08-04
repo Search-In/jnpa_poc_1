@@ -325,9 +325,23 @@ function tugGraphics(): Graphic[] {
   ];
 }
 
+/**
+ * Titles of the layers holding STATIC DUMMY vessels — the berthed hero ships and
+ * the harbour tug. They are decorative hulls, not real traffic, so the live-AIS
+ * overlay hides them along with the simulated fleet (see `isDummyVesselLayer`);
+ * everything else here is port infrastructure and stays put.
+ */
+export const BERTHED_VESSEL_LAYER_TITLE = '3D · Berthed vessels';
+export const TUG_LAYER_TITLE = '3D · Harbour tug';
+
+/** True for a layer of decorative hulls that must not sit next to real AIS. */
+export function isDummyVesselLayer(layer: { title?: string | null }): boolean {
+  return layer.title === BERTHED_VESSEL_LAYER_TITLE || layer.title === TUG_LAYER_TITLE;
+}
+
 export function tugLayer(): FeatureLayer {
   return new FeatureLayer({
-    title: '3D · Harbour tug',
+    title: TUG_LAYER_TITLE,
     source: tugGraphics() as unknown as Graphic[],
     objectIdField: 'objectId',
     geometryType: 'point',
@@ -381,7 +395,7 @@ function berthedVesselGraphics(): Graphic[] {
 
 export function berthedVesselLayer(): FeatureLayer {
   return new FeatureLayer({
-    title: '3D · Berthed vessels',
+    title: BERTHED_VESSEL_LAYER_TITLE,
     source: berthedVesselGraphics() as unknown as Graphic[],
     objectIdField: 'objectId',
     geometryType: 'point',

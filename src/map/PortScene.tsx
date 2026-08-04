@@ -37,7 +37,9 @@ import {
   selectionRing,
 } from './scene3d';
 import { fetchSeaChannelGeojson } from '@/data/uc3/seaChannels';
-import { portAssetLayers } from './portAssets3d';
+import { isLiveVesselId, liveVesselLayer3d, renderLiveVessels3d } from './liveVesselLayer';
+import { useLiveVessels } from './useLiveVessels';
+import { isDummyVesselLayer, portAssetLayers } from './portAssets3d';
 import { PORT_CENTER, PILOT_STATION, ANCHORAGES } from './portGeometry';
 import { tokens } from '../theme/tokens';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
@@ -118,6 +120,9 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     vesselStatus: FeatureLayer;
   } | null>(null);
   const selectionRef = useRef<GraphicsLayer | null>(null);
+  const liveVesselRef = useRef<GraphicsLayer | null>(null);
+  /** Berthed hero ships + harbour tug — decorative hulls, hidden while live AIS is on. */
+  const dummyVesselLayersRef = useRef<FeatureLayer[]>([]);
   const tideFieldRef = useRef<MediaLayer | null>(null);
   /** Id of the asset the popup is currently anchored to (for popup actions). */
   const lastSelectedRef = useRef<string | null>(null);
@@ -137,6 +142,10 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
   const fieldVar = useTideFieldStore((s) => s.variable);
   const setFieldRange = useTideFieldStore((s) => s.setRange);
   const tideVisible = useTideFieldStore((s) => s.visible);
+
+  // Real AIS traffic from the shared gateway. Polls only while the operator has
+  // the overlay on; see the render effect below for the layer swap.
+  const { vessels: liveVessels, active: liveActive } = useLiveVessels();
 
   // ---- selection ring (no camera move) ----
   // Drop the amber selection ring on an asset without flying the camera. A plain
@@ -241,12 +250,18 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     // berthed ships) placed from positions.json — vendored from UC-2 so UC-1
     // renders on the same surveyed JNPA geography with the same 3D assets.
     const assets = portAssetLayers();
+    dummyVesselLayersRef.current = assets.filter(isDummyVesselLayer);
     // Draw order: channel + anchorages (ground washes) under decks/berths, then
     // the static port models, with the pilot marker + live AIS vessels on top.
     // The uploaded sea-channel overlay sits just ABOVE the synthetic depth ribbon
     // (so the DUKC channel stays visible underneath) and still UNDER decks/berths;
     // every existing layer keeps its relative order.
-    map.addMany([layers.channel, layers.seaChannels, layers.anchorages, layers.decks, layers.berths, ...assets, pilot, tide, layers.vessels, layers.vesselStatus]);
+    // Real AIS hulls — hidden until the operator turns the overlay on, and drawn
+    // above the simulated fleet (which is hidden while it is on, so the two data
+    // sources are never mixed on screen).
+    const live = liveVesselLayer3d();
+    liveVesselRef.current = live;
+    map.addMany([layers.channel, layers.seaChannels, layers.anchorages, layers.decks, layers.berths, ...assets, pilot, tide, layers.vessels, layers.vesselStatus, live]);
 
     const selection = selectionLayer();
     selectionRef.current = selection;
@@ -322,6 +337,11 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     const clickHandle = view.on('click', (event) => {
       void view.hitTest(event).then((res) => {
         const id = resolveHit(res);
+        // A live-AIS hull is not a placed asset: ringing it (asset3dPosition) and
+        // surfacing it to React would route it through the placement store, which
+        // opens the "Move & rotate" editor instead of the info popup. The graphic
+        // carries its own popupTemplate, so the SceneView opens it unaided.
+        if (isLiveVesselId(id)) return;
         if (id) {
           // Select only: ring the asset + surface it to React. The native Esri
           // popup opens anchored to the graphic on its own (popupEnabled). No
@@ -354,19 +374,51 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
       viewRef.current = null;
       layersRef.current = null;
       selectionRef.current = null;
+      liveVesselRef.current = null;
+      dummyVesselLayersRef.current = [];
       tideFieldRef.current = null;
     };
      
   }, []);
 
   // ---- edit vessel + berth layers in place on data change ----
+  // While the live-AIS overlay is on the simulated fleet is fed EMPTY graphics,
+  // not merely hidden: this effect re-runs on every sim tick, so leaving the
+  // features in place and trusting the visibility flag alone means one stray
+  // write to `visible` puts the whole invented fleet — and its yellow nav-status
+  // discs — back on top of real traffic. Berths are unaffected: they are
+  // infrastructure, not traffic.
   useEffect(() => {
     const layers = layersRef.current;
     if (!layers) return;
-    void applyGraphics(layers.vessels, graphicsFor3d.vessels(props.vessels));
-    void applyGraphics(layers.vesselStatus, graphicsFor3d.vesselStatus(props.vessels));
+    const simVessels = liveActive ? [] : props.vessels;
+    void applyGraphics(layers.vessels, graphicsFor3d.vessels(simVessels));
+    void applyGraphics(layers.vesselStatus, graphicsFor3d.vesselStatus(simVessels));
     void applyGraphics(layers.berths, graphicsFor3d.berths(props.berths));
-  }, [props.vessels, props.berths]);
+  }, [props.vessels, props.berths, liveActive]);
+
+  // ---- live AIS overlay: replace every dummy hull, don't overlay them ----
+  // While the overlay is on, EVERY made-up vessel comes off the scene: the
+  // simulated AIS fleet + its status discs, the berthed hero ships and the
+  // harbour tug. Otherwise real and invented traffic sit side by side with
+  // nothing to tell them apart. Port infrastructure (quays, cranes, yards,
+  // gates, trucks) is not traffic and stays. Turning it off restores all of it.
+  useEffect(() => {
+    const live = liveVesselRef.current;
+    const layers = layersRef.current;
+    if (!live || !layers) return;
+    const showDummies = !liveActive;
+    layers.vessels.visible = showDummies;
+    layers.vesselStatus.visible = showDummies;
+    for (const l of dummyVesselLayersRef.current) l.visible = showDummies;
+    if (!liveActive) {
+      live.visible = false;
+      live.removeAll();
+      return;
+    }
+    live.visible = true;
+    renderLiveVessels3d(live, liveVessels);
+  }, [liveActive, liveVessels]);
 
   // ---- populate the uploaded sea-channel overlay once, from the UC-3 backend ----
   // Fetched from GET /api/marine/sea-channels/geojson. If UC-3 is off/unreachable or
