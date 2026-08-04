@@ -1,4 +1,4 @@
-# JNPA · Vessel Traffic Management & Optimisation (Digital Twin PoC — Use Case 1)
+# JNPA · Vessel Traffic Management & Optimisation (Digital Twin PoC — Use Case-1)
 
 A production-grade, **ArcGIS-native** command-and-control twin for the Jawaharlal
 Nehru Port Authority (Nhava Sheva). The **3D sea-port scene is the default view**:
