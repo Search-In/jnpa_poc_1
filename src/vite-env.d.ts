@@ -30,7 +30,6 @@ interface ImportMetaEnv {
   readonly VITE_LDB_PROXY_BASE?: string;
   readonly VITE_LDB_ACCESS_TOKEN?: string;
   readonly VITE_LDB_MOBILE_NO?: string;
-  readonly VITE_LDB_SAMPLE_FALLBACK?: string;
 }
 
 interface ImportMeta {
