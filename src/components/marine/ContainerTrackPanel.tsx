@@ -75,7 +75,7 @@ const formBarStyle: CSSProperties = {
 };
 
 export function ContainerTrackPanel() {
-  const [containerNo, setContainerNo] = useState('CCLU7468361');
+  const [containerNo, setContainerNo] = useState('');
   const [mobileNo, setMobileNo] = useState(env.ldb.mobileNo);
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);

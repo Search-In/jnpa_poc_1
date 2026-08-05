@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { mapTrackResponse, unwrapTrackData } from './mapper';
-import { sampleContainerTrack } from './sample';
 import { clearSearateToken, setSearateToken } from './token';
 import { isValidContainerNo, ldbTrackUrl, LdbAuthRequiredError, trackContainerById } from './track';
 
@@ -94,20 +93,36 @@ const LDB_RESPONSE_DATA = {
   responseData: {
     is_valid: 1,
     cntr_info_data: {
-      number: 'OOLU9340457',
+      number: 'CCLU7468361',
       size_type: "40' High Cube Dry",
       status: 'IN_TRANSIT',
       sealine_name: 'OOCL',
       source_name: 'Jawaharlal Nehru, IN',
       dest_name: 'Shanghai, CN',
-      source_etd_or_atd: '2026-08-03 01:00:00',
+      source_etd_or_atd: '2026-08-03 03:49:00',
       dest_eta_ata: '2026-08-28 11:00:00',
     },
+    // LDB groups by location with newest-first ids inside each port — our mapper
+    // must flatten + sort by event_time ascending for journey order.
     event_detail_info: [
       {
         location_name: 'Jawaharlal Nehru',
         event_details: [
-          { id: 1, event: 'Vessel departure from first POL', event_time: '2026-08-03 01:00:00' },
+          { id: 3, event: 'Vessel Departed', event_time: '2026-08-03 03:49:00' },
+          { id: 2, event: 'Container pickup at shipper', event_time: '2026-07-29 06:00:00' },
+          { id: 1, event: 'Empty Container to shipper', event_time: '2026-07-28 06:00:00' },
+        ],
+      },
+      {
+        location_name: 'Shanghai',
+        event_details: [
+          { id: 4, event: 'Vessel arrival at final POD', event_time: '2026-08-28 11:00:00' },
+        ],
+      },
+      {
+        location_name: 'Zhangjiagang',
+        event_details: [
+          { id: 5, event: 'Arrival At Destination', event_time: '2026-09-04 12:00:00' },
         ],
       },
     ],
@@ -117,7 +132,7 @@ const LDB_RESPONSE_DATA = {
         voyage_name: '162E',
         loading: 'Jawaharlal Nehru',
         discharge: 'Shanghai',
-        vessel_etd_atd: '2026-08-03 01:00:00',
+        vessel_etd_atd: '2026-08-03 03:49:00',
         vessel_eta_ata: '2026-08-28 11:00:00',
       },
     ],
@@ -158,18 +173,44 @@ describe('ldb mapper', () => {
     expect(track!.vessel?.vessel).toBe('XIN SHANGHAI');
     expect(track!.vessel?.voyage).toBe('162E');
     expect(track!.routePath).toHaveLength(3);
-    expect(track!.fromSample).toBe(false);
   });
 
   it('maps live LDB responseData for any container id', () => {
-    const track = mapTrackResponse(LDB_RESPONSE_DATA, 'oolu9340457');
+    const track = mapTrackResponse(LDB_RESPONSE_DATA, 'cclu7468361');
     expect(track).not.toBeNull();
-    expect(track!.containerNo).toBe('OOLU9340457');
+    expect(track!.containerNo).toBe('CCLU7468361');
     expect(track!.carrierName).toContain('OOCL');
     expect(track!.originName).toBe('Jawaharlal Nehru');
     expect(track!.destinationName).toBe('Shanghai');
     expect(track!.vessel?.vessel).toBe('XIN SHANGHAI');
-    expect(track!.milestones.length).toBeGreaterThan(0);
+    expect(track!.milestones.length).toBe(5);
+  });
+
+  it('orders Routes timeline oldest → newest by event date (not LDB location/id order)', () => {
+    const track = mapTrackResponse(LDB_RESPONSE_DATA, 'CCLU7468361');
+    expect(track!.milestones.map((m) => m.description)).toEqual([
+      'Empty Container to shipper',
+      'Container pickup at shipper',
+      'Vessel Departed',
+      'Vessel arrival at final POD',
+      'Arrival At Destination',
+    ]);
+    expect(track!.milestones.map((m) => m.date)).toEqual([
+      '2026-07-28 06:00:00',
+      '2026-07-29 06:00:00',
+      '2026-08-03 03:49:00',
+      '2026-08-28 11:00:00',
+      '2026-09-04 12:00:00',
+    ]);
+  });
+
+  it('orders SeaRates milestones oldest → newest by date', () => {
+    const track = mapTrackResponse(SEARATES_WIRE, 'CCLU7468361');
+    expect(track!.milestones.map((m) => m.description)).toEqual([
+      'Empty Container to shipper',
+      'Vessel departure from first POL',
+      'Vessel arrival at final POD',
+    ]);
   });
 
   it('returns null for empty payloads', () => {
@@ -177,15 +218,7 @@ describe('ldb mapper', () => {
   });
 });
 
-describe('ldb sample + url', () => {
-  it('builds a demo track matching the NLDS UI fixture', () => {
-    const s = sampleContainerTrack();
-    expect(s.fromSample).toBe(true);
-    expect(s.containerNo).toBe('CCLU7468361');
-    expect(s.vessel?.voyage).toBe('162E');
-    expect(s.demurrage.freeDays).toBe('TBA');
-  });
-
+describe('ldb url + validation', () => {
   it('builds the proxied track URL', () => {
     expect(ldbTrackUrl('cclu7468361', '7875425008', '/ldb-proxy')).toBe(
       '/ldb-proxy/apigateway/track/cntr/?cntrNo=CCLU7468361&mobileNo=7875425008'
@@ -231,12 +264,11 @@ describe('trackContainerById OTP session', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const track = await trackContainerById('OOLU9340457', '1111111111');
-    expect(track.containerNo).toBe('OOLU9340457');
-    expect(track.fromSample).toBe(false);
+    const track = await trackContainerById('CCLU7468361', '1111111111');
+    expect(track.containerNo).toBe('CCLU7468361');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(String(url)).toContain('cntrNo=OOLU9340457');
+    expect(String(url)).toContain('cntrNo=CCLU7468361');
     expect(String(url)).toContain('mobileNo=9876543210');
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>).Authorization).toMatch(/^Bearer /);
@@ -253,7 +285,7 @@ describe('trackContainerById OTP session', () => {
     await expect(trackContainerById('OOLU9340457')).rejects.toBeInstanceOf(LdbAuthRequiredError);
   });
 
-  it('does not stamp the CCLU sample onto a different container id', async () => {
+  it('surfaces live API failures (no offline fallback)', async () => {
     setSearateToken(fakeJwt('9876543210'));
     vi.stubGlobal(
       'fetch',
