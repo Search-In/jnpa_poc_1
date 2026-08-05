@@ -3,8 +3,6 @@
  * `/apigateway/track/cntr/`). Wire types stay in mapper.ts; UI consumes these.
  */
 
-import type { LdbFallbackReason } from './failure';
-
 export type ContainerTransportMode = 'TRUCK' | 'VESSEL' | 'RAIL' | 'OTHER';
 
 export interface ContainerLocation {

@@ -11,7 +11,6 @@
  */
 
 import { env } from '@/data/config';
-import { classifyLdbFailure } from './failure';
 import { mapTrackResponse } from './mapper';
 import {
   clearSearateToken,
