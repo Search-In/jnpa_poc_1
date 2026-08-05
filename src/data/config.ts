@@ -127,9 +127,8 @@ export interface AppEnv {
     pollMs: number;
   };
   /**
-   * NLDS Logistics Data Bank container tracking (`/apigateway/track/cntr/`).
-   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx; LDB itself
-   * is cross-origin and token-gated.
+   * NLDS Logistics Data Bank container tracking — live API only (OTP → track).
+   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx.
    */
   ldb: {
     enabled: boolean;
@@ -142,8 +141,6 @@ export interface AppEnv {
     accessToken: string;
     /** Default mobile for the OTP login form. */
     mobileNo: string;
-    /** Serve CCLU7468361 bundled sample only when live track fails. */
-    useSampleFallback: boolean;
   };
 }
 
@@ -247,6 +244,5 @@ export const env: AppEnv = {
     proxyBase: str(import.meta.env.VITE_LDB_PROXY_BASE, '/ldb-proxy'),
     accessToken: str(import.meta.env.VITE_LDB_ACCESS_TOKEN),
     mobileNo: str(import.meta.env.VITE_LDB_MOBILE_NO),
-    useSampleFallback: str(import.meta.env.VITE_LDB_SAMPLE_FALLBACK, 'true') !== 'false',
   },
 };

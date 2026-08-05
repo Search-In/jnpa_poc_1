@@ -137,11 +137,27 @@ function splitPlace(name: string | undefined): { name: string; country: string }
   return { name: m[1].trim() || name, country: (m[2] ?? '').toUpperCase() };
 }
 
+/** Parse LDB / SeaRates timestamps for chronological sort (oldest → newest). */
+export function eventTimeMs(raw: string | null | undefined): number {
+  if (!raw) return Number.POSITIVE_INFINITY;
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY;
+}
+
+function byDateAsc(
+  a: { date?: string | null; id?: number | null; order_id?: number | null },
+  b: { date?: string | null; id?: number | null; order_id?: number | null },
+): number {
+  const dt = eventTimeMs(a.date) - eventTimeMs(b.date);
+  if (dt !== 0) return dt;
+  return (a.order_id ?? a.id ?? 0) - (b.order_id ?? b.id ?? 0);
+}
+
 /** Map LDB guest `responseData` (the shape ldb.co.in searate actually uses). */
 export function mapLdbResponseData(
   data: LdbResponseData,
   requestedContainer: string,
-  fromSample = false,
 ): ContainerTrackResult | null {
   const info = data.cntr_info_data;
   if (!info && !(data.event_detail_info && data.event_detail_info.length)) return null;
@@ -150,24 +166,44 @@ export function mapLdbResponseData(
   const origin = splitPlace(info?.source_name);
   const dest = splitPlace(info?.dest_name);
 
-  const milestones: ContainerMilestone[] = [];
+  // Flatten every location's events, then sort date-ascending. LDB returns
+  // location groups with newest-first ids inside each port (so Aug 3 can sit
+  // above Jul 28 under JNPT) — that is NOT chronological journey order.
+  const flat: Array<{
+    location_name?: string;
+    id?: number;
+    event?: string;
+    event_time?: string | null;
+  }> = [];
   for (const loc of data.event_detail_info ?? []) {
-    const events = [...(loc.event_details ?? [])].sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-    for (const ev of events) {
-      milestones.push({
-        id: `ldb-${loc.location_name}-${ev.id ?? milestones.length}`,
-        title: (loc.location_name ?? ev.event ?? 'Event').toUpperCase(),
-        description: ev.event ?? loc.location_name ?? '—',
-        locationName: loc.location_name ?? '—',
-        countryCode: '',
-        date: ev.event_time ?? null,
-        actual: true,
-        transportType: 'OTHER',
-        vesselName: null,
-        voyage: null,
+    for (const ev of loc.event_details ?? []) {
+      flat.push({
+        location_name: loc.location_name,
+        id: ev.id,
+        event: ev.event,
+        event_time: ev.event_time,
       });
     }
   }
+  flat.sort((a, b) =>
+    byDateAsc(
+      { date: a.event_time, id: a.id },
+      { date: b.event_time, id: b.id },
+    ),
+  );
+
+  const milestones: ContainerMilestone[] = flat.map((ev, i) => ({
+    id: `ldb-${ev.location_name}-${ev.id ?? i}`,
+    title: (ev.location_name ?? ev.event ?? 'Event').toUpperCase(),
+    description: ev.event ?? ev.location_name ?? '—',
+    locationName: ev.location_name ?? '—',
+    countryCode: '',
+    date: ev.event_time ?? null,
+    actual: true,
+    transportType: 'OTHER',
+    vesselName: null,
+    voyage: null,
+  }));
 
   const v0 = data.vessel_event_details?.[0];
   const vessel: ContainerVesselLeg | null = v0
@@ -230,7 +266,6 @@ export function mapLdbResponseData(
     vessel,
     routePath,
     demurrage: { freeDays: free, daysInCharge: charged },
-    fromSample,
   };
 }
 
@@ -329,7 +364,13 @@ function milestonesFrom(
   locations: ReturnType<typeof locMap>,
   vessels: WireVessel[],
 ): ContainerMilestone[] {
-  const events = [...(container.events ?? [])].sort((a, b) => (b.order_id ?? 0) - (a.order_id ?? 0));
+  // Oldest → newest by event date (journey order), not reverse order_id.
+  const events = [...(container.events ?? [])].sort((a, b) =>
+    byDateAsc(
+      { date: a.date, order_id: a.order_id },
+      { date: b.date, order_id: b.order_id },
+    ),
+  );
   return events.map((ev, i) => {
     const loc = ev.location != null ? locations.get(ev.location) : undefined;
     const vesselName =
@@ -355,7 +396,6 @@ function milestonesFrom(
 function mapSearatesWire(
   data: WireData,
   requestedContainer: string,
-  fromSample: boolean,
 ): ContainerTrackResult | null {
   const locations = locMap(data.locations);
   const vessels = data.vessels ?? [];
@@ -404,7 +444,6 @@ function mapSearatesWire(
     vessel: pickVesselLeg(container, vessels, locations, data.route),
     routePath: path,
     demurrage: { freeDays: free, daysInCharge: charged },
-    fromSample,
   };
 }
 
@@ -414,14 +453,13 @@ function mapSearatesWire(
 export function mapTrackResponse(
   raw: unknown,
   requestedContainer: string,
-  fromSample = false,
 ): ContainerTrackResult | null {
   const ldb = asLdbResponseData(raw);
   if (ldb) {
-    const mapped = mapLdbResponseData(ldb, requestedContainer, fromSample);
+    const mapped = mapLdbResponseData(ldb, requestedContainer);
     if (mapped) return mapped;
   }
   const data = unwrapTrackData(raw);
   if (!data) return null;
-  return mapSearatesWire(data, requestedContainer, fromSample);
+  return mapSearatesWire(data, requestedContainer);
 }

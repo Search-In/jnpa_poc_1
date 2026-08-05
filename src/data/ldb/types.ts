@@ -63,6 +63,4 @@ export interface ContainerTrackResult {
     freeDays: string;
     daysInCharge: string;
   };
-  /** True when the bundled sample was used (live LDB call unavailable). */
-  fromSample: boolean;
 }

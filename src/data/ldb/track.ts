@@ -7,11 +7,11 @@
  *
  * Token comes from mobile OTP (`otp-sms/generate` + `otp-sms/verify`). One
  * verified session tracks ANY container until LDB returns 401.
+ * Live API only — no bundled sample / offline fallback.
  */
 
 import { env } from '@/data/config';
 import { mapTrackResponse } from './mapper';
-import { SAMPLE_CONTAINER_NO, sampleContainerTrack } from './sample';
 import {
   clearSearateToken,
   getSearateToken,
@@ -82,7 +82,7 @@ async function fetchTrackOnce(
     throw new Error('Couldn’t look up this container. Please try again.');
   }
 
-  const mapped = mapTrackResponse(json, cntrNo, false);
+  const mapped = mapTrackResponse(json, cntrNo);
   if (!mapped) {
     throw new Error('No tracking details found for this container.');
   }
@@ -111,8 +111,8 @@ async function fetchLive(cntrNo: string, mobileNoHint: string): Promise<Containe
 }
 
 /**
- * Track a container by id. Requires an OTP-verified searateToken (shared for
- * every container until expiry).
+ * Track a container by id against live LDB. Requires an OTP-verified
+ * searateToken (shared for every container until expiry).
  */
 export async function trackContainerById(
   cntrNo: string,
@@ -128,9 +128,6 @@ export async function trackContainerById(
     return await fetchLive(no, mobileNo || env.ldb.mobileNo);
   } catch (err) {
     if (err instanceof LdbAuthRequiredError) throw err;
-    if (env.ldb.useSampleFallback && no === SAMPLE_CONTAINER_NO) {
-      return sampleContainerTrack();
-    }
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
       reason.startsWith('Couldn’t') || reason.startsWith('No tracking') || reason.startsWith('Enter')

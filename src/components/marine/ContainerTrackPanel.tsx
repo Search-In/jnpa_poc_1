@@ -74,7 +74,7 @@ const formBarStyle: CSSProperties = {
 };
 
 export function ContainerTrackPanel() {
-  const [containerNo, setContainerNo] = useState('CCLU7468361');
+  const [containerNo, setContainerNo] = useState('');
   const [mobileNo, setMobileNo] = useState(env.ldb.mobileNo);
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
@@ -474,9 +474,6 @@ function SummaryBar({ track }: { track: ContainerTrackResult }) {
             />
           </div>
           <div style={{ fontSize: 12, color: tokens.textMuted }}>⚓ {track.carrierName}</div>
-          {track.fromSample && (
-            <div style={{ fontSize: 10, color: tokens.warn, marginTop: 4 }}>Demo data</div>
-          )}
         </div>
 
         <div style={{ textAlign: 'right' }}>
