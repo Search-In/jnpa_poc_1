@@ -32,6 +32,7 @@ import { canEdit } from '@/auth/roles';
 import {
   validateMarineCsv,
   importMarineCsv,
+  overrideImportMarineCsv,
   fetchMarineUploads,
   MARINE_TEMPLATE_PATH,
   type MarineValidateResult,
@@ -159,7 +160,7 @@ export function MarineUploadPanel({
   const [file, setFile] = useState<File | null>(null);
   const [validation, setValidation] = useState<MarineValidateResult | null>(null);
   const [result, setResult] = useState<MarineImportResult | null>(null);
-  const [busy, setBusy] = useState<'validate' | 'import' | null>(null);
+  const [busy, setBusy] = useState<'validate' | 'import' | 'override' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -184,12 +185,20 @@ export function MarineUploadPanel({
     }
   };
 
-  const onImport = async () => {
+  /**
+   * Import, optionally overriding the ledger's duplicate check.
+   *
+   * ONE code path: override changes only which connector runs. The success handling —
+   * result panel, history refresh, `onImported` — is identical, so every lifecycle view
+   * that already refreshes after an import refreshes after an override too, with no
+   * second notification path to keep in sync.
+   */
+  const runImport = async (override: boolean) => {
     if (!file) return;
-    setBusy('import');
+    setBusy(override ? 'override' : 'import');
     setErr(null);
     try {
-      const r = await importMarineCsv(file);
+      const r = override ? await overrideImportMarineCsv(file) : await importMarineCsv(file);
       setResult(r);
       setRefreshKey((k) => k + 1); // refresh history
       onImported?.(r); // let a sibling view (e.g. SeaChannelTable) refresh
@@ -242,10 +251,29 @@ export function MarineUploadPanel({
             <CalciteButton scale="s" appearance="outline" disabled={!editable || !file || busy != null || undefined} onClick={onValidate}>
               Validate
             </CalciteButton>
-            <CalciteButton scale="s" disabled={!editable || !file || busy != null || undefined} onClick={onImport}>
+            <CalciteButton scale="s" disabled={!editable || !file || busy != null || undefined} onClick={() => runImport(false)}>
               Import
             </CalciteButton>
-            {busy && <CalciteLoader inline label={busy === 'validate' ? 'Validating…' : 'Importing…'} />}
+            {/* Development / audit affordance: re-process a file the ledger already has.
+                Outline + neutral, so Import stays the primary action. Not destructive —
+                the gateway upserts and deletes nothing — so no confirmation dialog. */}
+            <CalciteButton
+              scale="s"
+              appearance="outline"
+              kind="neutral"
+              disabled={!editable || !file || busy != null || undefined}
+              onClick={() => runImport(true)}
+              title="Re-process this file even if it was imported before. Updates existing records and refreshes the lifecycle; deletes nothing."
+            >
+              Override Import
+            </CalciteButton>
+            {busy && (
+              <CalciteLoader
+                inline
+                label={busy === 'validate' ? 'Validating…'
+                  : busy === 'override' ? 'Re-processing…' : 'Importing…'}
+              />
+            )}
           </div>
 
           <div style={{ fontSize: 11, color: tokens.textMuted }}>

@@ -10,13 +10,15 @@
  * and sorts), so a header click refetches rather than reordering a partial page.
  */
 
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { CalciteButton, CalciteInput, CalciteCheckbox, CalciteLabel } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchVesselCallsPage, type VesselCallFilters } from '@/data/uc3/marineCalls';
 import type { VesselCall } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
+import { StatusChip } from '@/components/shipping/dataTable';
+import { lifecycleTone } from '@/components/marine/lifecycleTone';
 import { tokens } from '@/theme/tokens';
 
 const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse' };
@@ -47,13 +49,31 @@ const TD: CSSProperties = {
 const PAGE_SIZE = 50;
 
 /** Sortable columns → the backend `sort` key it maps to. */
-const COLUMNS: { key: string; label: string; sort?: string; render: (c: VesselCall) => string }[] = [
+const COLUMNS: {
+  key: string; label: string; sort?: string; render: (c: VesselCall) => ReactNode;
+}[] = [
   { key: 'vcn', label: 'VCN', sort: 'vcn', render: (c) => c.vcn || '—' },
   { key: 'vessel', label: 'Vessel', sort: 'vessel_name', render: (c) => c.vesselName || '—' },
   { key: 'via', label: 'VIA', sort: 'via_no', render: (c) => c.viaNo || '—' },
   { key: 'voyage', label: 'Voyage', render: (c) => c.voyageNo || '—' },
-  { key: 'status', label: 'Status', sort: 'status', render: (c) => c.status || '—' },
+  // Terminal shows the resolved CODE, not the FK id — '—' when the PCS code carried only
+  // the port (INJNP1), which declares no terminal.
+  { key: 'terminal', label: 'Terminal', sort: 'terminal_id', render: (c) => c.terminalCode || '—' },
+  // Berth is allotted by BERALT — '—' means "not yet allotted", a lifecycle stage rather
+  // than missing data, so it reads the same as any other unreached milestone.
+  { key: 'berth', label: 'Berth', sort: 'berth_id', render: (c) => c.berthCode || '—' },
+  // Operational state from the backend projection when it has one, else the stored parser
+  // stage. Same precedence the detail pane uses, so the table and the timeline agree.
+  // `sort` stays on the STORED column — that is what the gateway can order by.
+  { key: 'status', label: 'Status', sort: 'status',
+    render: (c) => {
+      const v = c.lifecycle?.status || c.status;
+      return v ? <StatusChip label={v} tone={lifecycleTone(v)} /> : '—';
+    } },
   { key: 'eta', label: 'ETA', sort: 'eta', render: (c) => fmt(c.eta) },
+  // BERMAN's EDB — the expected berthing time. It was returned by the API and rendered
+  // nowhere, so the berth-application step was invisible except as a status change.
+  { key: 'etb', label: 'ETB', sort: 'etb', render: (c) => fmt(c.etb) },
   { key: 'ata', label: 'ATA', sort: 'ata', render: (c) => fmt(c.ata) },
   { key: 'atd', label: 'ATD', sort: 'atd', render: (c) => fmt(c.atd) },
   { key: 'updated', label: 'Updated', sort: 'updated_at', render: (c) => fmt(c.updatedAt) },

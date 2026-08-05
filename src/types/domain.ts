@@ -277,13 +277,40 @@ export interface VesselCall {
   vesselName: string;
   voyageNo: string;
   rotationNo: string;
-  /** FK to the terminal dimension; null until reference resolution runs. */
+  /** FK to the terminal dimension; null when the PCS terminal code did not resolve. */
   terminalId: number | null;
-  /** FK to the berth dimension; null until a berth is allotted/resolved. */
+  /**
+   * Canonical terminal code for `terminalId` (e.g. 'BMCT'), resolved server-side from the
+   * CALINF DockORTOCode or the BERMAN VCN infix. '' when unresolved — 12 of 20 corpus
+   * CALINFs declare only the PORT code (INJNP1), which is deliberately not a terminal.
+   */
+  terminalCode: string;
+  /** FK to the berth dimension; null until a berth is allotted/resolved (BERALT). */
   berthId: number | null;
+  /**
+   * Canonical berth code for `berthId` (e.g. 'CB05'), resolved server-side from the
+   * BERALT allotment. '' until a berth is allotted — a call that is only planned or
+   * berth-applied has no berth yet, which is a stage, not missing data.
+   */
+  berthCode: string;
   purpose: string;
-  /** Free-text lifecycle state — the backend deliberately imposes no vocabulary. */
+  /**
+   * PARSER stage. The column is free-text by design (migration 0038 [D8]); the parser
+   * layer supplies the vocabulary — 'Planned' (CALINF) → 'Berth Planned' (BERMAN), with
+   * later stages added by the actuals messages.
+   *
+   * This is the stage the MESSAGES reached, not where the vessel is. For the operational
+   * state prefer `lifecycle.status` and fall back to this — see `lifecycle` below.
+   */
   status: string;
+  /**
+   * DERIVED operational state from the backend Marine Projection, returned alongside
+   * `status` on the list endpoint. Null when the projection has nothing for this call —
+   * a real state (nothing ingested yet), not an error.
+   *
+   * Nothing is computed client-side: this is a read of a value the API already sends.
+   */
+  lifecycle: CallLifecycle | null;
   /** Linked customs manifest number, when known. */
   igmNo: number | null;
   sourceNote: string;
@@ -305,14 +332,35 @@ export interface VesselCall {
  * second anchoring), so consumers must order by `eventTs` and never assume a
  * milestone appears at most once.
  */
+/**
+ * Business state of a call, derived SERVER-SIDE by the Marine Projection Layer and
+ * returned inside the timeline response. Nothing here is computed in the browser.
+ */
+export interface CallLifecycle {
+  /** Engine status: the parser stage until milestones exist, then 'At Berth'/'Departed'. */
+  status: string;
+  arrivalState: string;
+  berthState: string;
+  pilotState: string;
+  departureState: string;
+  shippingState: string;
+  portcraftState: string;
+  isInPort: boolean;
+  isAtBerth: boolean;
+  /** Highest-RANK milestone reached — not the latest by clock. */
+  latestEvent: string;
+}
+
 export interface VesselCallEvent {
   eventId: number;
   callId: number;
-  /** e.g. 'ANCHORED' | 'PILOT_BOARDED' | 'ALL_FAST' | 'SAILED'. Free-text. */
+  /** e.g. 'BERTH_ALLOTTED' | 'ANCHORED' | 'PILOT_BOARDED' | 'SAILED'. Free-text. */
   eventType: string;
   /** Epoch ms; 0 = unparseable (the backend requires this column, so 0 is a red flag). */
   eventTs: number;
   berthId: number | null;
+  /** Canonical code for `berthId` (e.g. 'CB05'); '' when the milestone names no berth. */
+  berthCode: string;
   sourceFile: number | null;
   createdAt: number;
 }
@@ -406,6 +454,76 @@ export interface Pilotage {
   /** Sheet-specific columns not promoted to canonical fields (verbatim). */
   extras: Record<string, unknown>;
   importFileId: number | null;
+  /**
+   * Workflow position for THIS movement, derived by the backend Marine Projection Layer
+   * from the linked call's events (services/marine/pilot_status.py) and returned inside
+   * the open `extras` jsonb. Null when the movement has no linked call.
+   *
+   * Nothing here is computed client-side — this is a read of a value the API already
+   * sends, so the projection stays the single source of truth.
+   */
+  lifecycle: PilotageLifecycle | null;
+}
+
+/** The lifecycle block the gateway nests under `extras.lifecycle` on a pilotage row. */
+export interface PilotageLifecycle {
+  /** Planned | Pilot Requested | Pilot Boarded | Pilot Completed | Departure Pilot Completed. */
+  pilotStatus: string;
+  /** Card time, else the call's BERTHED milestone — already merged by the backend. */
+  allFastAt: number;
+  pilotBoardedAt: number;
+  /** The linked vessel call, and its engine status ('At Berth', 'Departed'…). */
+  callId: number | null;
+  callStatus: string;
+}
+
+/* ==========================================================================
+ * UC-1 Marine — VESSEL MASTER register (UC-3 backed, `core.vessel`).
+ *
+ * The port-approved HULL registry sourced from VESPRO (vessel-profile) messages and
+ * ingested via the shared marine upload endpoints. Keyed on IMO.
+ *
+ * Three distinct vessel-shaped entities exist in this app and must never be merged:
+ *   • `Vessel`       — live AIS / simulated telemetry (position, SOG/COG), keyed on MMSI.
+ *   • `VesselCall`   — one port VISIT (arrival→departure), keyed on VCN, carries IMO.
+ *   • `VesselMaster` — the HULL and its particulars (this type), keyed on IMO.
+ * A hull has many calls; a call may exist before its hull is known (a CALINF-seeded call
+ * carries no vessel row yet), so `VesselCall.imoNo` may not resolve here.
+ *
+ * VESPRO is a SPARSE document: TEU appears in 6 of the 9 corpus files and MMSI in 2, so
+ * numeric particulars are null when the message omits them — never 0, which would read as
+ * "a vessel with no capacity". Thrusters are tri-state: null means "fit not stated".
+ * ========================================================================== */
+export interface VesselMaster {
+  /** IMO number — the natural key. Always present (the parser rejects a hull without it). */
+  imoNo: string;
+  vesselName: string;
+  callSign: string;
+  flag: string;
+  /** PCS numeric type code as printed, e.g. '1534'. */
+  vesselType: string;
+  loaM: number | null;
+  beamM: number | null;
+  lbpM: number | null;
+  maxDraftM: number | null;
+  grt: number | null;
+  nrt: number | null;
+  dwt: number | null;
+  teuCapacity: number | null;
+  /** Text, never coerced to a number — leading zeros are significant. */
+  mmsi: string;
+  engineType: string;
+  propulsionType: string;
+  maxSpeedKn: number | null;
+  /** Tri-state: null = fit not stated in the message. */
+  bowThruster: boolean | null;
+  sternThruster: boolean | null;
+  /** ISO date (yyyy-mm-dd) as returned, or '' when absent. */
+  builtDate: string;
+  regPort: string;
+  ownerName: string;
+  /** P&I cover; populated on the single-vessel read only, [] on list rows. */
+  insurance: { piClub: string; validUntil: string }[];
 }
 
 /* ==========================================================================

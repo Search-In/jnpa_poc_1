@@ -28,7 +28,7 @@
  *    placeholder rather than assume a terminal is always known.
  */
 
-import type { VesselCall, VesselCallEvent, MarineCallStats } from '@/types/domain';
+import type { VesselCall, VesselCallEvent, CallLifecycle, MarineCallStats } from '@/types/domain';
 import { http } from './client';
 // Reused rather than duplicated: the same ISO→epoch fallback-to-0 posture the
 // shipping-line connector uses, so both UC-3 connectors treat time identically.
@@ -51,6 +51,10 @@ export interface VesselCallWire {
   voyage_no: string | null;
   rotation_no: string | null;
   terminal_id: number | null;
+  /** Read-only label for `terminal_id` (core.ref_terminal.code, e.g. 'BMCT'). */
+  terminal_code?: string | null;
+  /** Read-only label for `berth_id` (core.ref_berth.code, e.g. 'CB05'). */
+  berth_code?: string | null;
   berth_id: number | null;
   purpose: string | null;
   status: string | null;
@@ -65,6 +69,11 @@ export interface VesselCallWire {
   atd: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /**
+   * ADDITIVE and optional — the derived operational state, returned by the LIST
+   * endpoint beside the stored parser `status`. Absent on a gateway predating it.
+   */
+  lifecycle?: CallLifecycleWire | null;
 }
 
 /** One call actual exactly as the gateway returns it. */
@@ -74,6 +83,8 @@ export interface VesselCallEventWire {
   event_type: string | null;
   event_ts: string | null;
   berth_id: number | null;
+  /** Read-only label for `berth_id` on a milestone that names a berth. */
+  berth_code?: string | null;
   source_file: number | null;
   created_at: string | null;
 }
@@ -87,9 +98,26 @@ export interface VesselCallsPage {
   count: number;
 }
 
-/** `GET /marine/calls/{id}/timeline` — one call plus its ordered actuals. */
+/** Business state the gateway derives from this same call + its events. */
+export interface CallLifecycleWire {
+  status: string | null;
+  arrival_state: string | null;
+  berth_state: string | null;
+  pilot_state: string | null;
+  departure_state: string | null;
+  shipping_state: string | null;
+  portcraft_state: string | null;
+  is_in_port: boolean | null;
+  is_at_berth: boolean | null;
+  latest_event: string | null;
+  latest_event_time: string | null;
+}
+
+/** `GET /marine/calls/{id}/timeline` — one call, its ordered actuals, and its lifecycle. */
 export interface VesselCallTimelineWire extends VesselCallWire {
   events: VesselCallEventWire[];
+  /** Optional: absent on a gateway predating the additive `lifecycle` field. */
+  lifecycle?: CallLifecycleWire | null;
 }
 
 /** `GET /marine/calls/stats` wire shape. */
@@ -171,7 +199,9 @@ export function mapVesselCall(w: VesselCallWire): VesselCall | null {
     voyageNo: str(w.voyage_no),
     rotationNo: str(w.rotation_no),
     terminalId: nullableNum(w.terminal_id),
+    terminalCode: str(w.terminal_code),
     berthId: nullableNum(w.berth_id),
+    berthCode: str(w.berth_code),
     purpose: str(w.purpose),
     status: str(w.status),
     igmNo: nullableNum(w.igm_no),
@@ -184,6 +214,8 @@ export function mapVesselCall(w: VesselCallWire): VesselCall | null {
     atd: toEpochMs(w.atd),
     createdAt: toEpochMs(w.created_at),
     updatedAt: toEpochMs(w.updated_at),
+    // Same mapper the timeline uses — one definition, no second interpretation.
+    lifecycle: mapCallLifecycle(w.lifecycle),
   };
 }
 
@@ -200,6 +232,7 @@ export function mapVesselCallEvent(w: VesselCallEventWire): VesselCallEvent | nu
     eventType: str(w.event_type),
     eventTs: toEpochMs(w.event_ts),
     berthId: nullableNum(w.berth_id),
+    berthCode: str(w.berth_code),
     sourceFile: nullableNum(w.source_file),
     createdAt: toEpochMs(w.created_at),
   };
@@ -216,15 +249,37 @@ export function parseVesselCallsPage(raw: unknown): VesselCall[] {
 }
 
 /**
+ * Map the derived lifecycle. Pure and tolerant: a gateway that does not send the field
+ * yields null, which callers render as "no lifecycle" rather than as empty strings.
+ */
+export function mapCallLifecycle(w: CallLifecycleWire | null | undefined): CallLifecycle | null {
+  if (!w) return null;
+  return {
+    status: str(w.status),
+    arrivalState: str(w.arrival_state),
+    berthState: str(w.berth_state),
+    pilotState: str(w.pilot_state),
+    departureState: str(w.departure_state),
+    shippingState: str(w.shipping_state),
+    portcraftState: str(w.portcraft_state),
+    isInPort: Boolean(w.is_in_port),
+    isAtBerth: Boolean(w.is_at_berth),
+    latestEvent: str(w.latest_event),
+  };
+}
+
+/**
  * Map the timeline envelope. Pure. Events are re-sorted by timestamp defensively:
  * the backend already orders them, but repeated event types are permitted, so a
  * stable chronological order is the only sound contract for the UI.
+ *
+ * The lifecycle rides along in this SAME payload — the detail pane needs no second call.
  */
 export function parseVesselCallTimeline(
   raw: unknown,
-): { call: VesselCall | null; events: VesselCallEvent[] } {
+): { call: VesselCall | null; events: VesselCallEvent[]; lifecycle: CallLifecycle | null } {
   const wire = raw as VesselCallTimelineWire | null;
-  if (!wire) return { call: null, events: [] };
+  if (!wire) return { call: null, events: [], lifecycle: null };
   const call = mapVesselCall(wire);
   const events = Array.isArray(wire.events)
     ? wire.events
@@ -232,7 +287,7 @@ export function parseVesselCallTimeline(
         .filter((e): e is VesselCallEvent => e !== null)
         .sort((a, b) => a.eventTs - b.eventTs || a.eventId - b.eventId)
     : [];
-  return { call, events };
+  return { call, events, lifecycle: mapCallLifecycle(wire.lifecycle) };
 }
 
 /** Map the stats envelope. Pure and tolerant — a missing payload yields zeroes. */
@@ -359,7 +414,7 @@ export async function fetchVesselCall(callId: number): Promise<VesselCall | null
 /** Fetch one call plus its chronologically ordered actuals. */
 export async function fetchVesselCallTimeline(
   callId: number,
-): Promise<{ call: VesselCall | null; events: VesselCallEvent[] }> {
+): Promise<{ call: VesselCall | null; events: VesselCallEvent[]; lifecycle: CallLifecycle | null }> {
   return parseVesselCallTimeline(
     await http<VesselCallTimelineWire>(`${MARINE_CALLS_PATH}/${callId}/timeline`),
   );

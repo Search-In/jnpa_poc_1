@@ -12,7 +12,7 @@
  * other UC-3 connector.
  */
 
-import type { Pilotage } from '@/types/domain';
+import type { Pilotage, PilotageLifecycle } from '@/types/domain';
 import { http } from './client';
 import { toEpochMs } from './shippingLines';
 
@@ -80,6 +80,29 @@ function nullableNum(v: number | null | undefined): number | null {
 }
 
 /**
+ * Lift the backend's derived workflow block out of the open `extras` jsonb.
+ *
+ * The gateway nests it under `extras.lifecycle` (services/marine/pilot_status.py::apply)
+ * rather than as a first-class column, so `PilotageOut` stays unchanged. This reads that
+ * value — it computes nothing. Null when the movement has no linked call, which is a real
+ * state (a pilot card imported before its PCS call exists), not an error.
+ */
+export function mapPilotageLifecycle(
+  extras: Record<string, unknown> | null | undefined,
+): PilotageLifecycle | null {
+  const block = (extras as { lifecycle?: unknown } | null | undefined)?.lifecycle;
+  if (!block || typeof block !== 'object') return null;
+  const b = block as Record<string, unknown>;
+  return {
+    pilotStatus: str(b.pilot_status as string | null),
+    allFastAt: toEpochMs(b.all_fast_at as string | null),
+    pilotBoardedAt: toEpochMs(b.pilot_boarded_at as string | null),
+    callId: nullableNum(b.call_id as number | null | undefined),
+    callStatus: str(b.call_status as string | null),
+  };
+}
+
+/**
  * Map one wire row onto the domain type. Pure. Drops a row with no `pilotage_id`
  * (the key the UI addresses rows by) — same posture as mapVesselCall.
  */
@@ -109,6 +132,7 @@ export function mapPilotage(w: PilotageWire): Pilotage | null {
     submittedAt: toEpochMs(w.submitted_at),
     extras: (w.extras && typeof w.extras === 'object') ? w.extras : {},
     importFileId: nullableNum(w.import_file_id),
+    lifecycle: mapPilotageLifecycle(w.extras),
   };
 }
 

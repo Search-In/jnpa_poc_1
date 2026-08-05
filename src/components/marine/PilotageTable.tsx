@@ -8,13 +8,15 @@
  * sub-tab (Pilot_card_data.xlsx), so this view is empty until a pilot card is uploaded.
  */
 
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { CalciteInput } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchPilotagePage, type PilotageFilters } from '@/data/uc3/pilotage';
 import type { Pilotage } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
+import { StatusChip } from '@/components/shipping/dataTable';
+import { lifecycleTone } from '@/components/marine/lifecycleTone';
 import { tokens } from '@/theme/tokens';
 
 const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse' };
@@ -37,14 +39,35 @@ function fmt(ms: number): string {
   return ms ? istDateTime(ms) : '—';
 }
 
-const COLUMNS: { key: string; label: string; render: (p: Pilotage) => string; num?: boolean }[] = [
+/** Pilot NAME from the open `extras` jsonb (ACKPLM's `pilot_name`), '' when absent. */
+function pilotName(p: Pilotage): string {
+  const v = p.extras?.pilot_name;
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+const COLUMNS: {
+  key: string; label: string; render: (p: Pilotage) => ReactNode; num?: boolean;
+}[] = [
   { key: 'movement', label: 'Movement', render: (p) => p.movementType || '—' },
   { key: 'vessel', label: 'Vessel', render: (p) => p.vesselName || '—' },
   { key: 'via', label: 'VIA', render: (p) => p.viaNo || '—' },
   { key: 'imo', label: 'IMO', render: (p) => p.imoNo || '—' },
-  { key: 'pilot', label: 'Pilot', render: (p) => p.pilotCode || '—' },
+  // The ACKPLM corpus names the pilot but carries no roster code, so `pilotCode` is null
+  // on every message-sourced movement and the column read '—' while the name sat unused
+  // in `extras`. Roster code first (the advance sheets' own value), then the acknowledged
+  // name — a read of what the API already sends, not a derivation.
+  { key: 'pilot', label: 'Pilot', render: (p) => p.pilotCode || pilotName(p) || '—' },
+  // Derived by the backend projection from the linked call's events. '—' when the
+  // movement has no linked call, which is a real state, not an error.
+  { key: 'status', label: 'Status',
+    render: (p) => p.lifecycle?.pilotStatus
+      ? <StatusChip label={p.lifecycle.pilotStatus} tone={lifecycleTone(p.lifecycle.pilotStatus)} />
+      : '—' },
   { key: 'boarded', label: 'Boarded', render: (p) => fmt(p.pilotBoardedAt), num: true },
-  { key: 'allfast', label: 'All Fast', render: (p) => fmt(p.allFastAt), num: true },
+  // The card's own all-fast time when it has one, else the linked call's BERTHED
+  // milestone. The backend already merged the two (pilot_status.effective_times); this
+  // renders that merged value and falls back to the raw column if no call is linked.
+  { key: 'allfast', label: 'All Fast', render: (p) => fmt(p.lifecycle?.allFastAt || p.allFastAt), num: true },
   { key: 'submitted', label: 'Submitted', render: (p) => fmt(p.submittedAt), num: true },
 ];
 

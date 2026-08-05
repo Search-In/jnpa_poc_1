@@ -1,6 +1,6 @@
 /**
- * <PortCraftTabs> — the internal [ Overview ] [ Fleet Register ] [ Data Upload ]
- * tab strip for the Port Craft screen.
+ * <PortCraftTabs> — the internal [ Overview ] [ Active Marine Operations ]
+ * [ Fleet Register ] [ Data Upload ] tab strip for the Port Craft screen.
  *
  * Controlled (active + onActivate) in exactly the same style as every other nested
  * Calcite tab group in the App shell (Vessels ▸ …, DUKC ▸ Sea Channels, 5-Day
@@ -18,12 +18,13 @@ import {
   CalciteTab,
 } from '@esri/calcite-components-react';
 import { PortCraftOverview } from '@/components/marine/PortCraftOverview';
+import { PortCraftOperationsTab } from '@/components/marine/PortCraftOperationsTab';
 import { PortCraftFleetRegister } from '@/components/marine/PortCraftFleetRegister';
 import { PortCraftDataUpload } from '@/components/marine/PortCraftDataUpload';
 import type { MarineImportResult } from '@/data/uc3/marineUpload';
 
 /** Overview is the default — the tab opens on the live operational picture. */
-export type PortCraftSubTab = 'overview' | 'register' | 'upload';
+export type PortCraftSubTab = 'overview' | 'operations' | 'register' | 'upload';
 
 export interface PortCraftTabsProps {
   active: PortCraftSubTab;
@@ -45,6 +46,13 @@ export function PortCraftTabs({ active, onActivate, registerKey, onImported }: P
           Overview
         </CalciteTabTitle>
         <CalciteTabTitle
+          tab="pc-operations"
+          selected={active === 'operations'}
+          onCalciteTabsActivate={() => onActivate('operations')}
+        >
+          Active Marine Operations
+        </CalciteTabTitle>
+        <CalciteTabTitle
           tab="pc-register"
           selected={active === 'register'}
           onCalciteTabsActivate={() => onActivate('register')}
@@ -64,6 +72,11 @@ export function PortCraftTabs({ active, onActivate, registerKey, onImported }: P
           scheduling conflicts, Pilots / Tugs / Mooring-gang cards. */}
       <CalciteTab tab="pc-overview" selected={active === 'overview'}>
         <PortCraftOverview />
+      </CalciteTab>
+
+      {/* Vessels currently requiring marine support, from the lifecycle projection. */}
+      <CalciteTab tab="pc-operations" selected={active === 'operations'}>
+        <PortCraftOperationsTab />
       </CalciteTab>
 
       {/* UC-3 fleet register (core.port_craft). */}

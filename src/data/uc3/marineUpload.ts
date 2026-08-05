@@ -229,10 +229,16 @@ export function marineUploadsQuery(
   return `${MARINE_UPLOADS_PATH}?${q.toString()}`;
 }
 
-/** Wrap a File in the multipart body the gateway expects. Pure. */
-export function buildUploadForm(file: File): FormData {
+/**
+ * Wrap a File in the multipart body the gateway expects. Pure.
+ *
+ * `override` is appended ONLY when true, so a normal import posts exactly the body it
+ * always did — the gateway's own default is false.
+ */
+export function buildUploadForm(file: File, override = false): FormData {
   const fd = new FormData();
   fd.append(UPLOAD_FIELD, file);
+  if (override) fd.append('override', 'true');
   return fd;
 }
 
@@ -252,6 +258,18 @@ export async function validateMarineCsv(file: File): Promise<MarineValidateResul
  */
 export async function importMarineCsv(file: File): Promise<MarineImportResult> {
   return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file));
+}
+
+/**
+ * Re-import a file the ledger has already seen, instead of getting SKIPPED_DUPLICATE.
+ *
+ * Development / audit affordance. It is NOT a delete: the gateway replays the same
+ * records through the same upsert path, so business rows refresh in place, the lifecycle
+ * projection re-runs, and the file keeps its original ledger id. Same endpoint, same
+ * response shape — only the `override` field differs.
+ */
+export async function overrideImportMarineCsv(file: File): Promise<MarineImportResult> {
+  return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file, true));
 }
 
 /** Fetch the import ledger, newest first. */
