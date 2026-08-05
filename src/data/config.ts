@@ -139,8 +139,44 @@ export interface AppEnv {
     pollMs: number;
   };
   /**
-   * NLDS Logistics Data Bank container tracking — live API only (OTP → track).
-   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx.
+   * UC-1 AI/ML model service (`ml/`) — the eight WS2 UC-I models behind one
+   * FastAPI surface, reached through the `/ml-api` proxy so the browser stays
+   * same-origin (no CORS, and the service is never exposed publicly: it takes
+   * no auth of its own).
+   *
+   * Deliberately INDEPENDENT of `dataMode`, for the same reason as `uc3`: the
+   * models are real physics and a real trained artefact whether the AIS fleet
+   * they are pointed at is simulated or live. What varies is the INPUT, and the
+   * service reports that itself — every vessel's response carries a mapping
+   * ledger naming each value it had to assume, because an AIS position report
+   * carries no draught, no cargo and no ATA.
+   */
+  ml: {
+    /** Master switch. Off → the Predictions column is not offered at all. */
+    enabled: boolean;
+    /**
+     * Path prefix, NOT an absolute origin — kept relative ('/ml-api') so the
+     * Vite dev proxy and nginx keep the browser same-origin. Endpoint helpers
+     * pass the SUFFIX only ('/uc1/webapp/predictions').
+     */
+    apiBase: string;
+    /**
+     * Vessels sent per call. The service caps its own fleet (`max_fleet`, 80)
+     * and reports anything dropped; this is the client-side half of the same
+     * bound, so a 400-hull feed never becomes one enormous request.
+     */
+    maxFleet: number;
+    /**
+     * Request deadline, ms. The berth optimiser and the TAT engine are real
+     * computation, so this is seconds rather than the sub-second a database
+     * read would need.
+     */
+    timeoutMs: number;
+  };
+  /**
+   * NLDS Logistics Data Bank container tracking (`/apigateway/track/cntr/`).
+   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx; LDB itself
+   * is cross-origin and token-gated.
    */
   ldb: {
     enabled: boolean;
@@ -262,6 +298,17 @@ export const env: AppEnv = {
     // Floor of 60 s — the gateway's own cache TTL. A smaller value is clamped
     // rather than honoured, so a mis-set env can't hammer the shared backend.
     pollMs: Math.max(60_000, num(import.meta.env.VITE_LIVE_AIS_POLL_MS, 60_000)),
+  },
+  ml: {
+    // On by default so a running service works out of the box; the column
+    // degrades to an explicit "service unreachable" notice rather than a blank
+    // panel when it is not running. Set VITE_ML_ENABLED=false to hide it.
+    enabled: str(import.meta.env.VITE_ML_ENABLED, 'true') !== 'false',
+    apiBase: str(import.meta.env.VITE_ML_API_BASE, '/ml-api'),
+    // Matches uc1_webapp_adapter.MAX_FLEET. Clamped to 1..80: a larger value
+    // would be rejected server-side anyway, and a zero would score nothing.
+    maxFleet: Math.max(1, Math.min(80, num(import.meta.env.VITE_ML_MAX_FLEET, 80))),
+    timeoutMs: Math.max(5_000, num(import.meta.env.VITE_ML_TIMEOUT_MS, 30_000)),
   },
   ldb: {
     enabled: str(import.meta.env.VITE_LDB_ENABLED, 'true') !== 'false',

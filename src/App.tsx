@@ -33,6 +33,7 @@ import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselTable } from '@/components/VesselTable';
+import { VesselPredictionsSheet } from '@/components/predictions/VesselPredictionsSheet';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
 import { PilotageTable } from '@/components/marine/PilotageTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
@@ -650,6 +651,10 @@ export function App() {
       <GuidedTour onStep={onTourStep} />
       <ReactiveGuide onSpotlight={(ids) => useSimStore.getState().setHighlights(ids)} />
       <IntegrationConsole />
+      {/* AI/ML predictions for one vessel, opened from the Vessels ▸ Live AIS
+          Feed table. Mounted here rather than inside the table because the sheet
+          outlives the row that opened it (and the tab it lives in). */}
+      <VesselPredictionsSheet />
     </>
   );
 }

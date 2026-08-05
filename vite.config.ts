@@ -155,6 +155,24 @@ export default defineConfig(({ mode }) => {
           // cert. Production terminates TLS at nginx, which never uses this file.
           secure: false,
         },
+        // UC-1 AI/ML model service (ml/ — the eight WS2 UC-I models behind one
+        // FastAPI surface). Proxied for the same reason as /api: the SPA always
+        // fetches a RELATIVE path and stays same-origin, so there is no CORS and
+        // no preflight. It ALSO matters for exposure — the service takes no auth
+        // of its own, so it must be reachable only through a proxy that fronts
+        // it, never published directly. Production needs the equivalent nginx
+        // block in deploy/nginx.conf.
+        //
+        // Default port is 8100, NOT the service's own 8000 default: 8000 is
+        // already taken by the UC-3 gateway above, and two backends on one port
+        // is a debugging session nobody needs. Start it with:
+        //   cd ml && JNPA_PORT=8100 python run.py serve
+        '/ml-api': {
+          target: env.VITE_ML_API_URL || 'http://127.0.0.1:8100',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (p) => p.replace(/^\/ml-api/, ''),
+        },
         // LDB is handled by ldbDevProxy() plugin (WAF-safe header rewrite).
       },
     },

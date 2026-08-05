@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { friendlyError, isPlainMessage } from './friendlyError';
 import { httpErrorMessage } from './uc3/client';
+import {
+  friendlyMlError,
+  httpErrorMessage as mlHttpErrorMessage,
+  unreachableMessage,
+} from './ml/client';
 
 /**
  * Inputs are built with the REAL producer (`httpErrorMessage`) rather than
@@ -75,6 +80,63 @@ describe('friendlyError — non-status conditions', () => {
   it('handles an empty message without rendering a blank notice', () => {
     expect(friendlyError('').title.length).toBeGreaterThan(0);
     expect(friendlyError('   ').code).toBe('UNKNOWN');
+  });
+});
+
+/**
+ * The AI/ML model service is a DIFFERENT system from the JNPA gateway — its own
+ * container, its own owner, started separately. Classifying its failures by
+ * status alone told operators to chase the gateway team over a service that had
+ * simply not been started. Inputs are built with the real producers in
+ * `ml/client.ts`, so a change to either module fails here rather than degrading
+ * the UI silently.
+ */
+describe('friendlyError — the AI/ML model service', () => {
+  it('names the model service, never the gateway, when it is not running', () => {
+    const e = friendlyError(unreachableMessage('/uc1/webapp/predictions'));
+    expect(e.code).toBe('OFFLINE');
+    expect(e.title).toMatch(/model service isn’t running/i);
+    expect(e.title).not.toMatch(/gateway/i);
+    expect(e.action).toMatch(/python run\.py serve/);
+  });
+
+  it('does not relabel an ML 5xx as a gateway fault', () => {
+    // The exact message the shipped bug produced.
+    const e = friendlyError(
+      mlHttpErrorMessage('/uc1/webapp/predictions', 500, 'Internal Server Error'),
+    );
+    expect(e.title).not.toMatch(/gateway/i);
+    expect(e.title).toMatch(/model service/i);
+    expect(e.code).toBe('SERVER');
+  });
+
+  it('explains an ML timeout in terms of what is slow', () => {
+    const e = friendlyError(
+      friendlyMlError(new DOMException('aborted', 'AbortError'), '/uc1/webapp/predictions'),
+    );
+    expect(e.code).toBe('TIMEOUT');
+    expect(e.action).toMatch(/VITE_ML_TIMEOUT_MS/);
+    expect(e.title).not.toMatch(/gateway/i);
+  });
+
+  it('separates a disabled ML build from a disabled gateway', () => {
+    const e = friendlyError(
+      '[ML] /uc1/webapp/predictions — the AI/ML model service is disabled (VITE_ML_ENABLED=false)',
+    );
+    expect(e.code).toBe('DISABLED');
+    expect(e.title).toMatch(/AI\/ML predictions/i);
+    expect(e.action).toMatch(/VITE_ML_ENABLED/);
+  });
+
+  it('still keeps the technical detail verbatim', () => {
+    const raw = mlHttpErrorMessage('/uc1/webapp/predictions', 503, 'Unavailable', 'solver died');
+    expect(friendlyError(raw).detail).toBe(raw);
+  });
+
+  it('leaves UC-3 gateway messages classified as gateway messages', () => {
+    // The ML branch must not swallow anything that is not ML.
+    const e = friendlyError(httpErrorMessage('/marine/calls', 500, 'Internal Server Error'));
+    expect(e.title).toMatch(/gateway/i);
   });
 });
 

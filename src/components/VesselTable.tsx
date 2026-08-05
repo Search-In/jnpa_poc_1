@@ -7,11 +7,22 @@
  * Columns are click-to-sort; a summary bar reports total / live / simulated
  * counts so the mock-vs-real split is explicit (SOURCE='live' hulls are badged
  * LIVE, matching the map ring and the VesselFeed tag).
+ *
+ * The trailing **Predictions** column opens the UC-1 AI/ML model suite for that
+ * hull (`<VesselPredictionsSheet>`). It is an action, not a value: predictions
+ * cost real computation — the berth optimiser and the TAT engine run over the
+ * whole fleet — so they are produced when an operator asks for one vessel, never
+ * eagerly for every row. The one call scores the feed, so opening a second row
+ * is instant.
  */
 
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { CalciteButton } from '@esri/calcite-components-react';
 import { useAppStore } from '@/store/useAppStore';
+import { usePredictionStore } from '@/data/ml/predictionStore';
+import { buildContext } from '@/data/ml/predictions';
+import { env } from '@/data/config';
 import type { NavStatus, Vessel } from '@/types/domain';
 import { navStatusColor, tokens } from '@/theme/tokens';
 import { istDateTime } from '@/util/format';
@@ -77,6 +88,11 @@ interface Column {
   numeric?: boolean;
 }
 
+/**
+ * Sortable value columns. The Predictions column is appended in the markup
+ * rather than listed here: it holds an action, and there is nothing to sort by
+ * until the operator has asked for a prediction.
+ */
 const COLUMNS: Column[] = [
   { key: 'VESSEL_NAME', label: 'Vessel' },
   { key: 'MMSI', label: 'MMSI' },
@@ -151,6 +167,41 @@ function StatusCell({ status }: { status: NavStatus }) {
       />
       <span style={{ textTransform: 'capitalize' }}>{status}</span>
     </span>
+  );
+}
+
+/**
+ * The per-row Predictions action.
+ *
+ * Shows which vessel is currently open and which one is being scored, so the
+ * operator can see that the wait belongs to their click. The button stays
+ * enabled for other rows during a fetch: the store simply re-targets, which is
+ * what someone who clicked the wrong row expects.
+ */
+function PredictionsCell({ vessel, fleet }: { vessel: Vessel; fleet: Vessel[] }) {
+  const openMmsi = usePredictionStore((s) => s.openMmsi);
+  const loading = usePredictionStore((s) => s.loading);
+  const open = usePredictionStore((s) => s.open);
+  const kpis = useAppStore((s) => s.kpis);
+
+  const isOpen = openMmsi === vessel.MMSI;
+  return (
+    <CalciteButton
+      scale="s"
+      appearance={isOpen ? 'solid' : 'outline'}
+      kind="brand"
+      iconStart="lightbulb"
+      loading={isOpen && loading ? true : undefined}
+      title={`Run the eight UC-1 models for ${vessel.VESSEL_NAME} — UKC, tidal window, TAT, ETA band, berth plan, JIT, craft and risk chain`}
+      onClick={() => {
+        // Berth occupancy is the one piece of port context this screen already
+        // holds; everything else is left out so the service applies (and
+        // reports) its own documented fallback rather than a UI placeholder.
+        void open(vessel, fleet, buildContext({ berthOccupancyPct: kpis?.berthOccupancy.value ?? null }));
+      }}
+    >
+      {isOpen ? 'Open' : 'Predict'}
+    </CalciteButton>
   );
 }
 
@@ -233,6 +284,14 @@ export function VesselTable() {
                   {arrow(c.key)}
                 </th>
               ))}
+              {env.ml.enabled && (
+                <th
+                  style={{ ...TH_BASE, cursor: 'default', textAlign: 'center' }}
+                  title="AI/ML predictions from the eight UC-1 models"
+                >
+                  Predictions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -259,6 +318,11 @@ export function VesselTable() {
                 <td style={TD}>{v.ETA ? istDateTime(v.ETA) : '—'}</td>
                 <td style={{ ...TD, color: tokens.textMuted }}>{istDateTime(v.TIMESTAMP)}</td>
                 <td style={TD}>{v.SOURCE === 'live' ? 'Live AIS' : 'Simulated'}</td>
+                {env.ml.enabled && (
+                  <td style={{ ...TD, textAlign: 'center' }}>
+                    <PredictionsCell vessel={v} fleet={vessels} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

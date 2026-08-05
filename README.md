@@ -56,6 +56,10 @@ It runs in **three interchangeable data modes** behind one adapter interface:
   readout, plus a 5-day berth Gantt and a prediction-vs-actual convergence chart.
 - **Automated workflow ledger** (`src/workflow/`) — marine triggers with an
   AUTO/ADVISORY governance toggle.
+- **AI/ML predictions** (`ml/` + `src/data/ml/` + `src/components/predictions/`) —
+  the eight WS2 UC-I models (DUKC, tidal windows, TAT, ETA band, berth optimiser,
+  JIT/RTA, port craft, causal risk chain) served from this repo and opened per
+  vessel from a **Predictions** column in the live-AIS table.
 
 ---
 
@@ -67,6 +71,21 @@ npm run dev          # http://localhost:5173
 ```
 
 That's it. The whole UI + KPI engine runs offline against the mock adapter.
+
+### With the AI/ML models
+
+The Predictions column needs the model service, which lives in this repository:
+
+```bash
+cd ml
+python -m venv .venv && .venv/bin/pip install -r requirements-service.txt
+JNPA_PORT=8100 .venv/bin/python run.py serve      # http://127.0.0.1:8100/docs
+```
+
+The SPA calls the relative `/ml-api` prefix, which Vite (dev) and nginx (prod)
+forward to that service — same-origin, no CORS, and the service is never exposed
+publicly. Without it running, the column stays visible and says exactly what to
+start. See [`docs/ML_MODELS.md`](docs/ML_MODELS.md).
 
 ### Other scripts
 
@@ -144,6 +163,8 @@ there, never named-user secrets.
 | `VITE_FS_VESSELS_URL` … `VITE_FS_KPI_SNAPSHOTS_URL` | Hosted Feature Layer URLs |
 | `VITE_AISSTREAM_TOKEN` | AISStream.io token (free fallback) |
 | `VITE_WEATHER_FEED_URL` | Weather/tidal/channel-depth feed (optional) |
+| `VITE_ML_ENABLED` | AI/ML predictions column on/off (default on) |
+| `VITE_ML_API_URL` | Where the **dev** proxy forwards `/ml-api` (default `http://127.0.0.1:8100`) |
 
 ---
 
@@ -218,8 +239,14 @@ dashboard uses, so vessel data stays consistent.
 ## Project layout
 
 ```
+ml/            the eight WS2 UC-I models behind one FastAPI surface, plus the
+               live-AIS ingest adapter that feeds them
+               (src/pipeline/uc1_webapp_adapter.py). Runs standalone: every
+               model file executes on a bare Python install.
 src/
   data/        DataAdapter interface + MockAdapter / ArcGISAdapter / aisstream / selector
+  data/ml/     client + connector + store for the UC-1 model service (/ml-api)
+  components/predictions/   the per-vessel predictions sheet
   kpi/         pure, unit-tested KPI engine (helpers, formulas, bundle)
   types/       domain types + ArcGIS field schemas + KPI result types
   config/      KPI targets + tolerances
@@ -236,6 +263,7 @@ docs/          ARCHITECTURE.md, KPI_DEFINITIONS.md, DEPLOYMENT.md
 
 | Connector | Doc | What it needs |
 |---|---|---|
+| AI/ML predictions (the eight UC-I models, in-repo under `ml/`) | [`docs/ML_MODELS.md`](docs/ML_MODELS.md) | the local service on `:8100` (no credential) |
 | Live AIS (MarineTraffic, via the UC-3 gateway) | [`docs/LIVE_AIS.md`](docs/LIVE_AIS.md) | `VITE_UC3_*` (no credential of its own) |
 | NLDS / LDB container track | [`docs/LDB.md`](docs/LDB.md) | mobile **OTP** in-app + the `/ldb-proxy` proxy (no API key to provision) |
 | AISHub public station overlay | [`docs/AISHUB.md`](docs/AISHUB.md) | none (station map.json, proxied) |

@@ -52,3 +52,61 @@ jobs:
       # instead of shipping a bundle that serves simulated data as if it were real.
       - name: Build
         run: node --max-old-space-size=4096 ./node_modules/.bin/vite build
+
+  # The AI/ML side (ml/) — the eight UC-I models behind the Predictions column.
+  # Separate job, not extra steps in `quality`: it needs Python, not Node, and a
+  # model regression must be readable as a model regression rather than as a
+  # frontend failure.
+  #
+  models:
+    name: UC-1 models · self-tests · adapter contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Every model module imports NOTHING outside the standard library, so this
+      # step runs BEFORE any install: if it fails, a dependency crept into a file
+      # that is supposed to be liftable into another codebase on its own.
+      - name: Models run on a bare Python install
+        run: |
+          for f in src/uc1_models/uc1_m*.py; do
+            echo "--- $f"
+            python "$f" > /dev/null || exit 1
+          done
+
+      - name: Install service dependencies
+        run: pip install -r requirements-service.txt pytest
+
+      # The gate on the duplicated DUKC core: four modules carry a byte-identical
+      # copy, and the app refuses to start if they have drifted or if any
+      # golden-value self-test fails. Importing the app IS the check.
+      - name: DUKC core consistency + adapter mount
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'src/pipeline')
+          import jnpa_paths; jnpa_paths.ensure_on_syspath()
+          import api
+          assert api.CORE_CHECK['consistent'], api.CORE_CHECK
+          assert api.ADAPTER['mounted'], api.ADAPTER
+          print(f"{len(api.MOUNTED)} models + {api.ADAPTER['module_id']} mounted")
+          PY
+
+      - name: Live-AIS adapter self-test
+        run: python src/pipeline/uc1_webapp_adapter.py --selftest
+
+      # The whole suite: nothing in it needs the document corpus, which is not in
+      # this repository (ml/data/corpus/README.md), because the numbers the
+      # models read were already reduced into data/reference/.
+      - name: Model regression suite
+        run: pytest -q
