@@ -896,3 +896,42 @@ export interface PerformanceMeta {
   /** '' when no daily report has been imported yet. */
   latestReportDate: string;
 }
+
+/**
+ * One real AIS position from the shared gateway's MarineTraffic proxy
+ * (`GET /api/marine/vessels/live`) — genuine live traffic in the JNPA / Mumbai
+ * tile window, as opposed to the simulated `Vessel` fleet above.
+ *
+ * Deliberately a SEPARATE type from `Vessel`: it carries no berth assignment,
+ * ETA, nav-status or DQ provenance (the feed has none of those), and forcing it
+ * into `Vessel` would mean inventing all four. The map layers consume it
+ * directly; nothing in the KPI/planning stack reads it.
+ *
+ * ⚠ `mmsi` is NOT a real MMSI — the backend fills it from MarineTraffic's
+ * `SHIP_ID` (falling back to `MMSI`). It is stable and unique enough to key a
+ * graphic, but must never be displayed as an MMSI or joined against one.
+ */
+export interface LiveVessel {
+  /** MarineTraffic SHIP_ID — a stable graphic key, NOT an MMSI. See above. */
+  mmsi: string;
+  vesselName: string;
+  imoNo: string | null;
+  lat: number;
+  lon: number;
+  /** Knots. The gateway already divides the upstream tenths-of-a-knot value. */
+  speedKnots: number;
+  /** Course over ground, degrees true. */
+  course: number;
+  /** Heading, degrees true. Null upstream → falls back to `course`. */
+  heading: number;
+  /** AIS ITU-R M.1371 ship type code. */
+  shipTypeCode: number;
+  /** Bucketed label the gateway derives from `shipTypeCode` ('Cargo', …). */
+  shipTypeLabel: string;
+  destination: string | null;
+  flag: string | null;
+  /** Metres. Null/0 when the vessel has sent no static report. */
+  length: number | null;
+  /** Age of the position report, seconds. */
+  elapsedSeconds: number | null;
+}

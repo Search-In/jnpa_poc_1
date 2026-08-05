@@ -244,11 +244,19 @@ export function computeWhatIf(
     notes.push(`Weather severity ${Math.round(severity * 100)}% applied`);
   }
 
+  // The note listed the scenario INPUTS but never the model, so a reader could
+  // reasonably assume the deltas came from a recompute over the plan. They do
+  // not. Stating the model is the difference between a transparent stub and a
+  // number that looks more authoritative than it is.
+  const model =
+    'Model: transparent linear stub — each delayed hour costs 5 pp JIT and adds 1 h to average TAT, ' +
+    'both scaled by (1 + weather severity). Not a queueing or berth-recompute simulation.';
+
   return {
     jitPctBefore: jitBefore,
     jitPctAfter: Math.max(0, Number((jitBefore - jitDrop).toFixed(1))),
     avgTatBefore: tatBefore,
     avgTatAfter: Number((tatBefore + tatRise).toFixed(1)),
-    note: notes.length ? notes.join('; ') : 'No scenario inputs — baseline unchanged',
+    note: `${notes.length ? notes.join('; ') : 'No scenario inputs — baseline unchanged'}. ${model}`,
   };
 }

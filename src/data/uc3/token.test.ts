@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LOGIN_PATH, clearAuthToken, getAuthToken, hasAuthToken, login } from './token';
+import {
+  AUTH_BACKOFF_BASE_MS,
+  LOGIN_PATH,
+  clearAuthToken,
+  getAuthToken,
+  hasAuthToken,
+  login,
+} from './token';
 
 /** Minimal Response stand-in — the module only touches ok/status/statusText/json. */
 function jsonResponse(body: unknown, status = 200, statusText = 'OK'): Response {
@@ -102,7 +109,9 @@ describe('getAuthToken (caching + single-flight)', () => {
 
   it('does not wedge every later caller after a failed login', async () => {
     // A rejected in-flight promise must not be cached, or one blip would poison
-    // the module for the life of the page.
+    // the module for the life of the page. Recovery is now gated by the backoff
+    // (see the storm tests below) rather than being immediate — but it must
+    // still happen without a reload.
     let attempt = 0;
     const spy = stubFetch(() => {
       attempt += 1;
@@ -110,11 +119,98 @@ describe('getAuthToken (caching + single-flight)', () => {
         ? jsonResponse({ detail: 'boom' }, 500, 'Internal Server Error')
         : jsonResponse(loginBody(TOKEN_A));
     });
+    vi.useFakeTimers();
+    try {
+      await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
+      expect(hasAuthToken()).toBe(false);
 
-    await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
-    expect(hasAuthToken()).toBe(false);
+      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
+      expect(await getAuthToken()).toBe(TOKEN_A); // recovers, no reload needed
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
-    expect(await getAuthToken()).toBe(TOKEN_A); // recovers on the next attempt
+describe('rejected credentials (no login storm)', () => {
+  it('attempts the login ONCE, then fails fast without touching the network', async () => {
+    const spy = stubFetch(() => jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized'));
+
+    await expect(getAuthToken()).rejects.toThrow(/HTTP 401/);
+    // Eleven connectors + polling panels would each retry the login otherwise.
+    for (let i = 0; i < 5; i++) await expect(getAuthToken()).rejects.toThrow(/HTTP 401/);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the missing env vars when no credential is configured', async () => {
+    stubFetch(() => jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized'));
+    // env.uc3.username/password are unset in tests — the same shape as a .env
+    // that never filled them in.
+    await expect(getAuthToken()).rejects.toThrow(/VITE_UC3_USERNAME/);
+  });
+
+  it('backs off a TRANSIENT failure too — a dead gateway is not retried per call', async () => {
+    // A dev proxy that cannot reach its target answers 500 (Vite's ECONNREFUSED
+    // response), which used to retry on every single caller.
+    const spy = stubFetch(() => jsonResponse({ detail: 'ECONNREFUSED' }, 500, 'Internal Server Error'));
+    vi.useFakeTimers();
+    try {
+      await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
+      for (let i = 0; i < 5; i++) await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      // …but it recovers by itself once the backoff elapses, unlike a 401.
+      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
+      await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('doubles the transient backoff, capped, and resets it on success', async () => {
+    let fail = true;
+    const spy = stubFetch(() =>
+      fail ? jsonResponse({ detail: 'down' }, 503, 'Service Unavailable') : jsonResponse(loginBody(TOKEN_A)),
+    );
+    vi.useFakeTimers();
+    try {
+      await expect(getAuthToken()).rejects.toThrow(); // failure #1 → base
+      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
+      await expect(getAuthToken()).rejects.toThrow(); // failure #2 → 2× base
+      expect(spy).toHaveBeenCalledTimes(2);
+
+      // Half of the doubled window is not enough to try again.
+      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
+      await expect(getAuthToken()).rejects.toThrow();
+      expect(spy).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
+      fail = false;
+      expect(await getAuthToken()).toBe(TOKEN_A);
+      expect(spy).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('allows one fresh attempt after clearAuthToken (the stale-session path)', async () => {
+    let attempt = 0;
+    const spy = stubFetch(() => {
+      attempt += 1;
+      return attempt === 1
+        ? jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized')
+        : jsonResponse(loginBody(TOKEN_A));
+    });
+
+    await expect(getAuthToken()).rejects.toThrow(/HTTP 401/);
+    await expect(getAuthToken()).rejects.toThrow(/HTTP 401/); // memo: no 2nd call
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    clearAuthToken();
+    expect(await getAuthToken()).toBe(TOKEN_A);
     expect(spy).toHaveBeenCalledTimes(2);
   });
 });

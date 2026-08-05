@@ -15,7 +15,7 @@
  * Popups show MMSI / SOG / COG / ETA.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Point from '@arcgis/core/geometry/Point';
@@ -43,8 +43,10 @@ import type { Berth, Vessel } from '@/types/domain';
 import { navStatusColor, tokens, ukcColor } from '@/theme/tokens';
 import { istTime } from '@/util/format';
 import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
-import { buildPortAssets2dLayer } from '@/map/portAssets2d';
+import { buildPortAssets2dLayer, setPortAssets2dVisible } from '@/map/portAssets2d';
 import { initialBasemap, installBasemapFallback } from '@/map/basemapFallback';
+import { liveVesselLayer2d, renderLiveVessels2d } from '@/map/liveVesselLayer';
+import { useLiveVessels } from '@/map/useLiveVessels';
 
 // In live mode, centre on the configured AIS region (which has real coverage);
 // in mock mode, centre on Nhava Sheva. Driven by env so it switches to JNPA
@@ -65,6 +67,14 @@ const LEGEND_SPRITES = [
   { label: 'Berth', sprite: GLYPHS.berth },
 ];
 
+/**
+ * No `SOURCE` row: it printed the RAW enum ('mock' / 'live'), which is an
+ * internal value, not a label — and a vessel's provenance is already carried by
+ * the header DataModeChip, the per-panel SourceBadge, and the LIVE tag on real
+ * hulls. This popup only ever opens on a simulated vessel anyway: while the live
+ * AIS overlay is on, those graphics are removed from the map entirely, and real
+ * AIS vessels use their own popup (liveVesselLayer.ts), titled "· live AIS".
+ */
 const VESSEL_POPUP = {
   title: '{VESSEL_NAME} ({VESSEL_TYPE})',
   content: [
@@ -77,7 +87,6 @@ const VESSEL_POPUP = {
         { fieldName: 'COG', label: 'COG (°)' },
         { fieldName: 'HEADING', label: 'Heading (°)' },
         { fieldName: 'BERTH_ID', label: 'Berth' },
-        { fieldName: 'SOURCE', label: 'Source' },
       ],
     },
   ],
@@ -224,6 +233,7 @@ export function AISMap() {
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
   const assetLayerRef = useRef<GraphicsLayer | null>(null);
   const tideLayerRef = useRef<MediaLayer | null>(null);
+  const liveLayerRef = useRef<GraphicsLayer | null>(null);
   const selectionLayerRef = useRef<GraphicsLayer | null>(null);
   const [ready, setReady] = useState(false);
   /**
@@ -245,6 +255,9 @@ export function AISMap() {
   const [showUnknown, setShowUnknown] = useState(true);
 
   const vessels = useAppStore((s) => s.vessels);
+  // Real AIS traffic from the shared gateway (off until the operator toggles it;
+  // see the render effect, which swaps it in for the simulated fleet).
+  const { vessels: liveVessels, active: liveActive } = useLiveVessels();
   // What-if / guided-tour spotlight ids — ringed on the map, same as PortScene.
   const highlights = useHighlightIds();
   // Tide & sea-state raster field (same feed the Tide tab uses, so map + table
@@ -255,7 +268,11 @@ export function AISMap() {
     [simVersion],
     60_000
   );
-  const tideStations = tideData?.stations ?? [];
+  // Memoised on purpose, not to quieten a lint rule — see the identical note in
+  // PortScene. `tideData?.stations ?? []` is a new array identity every render
+  // and feeds the tide effect below, which rebuilds the MediaLayer raster and
+  // writes `setRange` into a store with no equality guard.
+  const tideStations = useMemo(() => tideData?.stations ?? [], [tideData]);
   const fieldVar = useTideFieldStore((s) => s.variable);
   const setFieldRange = useTideFieldStore((s) => s.setRange);
   const tideVisible = useTideFieldStore((s) => s.visible);
@@ -311,14 +328,19 @@ export function AISMap() {
     const assetLayer = buildPortAssets2dLayer();
     // Tide & sea-state raster field (off by default; toggled from the legend).
     const tideLayer = tideFieldLayer();
+    // Real AIS traffic — hidden until the overlay is toggled on, and drawn above
+    // the simulated fleet (which is hidden while it is on).
+    const liveLayer = liveVesselLayer2d();
+    liveLayer.visible = false;
     // Selection rings sit ON TOP so a highlighted asset reads over everything.
     const selectionLayer = new GraphicsLayer({ title: '_selection' });
     vesselLayerRef.current = vesselLayer;
     berthLayerRef.current = berthLayer;
     assetLayerRef.current = assetLayer;
     tideLayerRef.current = tideLayer;
+    liveLayerRef.current = liveLayer;
     selectionLayerRef.current = selectionLayer;
-    map.addMany([berthLayer, assetLayer, tideLayer, vesselLayer, selectionLayer]);
+    map.addMany([berthLayer, assetLayer, tideLayer, vesselLayer, liveLayer, selectionLayer]);
 
     view
       .when(() => {
@@ -349,6 +371,7 @@ export function AISMap() {
     return () => {
       viewRef.current = null;
       selectionLayerRef.current = null;
+      liveLayerRef.current = null;
       tideLayerRef.current = null;
       teardownFallback();
       view.destroy();
@@ -377,15 +400,21 @@ export function AISMap() {
     }
   }, [highlights, ready]);
 
-  // Re-render vessel graphics whenever the live set (or the unknown filter)
+  // Re-render vessel graphics whenever the simulated set (or the unknown filter)
   // changes. When the filter is off, drop vessels with no known ship type.
+  //
+  // While the live-AIS overlay is on the layer is EMPTIED, not merely hidden:
+  // this effect re-runs on every sim tick, so leaving the graphics in place and
+  // relying on the visibility flag alone would resurrect the simulated fleet the
+  // moment anything else touched `visible`.
   useEffect(() => {
     const layer = vesselLayerRef.current;
     if (!layer || !ready) return;
-    const shown = showUnknown ? vessels : vessels.filter((v) => !isUnknownType(v.VESSEL_TYPE));
     layer.removeAll();
+    if (liveActive) return;
+    const shown = showUnknown ? vessels : vessels.filter((v) => !isUnknownType(v.VESSEL_TYPE));
     layer.addMany(shown.flatMap(vesselToGraphics));
-  }, [vessels, ready, showUnknown]);
+  }, [vessels, ready, showUnknown, liveActive]);
 
   // Re-render the tide/sea-state raster field on reading or variable change.
   useEffect(() => {
@@ -395,12 +424,48 @@ export function AISMap() {
     setFieldRange(range);
   }, [tideStations, fieldVar, ready, setFieldRange]);
 
-  // Apply layer visibility toggles.
+  // Live AIS overlay. The simulated fleet is emptied above; the placed dummy
+  // assets (yellow crane squares, yard stacks, gates, trucks, the tug and the
+  // berthed hero ships) are hidden by the visibility effect below.
+  //
+  // NOT gated on `ready`: a GraphicsLayer accepts graphics before its view
+  // exists, and gating meant a poll that landed early was dropped until the next
+  // one 60 s later.
   useEffect(() => {
-    if (vesselLayerRef.current) vesselLayerRef.current.visible = visible.vessels;
+    const layer = liveLayerRef.current;
+    if (!layer) return;
+    if (!liveActive) {
+      layer.visible = false;
+      layer.removeAll();
+      return;
+    }
+    layer.visible = true;
+    renderLiveVessels2d(layer, liveVessels);
+  }, [liveActive, liveVessels]);
+
+  // Apply layer visibility toggles.
+  //
+  // The assets layer holds two different things, so it is driven per-graphic:
+  // port infrastructure (cranes, yard stacks, gates, gate trucks) follows the
+  // "Port Assets" checkbox, while the decorative hulls inside it (berthed hero
+  // ships, harbour tug) follow "Vessel Tracks" — unchecking Port Assets is about
+  // the port, and must not take the vessels with it.
+  //
+  // Every VESSEL — simulated fleet and decorative hulls alike — stays hidden
+  // while the live overlay is on, so no checkbox can put invented ships back
+  // among real AIS positions. Infrastructure is unaffected by the overlay: it is
+  // the port, not traffic.
+  useEffect(() => {
+    const showDummyVessels = visible.vessels && !liveActive;
+    if (vesselLayerRef.current) vesselLayerRef.current.visible = showDummyVessels;
     if (berthLayerRef.current) berthLayerRef.current.visible = visible.berths;
-    if (assetLayerRef.current) assetLayerRef.current.visible = visible.assets;
-  }, [visible]);
+    if (assetLayerRef.current) {
+      setPortAssets2dVisible(assetLayerRef.current, {
+        infrastructure: visible.assets,
+        vessels: showDummyVessels,
+      });
+    }
+  }, [visible, liveActive]);
 
   // The tide raster field's visibility is shared (store-driven) so the map, the
   // legend/colorbar, and the 3D scene stay in lockstep.
@@ -541,9 +606,17 @@ export function AISMap() {
           ))}
         </div>
         <div style={{ marginTop: 6, color: tokens.textMuted }}>
-          {shownCount} vessels
-          {!showUnknown && hiddenUnknown > 0 ? ` · ${hiddenUnknown} unknown hidden` : ''} ·{' '}
-          {istTime(Date.now())} IST
+          {liveActive ? (
+            <>
+              {liveVessels.length} live AIS vessels (simulated fleet hidden) · {istTime(Date.now())} IST
+            </>
+          ) : (
+            <>
+              {shownCount} vessels
+              {!showUnknown && hiddenUnknown > 0 ? ` · ${hiddenUnknown} unknown hidden` : ''} ·{' '}
+              {istTime(Date.now())} IST
+            </>
+          )}
         </div>
       </div>
     </div>

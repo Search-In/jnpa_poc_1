@@ -8,6 +8,10 @@ on:
 env:
   NODE_VERSION: "24"
   DEPLOY_DIR: "/home/ec2-user/jnpa_poc_1"
+  # Refuse to deploy below this much free space on the EC2 root volume. The
+  # tarball is ~10MB and the nginx image ~100MB; 2GB leaves comfortable room
+  # for the upload, the extracted dist, and one image build.
+  MIN_FREE_MB: "2048"
 
 jobs:
   build-and-deploy:
@@ -38,6 +42,24 @@ jobs:
       # -----------------------------
       # Build Application
       # -----------------------------
+      # What this artefact actually is — a MIXED build, deliberately:
+      #
+      #   SIMULATED : vessel fleet, berths, berthing plan, marine KPIs, DUKC/tide,
+      #               what-if. Driven by MockAdapter; badged SIMULATED in-app by
+      #               DataModeChip + SourceBadge.
+      #   REAL      : every UC-3 gateway panel (shipping lines, vessel calls,
+      #               pilotage, bathymetry, port craft, performance), the Live-AIS
+      #               map overlay (MarineTraffic, on toggle), and the LDB
+      #               container track when a token is supplied.
+      #
+      # `VITE_DATA_MODE` and `VITE_UC3_ENABLED` are ORTHOGONAL on purpose (see the
+      # note on `env.uc3` in src/data/config.ts): gateway records are real whether
+      # or not the AIS fleet is simulated. The full split is tabulated in
+      # docs/DEPLOYMENT.md § "What is real in the deployed build".
+      #
+      # Every switch that changes what a reviewer sees is pinned EXPLICITLY below,
+      # even where it matches the current default in src/data/config.ts — so a
+      # later change to those defaults cannot silently alter the submission build.
       - name: Build Vite Application
         env:
           VITE_DATA_MODE: mock
@@ -45,6 +67,8 @@ jobs:
           VITE_UC3_API_BASE: "/api"
           VITE_UC3_USERNAME: ${{ secrets.VITE_UC3_USERNAME }}
           VITE_UC3_PASSWORD: ${{ secrets.VITE_UC3_PASSWORD }}
+          VITE_LIVE_AIS_ENABLED: "true"
+          VITE_LDB_ENABLED: "true"
         run: |
           node --max-old-space-size=4096 ./node_modules/.bin/vite build
 
@@ -74,6 +98,10 @@ jobs:
       # -----------------------------
       # Verify Deployment Directory
       # -----------------------------
+      # Also guards free disk space. Without this, a full root volume surfaces
+      # only as `scp: write remote ...: Failure` — the SFTP layer scp now runs
+      # over reports a generic SSH_FX_FAILURE and swallows ENOSPC. Fail here
+      # instead, with df output, so the cause is on the first screen of the log.
       - name: Verify Deployment Directory
         run: |
           ssh -i ~/.ssh/deploy_key \
@@ -85,6 +113,22 @@ jobs:
           fi
 
           echo "✅ Deployment directory found."
+
+          df -h ${{ env.DEPLOY_DIR }}
+
+          AVAIL_MB=\$(df -Pm ${{ env.DEPLOY_DIR }} | awk 'NR==2 {print \$4}')
+
+          if [ "\$AVAIL_MB" -lt ${{ env.MIN_FREE_MB }} ]; then
+            echo "❌ Only \${AVAIL_MB}MB free, need ${{ env.MIN_FREE_MB }}MB."
+            echo "   Reclaim space:  docker image prune -af && docker builder prune -af"
+            exit 1
+          fi
+
+          echo "✅ Disk space OK (\${AVAIL_MB}MB free)."
+
+          # Drop any partial upload left by a previous failed run, so the scp
+          # below starts clean rather than writing over a truncated archive.
+          rm -f ${{ env.DEPLOY_DIR }}/deploy.tar.gz
 
           EOF
 
@@ -123,21 +167,24 @@ jobs:
 
           echo "Extracting deployment package..."
 
+          # Replace dist rather than merge into it: tar overwrites what it
+          # carries but leaves behind files the new build no longer emits,
+          # and nginx would go on serving those stale hashed chunks.
+          rm -rf dist
+
           tar -xzf deploy.tar.gz
 
           rm -f deploy.tar.gz
 
-          echo "Stopping old containers..."
-
-          docker compose down
-
+          # Build BEFORE stopping anything — the running container keeps
+          # serving if the build fails, instead of leaving the site down.
           echo "Building new image..."
 
           docker compose build
 
           echo "Starting containers..."
 
-          docker compose up -d
+          docker compose up -d --force-recreate
 
           echo "Running containers..."
 
@@ -146,6 +193,18 @@ jobs:
           echo "Waiting for application..."
 
           sleep 10
+
+          # Reclaim the images and cache this deploy just orphaned. Safe with
+          # -a because the container is already up and holds a reference to
+          # the image it runs; only previous deploys' leftovers are removed.
+          # Skipping this is what filled the 8GB root volume.
+          echo "Pruning old images and build cache..."
+
+          docker image prune -af
+
+          docker builder prune -af
+
+          df -h ${{ env.DEPLOY_DIR }}
 
           echo "✅ Deployment completed successfully."
 

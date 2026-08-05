@@ -37,11 +37,13 @@ import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
 import { PilotagePage } from '@/components/marine/PilotagePage';
 import { VesselRegisterTable } from '@/components/marine/VesselRegisterTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
+import { ContainerTrackPanel } from '@/components/marine/ContainerTrackPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
 import { PlacementToolbar } from '@/map/PlacementToolbar';
 import { Panel } from '@/components/common/Panel';
+import { ConfigWarningBanner } from '@/components/common/ConfigWarningBanner';
 import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
 import { BerthingStats } from '@/components/berthing/BerthingStats';
 import { BerthingReportsTable } from '@/components/berthing/BerthingReportsTable';
@@ -59,6 +61,8 @@ import { BathymetryPage } from '@/components/marine/BathymetryPage';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
+import { useLiveVesselStore } from '@/map/liveVesselStore';
+import { env } from '@/data/config';
 import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
@@ -110,6 +114,16 @@ export function App() {
   useSimClock();
   useSimReactivity();
 
+  // The live-AIS overlay starts OFF on every load, so first paint never depends
+  // on a gateway call and no session ever comes up claiming to show real traffic
+  // the operator didn't ask for. The store already defaults to false and is not
+  // persisted; this mount-time reset additionally covers Vite HMR in dev, where
+  // module state SURVIVES a hot update and would otherwise leave the overlay on
+  // across what looks like a fresh start.
+  useEffect(() => {
+    useLiveVesselStore.getState().setEnabled(false);
+  }, []);
+
   // Suite deep-link: `?scenario=<id>` opens straight into a what-if (parity with
   // UC-2/UC-3), so the Suite DTCCC console can drive UC-1 as part of the
   // cross-domain Monsoon-Friday chain. Deck/VTM ids map to the native M-ids:
@@ -140,10 +154,19 @@ export function App() {
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
   const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
+  // Live AIS overlay (real MarineTraffic-sourced traffic via the shared gateway).
+  // Shared store, not local state, so the toggle survives a 2D↔3D flip.
+  const liveAisOn = useLiveVesselStore((s) => s.enabled);
+  const toggleLiveAis = useLiveVesselStore((s) => s.toggle);
+  const liveAisCount = useLiveVesselStore((s) => s.count);
+  const liveAisError = useLiveVesselStore((s) => s.error);
+  const liveAisLoading = useLiveVesselStore((s) => s.loading);
+  const liveAisAvailable = env.liveAis.enabled && env.uc3.enabled;
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
-  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'register' | 'pilotage' | 'upload'>('live');
+  const [vesselSubTab, setVesselSubTab] =
+    useState<'live' | 'calls' | 'register' | 'pilotage' | 'upload' | 'track'>('live');
   // Shipping Lines is now a top-level module — its sub-tab and post-import refresh
   // state live inside <ShippingLinesPage>.
   // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
@@ -218,6 +241,9 @@ export function App() {
     <>
       <CalciteShell style={{ height: '100vh', background: tokens.bg }}>
         <div slot="header">
+          {/* Silent-misconfiguration backstop — renders nothing when config is
+              sound. See ConfigWarningBanner for why it sits above everything. */}
+          <ConfigWarningBanner />
           <HeaderBar
             extra={
               <>
@@ -295,6 +321,26 @@ export function App() {
                 )}
                 {/* 3D asset placement editing (shared positions.json workflow). */}
                 {mapMode === '3d' && <PlacementToolbar />}
+                {/* Live AIS — real vessel positions from the shared gateway's
+                    MarineTraffic proxy. Replaces the simulated fleet on the map
+                    (never overlays it), in both 2D and 3D. */}
+                {liveAisAvailable && (
+                  <CalciteButton
+                    scale="s"
+                    appearance={liveAisOn ? 'solid' : 'outline'}
+                    kind={liveAisError ? 'danger' : 'brand'}
+                    iconStart="satellite-3"
+                    loading={liveAisOn && liveAisLoading ? true : undefined}
+                    title={
+                      liveAisError
+                        ? `Live AIS feed error — showing the last good positions. ${liveAisError}`
+                        : 'Show REAL live AIS traffic (MarineTraffic, via the shared JNPA gateway) instead of the simulated fleet'
+                    }
+                    onClick={() => toggleLiveAis()}
+                  >
+                    {liveAisOn ? `Live AIS · ${liveAisCount}` : 'Live AIS'}
+                  </CalciteButton>
+                )}
                 <CalciteButton
                   scale="s"
                   appearance={tideFieldVisible ? 'solid' : 'outline'}
@@ -405,6 +451,9 @@ export function App() {
                   <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-track" selected={vesselSubTab === 'track'} onCalciteTabsActivate={() => setVesselSubTab('track')}>
+                    Track by Container
+                  </CalciteTabTitle>
                 </CalciteTabNav>
 
                 {/* Existing AIS feed — unchanged, and the DEFAULT sub-tab. */}
@@ -437,6 +486,12 @@ export function App() {
                     On a successful import, bump the key so the Vessel Calls sub-tab refetches. */}
                 <CalciteTab tab="v-upload" selected={vesselSubTab === 'upload'}>
                   <MarineUploadPanel onImported={() => setVesselCallUploadKey((k) => k + 1)} />
+                </CalciteTab>
+
+                {/* NLDS / LDB container track by id — SeaRates-shaped UI under
+                    /apigateway/track/cntr/ (see src/data/ldb). */}
+                <CalciteTab tab="v-track" selected={vesselSubTab === 'track'}>
+                  <ContainerTrackPanel />
                 </CalciteTab>
 
               </CalciteTabs>

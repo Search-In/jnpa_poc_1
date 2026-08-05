@@ -13,7 +13,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { CalciteButton } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
-import { recommendRta } from './jit';
+import { DEMO_JIT_INPUTS, recommendRta } from './jit';
 import { optimiseBerthPlan, type BerthRequest } from './optimiser';
 import { vesselDims } from './constraints';
 import { occupancyCalendar, waitingTimeDistribution, terminalTat } from '@/kpi/analytics';
@@ -62,10 +62,10 @@ export function AnalyticsPanel() {
       call: next,
       rec: recommendRta({
         etaMs,
-        berthReadyMs: etaMs + 5 * H, // simulated: berth frees 5h after ETA
-        goWindowStartMs: etaMs + 3 * H,
-        distanceNm: 150,
-        currentSpeedKn: 16,
+        berthReadyMs: etaMs + DEMO_JIT_INPUTS.berthReadyOffsetH * H,
+        goWindowStartMs: etaMs + DEMO_JIT_INPUTS.goWindowOffsetH * H,
+        distanceNm: DEMO_JIT_INPUTS.distanceNm,
+        currentSpeedKn: DEMO_JIT_INPUTS.currentSpeedKn,
       }),
     };
   }, [plan]);
@@ -113,6 +113,14 @@ export function AnalyticsPanel() {
               <strong>{jit.rec.co2SavedT} t</strong> CO₂ · <strong>${jit.rec.costSavedUsd.toLocaleString()}</strong>
             </div>
           )}
+          {/* The four inputs behind the numbers above. Without this line the
+              saving looks derived from live data; it is not. */}
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${tokens.border}`, color: tokens.textMuted, fontSize: 11 }}>
+            Demo-fixed inputs: berth free ETA+{DEMO_JIT_INPUTS.berthReadyOffsetH} h · tidal go-window
+            ETA+{DEMO_JIT_INPUTS.goWindowOffsetH} h · {DEMO_JIT_INPUTS.distanceNm} nm to run ·{' '}
+            {DEMO_JIT_INPUTS.currentSpeedKn} kn planned speed. In production these come from the berth
+            plan, the DUKC tidal engine and the vessel’s AIS track.
+          </div>
         </div>
       </section>
 
