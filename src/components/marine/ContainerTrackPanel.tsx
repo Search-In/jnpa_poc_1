@@ -16,7 +16,8 @@ import {
   CalciteSegmentedControl,
   CalciteSegmentedControlItem,
 } from '@esri/calcite-components-react';
-import { Panel, PanelLoading } from '@/components/common/Panel';
+import { Panel, PanelLoading, TechnicalDetails } from '@/components/common/Panel';
+import { ldbFallbackMessage } from '@/data/ldb/failure';
 import { ContainerTrackMap } from '@/components/marine/ContainerTrackMap';
 import { env } from '@/data/config';
 import {
@@ -285,6 +286,12 @@ export function ContainerTrackPanel() {
           </CalciteNotice>
         )}
 
+        {/* NOT routed through the shared PanelError, deliberately. That helper
+            translates raw connector strings ("[UC3] … HTTP 500 …") into operator
+            language, but this panel's connector already emits operator language
+            at the source (see track.ts / token.ts) — and this notice additionally
+            distinguishes "you are not signed in" from "the lookup failed", which
+            PanelError has no way to know. */}
         {error && (
           <CalciteNotice open kind="danger" icon="exclamation-mark-triangle" scale="s">
             <div slot="title">{authed ? 'Couldn’t track' : 'Sign in needed'}</div>
@@ -312,6 +319,22 @@ export function ContainerTrackPanel() {
 
         {track && (
           <>
+            {/* The sample-fallback state, stated where it cannot be missed.
+                It replaces a 10px amber caption inside SummaryBar that was
+                effectively invisible on a projector — and, more importantly, said
+                only THAT the sample was used, never why. With the fallback on by
+                default, a rejected token and a switched-off integration otherwise
+                render as the same successful-looking demo track. */}
+            {track.fromSample && (
+              <CalciteNotice open kind="warning" icon="exclamation-mark-triangle" scale="s">
+                <div slot="title">Showing bundled sample data — not live LDB</div>
+                <div slot="message">
+                  {ldbFallbackMessage(track.sampleReason ?? 'error')} This is the bundled
+                  CCLU7468361 demo track, not a live NLDS record.
+                  {track.sampleDetail && <TechnicalDetails detail={track.sampleDetail} />}
+                </div>
+              </CalciteNotice>
+            )}
             <SummaryBar track={track} />
             <div
               style={{
@@ -473,6 +496,10 @@ function SummaryBar({ track }: { track: ContainerTrackResult }) {
               }}
             />
           </div>
+          {/* No "Demo data" caption here any more: the sample state is stated in
+              full — with the REASON it fired — in the notice above the card. A
+              10px caption inside the summary bar is invisible on a projector, and
+              two signals for one state is one too many. */}
           <div style={{ fontSize: 12, color: tokens.textMuted }}>⚓ {track.carrierName}</div>
         </div>
 

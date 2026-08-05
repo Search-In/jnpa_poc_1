@@ -42,6 +42,7 @@ import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
 import { PlacementToolbar } from '@/map/PlacementToolbar';
 import { Panel } from '@/components/common/Panel';
+import { ConfigWarningBanner } from '@/components/common/ConfigWarningBanner';
 import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
 import { BerthingStats } from '@/components/berthing/BerthingStats';
 import { BerthingReportsTable } from '@/components/berthing/BerthingReportsTable';
@@ -238,6 +239,9 @@ export function App() {
     <>
       <CalciteShell style={{ height: '100vh', background: tokens.bg }}>
         <div slot="header">
+          {/* Silent-misconfiguration backstop — renders nothing when config is
+              sound. See ConfigWarningBanner for why it sits above everything. */}
+          <ConfigWarningBanner />
           <HeaderBar
             extra={
               <>

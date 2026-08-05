@@ -11,6 +11,7 @@
  */
 
 import { env } from '@/data/config';
+import { classifyLdbFailure } from './failure';
 import { mapTrackResponse } from './mapper';
 import {
   clearSearateToken,
@@ -25,7 +26,11 @@ export function isValidContainerNo(raw: string): boolean {
   return /^[A-Z]{4}\d{7}$/.test(raw.trim().toUpperCase());
 }
 
-export function ldbTrackUrl(cntrNo: string, mobileNo: string, proxyBase = env.ldb.proxyBase): string {
+export function ldbTrackUrl(
+  cntrNo: string,
+  mobileNo: string,
+  proxyBase = env.ldb.proxyBase
+): string {
   const root = proxyBase.replace(/\/+$/, '');
   const q = new URLSearchParams({
     cntrNo: cntrNo.trim().toUpperCase(),
@@ -52,7 +57,7 @@ function isUnauthorizedPayload(json: unknown, status: number): boolean {
 async function fetchTrackOnce(
   cntrNo: string,
   mobileNo: string,
-  bearer: string,
+  bearer: string
 ): Promise<ContainerTrackResult> {
   // LDB Angular client uses POST (empty body) + query params — match that.
   const res = await fetch(ldbTrackUrl(cntrNo, mobileNo), {
@@ -73,9 +78,7 @@ async function fetchTrackOnce(
 
   if (isUnauthorizedPayload(json, res.status)) {
     clearSearateToken();
-    throw new LdbAuthRequiredError(
-      'Your session expired. Please verify your mobile number again.',
-    );
+    throw new LdbAuthRequiredError('Your session expired. Please verify your mobile number again.');
   }
 
   if (!res.ok) {
@@ -96,9 +99,7 @@ async function fetchLive(cntrNo: string, mobileNoHint: string): Promise<Containe
 
   const bearer = getSearateToken();
   if (!bearer) {
-    throw new LdbAuthRequiredError(
-      'Please verify your mobile number to track a container.',
-    );
+    throw new LdbAuthRequiredError('Please verify your mobile number to track a container.');
   }
 
   // Prefer mobile from the signed-in session over the form hint.
@@ -116,7 +117,7 @@ async function fetchLive(cntrNo: string, mobileNoHint: string): Promise<Containe
  */
 export async function trackContainerById(
   cntrNo: string,
-  mobileNo: string = env.ldb.mobileNo,
+  mobileNo: string = env.ldb.mobileNo
 ): Promise<ContainerTrackResult> {
   const no = cntrNo.trim().toUpperCase();
   if (!no) throw new Error('Container number is required');
@@ -127,12 +128,17 @@ export async function trackContainerById(
   try {
     return await fetchLive(no, mobileNo || env.ldb.mobileNo);
   } catch (err) {
+    // Auth-required must reach the operator: it is the one failure they can act
+    // on ("verify your mobile number"), and answering it with a demo track would
+    // hide the only actionable state this panel has.
     if (err instanceof LdbAuthRequiredError) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
-      reason.startsWith('Couldn’t') || reason.startsWith('No tracking') || reason.startsWith('Enter')
+      reason.startsWith('Couldn’t') ||
+        reason.startsWith('No tracking') ||
+        reason.startsWith('Enter')
         ? reason
-        : `Couldn’t track ${no}. Please try again.`,
+        : `Couldn’t track ${no}. Please try again.`
     );
   }
 }

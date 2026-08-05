@@ -5,9 +5,16 @@
  * slower, arrive just in time" rather than wait at anchor. We then estimate the
  * (simulated) bunker + CO₂ saved by dropping to the slower required speed.
  *
- * Every figure is a SIMULATED result under stated assumptions (bunker/emission
- * factors are nominal, documented in the assumptions register) — never a JNPA
+ * Every figure is a SIMULATED result under stated assumptions — never a JNPA
  * baseline. Pure/deterministic.
+ *
+ * The bunker/emission factors and the demo-fixed advisory inputs below are
+ * published in the assumptions register as `jitFuelRate`, `jitServiceSpeed`,
+ * `jitSpeedLaw`, `jitCo2Factor`, `jitBunkerPrice` and `jitDemoInputs`
+ * (src/config/assumptions.ts, rendered by the Methodology panel). The register
+ * imports these constants rather than restating them, and
+ * `assumptions.test.ts` fails if the two ever disagree — this comment used to
+ * claim documentation that did not exist.
  */
 
 import { MS_PER_HOUR } from '@/kpi/helpers';
@@ -17,6 +24,31 @@ export const FUEL_T_PER_H_AT_SERVICE = 3.2; // t/h HFO-equivalent at service spe
 export const SERVICE_SPEED_KN = 16;
 export const CO2_T_PER_FUEL_T = 3.114; // IMO bunker→CO₂ factor
 export const BUNKER_USD_PER_T = 600;
+
+/**
+ * The four DEMO-FIXED inputs the AnalyticsPanel feeds into `recommendRta`.
+ *
+ * They are constants, not readings: the advisory demonstrates the *mechanism*
+ * (steam slower and arrive just in time rather than wait at anchor) on berth-plan
+ * data that carries none of these quantities. A saving quoted in tonnes and
+ * dollars, computed from undisclosed constants, is exactly the figure an
+ * evaluator is right to distrust — so each names the production source it stands
+ * in for, and all four are shown under the advisory AND in the assumptions
+ * register.
+ *
+ * They live here rather than at the call site so the register can import them
+ * without reaching into a React component, and so the two cannot drift apart.
+ */
+export const DEMO_JIT_INPUTS = {
+  /** Production: first free slot from the berth plan / optimiser. */
+  berthReadyOffsetH: 5,
+  /** Production: next tidal go-window from the DUKC engine (src/dukc). */
+  goWindowOffsetH: 3,
+  /** Production: great-circle distance from the live AIS position to the PBG. */
+  distanceNm: 150,
+  /** Production: SOG from the vessel's AIS track. */
+  currentSpeedKn: 16,
+} as const;
 
 export interface JitInput {
   /** Current ETA at pilot boarding ground (epoch ms). */

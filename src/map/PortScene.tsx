@@ -10,7 +10,7 @@
  * whole layer. Camera presets fly to framed demo viewpoints computed from real
  * terminal / channel geography. Survives ArcGIS token death via basemapFallback.
  */
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import Map from '@arcgis/core/Map';
 import SceneView from '@arcgis/core/views/SceneView';
 import type FeatureLayer from '@arcgis/core/layers/FeatureLayer';
@@ -138,7 +138,12 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     [simVersion],
     60_000,
   );
-  const tideStations = tideData?.stations ?? [];
+  // Memoised on purpose, not to quieten a lint rule. `tideData?.stations ?? []`
+  // is a NEW array identity on every render, and it is a dependency of the tide
+  // effect below — which rebuilds the MediaLayer raster and writes `setRange`
+  // into a store that has no equality guard. Unmemoised, that whole cycle ran on
+  // every render of the component that also drives the 3D SceneView.
+  const tideStations = useMemo(() => tideData?.stations ?? [], [tideData]);
   const fieldVar = useTideFieldStore((s) => s.variable);
   const setFieldRange = useTideFieldStore((s) => s.setRange);
   const tideVisible = useTideFieldStore((s) => s.visible);
@@ -215,9 +220,24 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
     }
   }
 
+  // `[]` is deliberate, and the rule is suppressed rather than satisfied.
+  //
+  // exhaustive-deps wants `focusAsset` listed (it captures `ringAsset`, a
+  // component-scope value, so the rule cannot prove it static). There is no
+  // stale-closure hazard to protect against: `focusAsset` reads `viewRef.current`
+  // and `selectionRef.current` — mutable refs — and calls `asset3dPosition()`
+  // fresh on every invocation, so render-0's closure stays correct for the life
+  // of the component. Meanwhile the handle MUST keep a stable identity: App holds
+  // it in a ref and DemoPlayer drives the camera choreography through it.
+  //
+  // TODO(post-demo): wrapping BOTH `ringAsset` and `focusAsset` in useCallback is
+  // the "correct" fix, but it also forces `[focusAsset]` onto the scene-init
+  // effect below — turning a provably-once effect into one that can re-init the
+  // whole SceneView. Not a trade worth making days before a live demo.
   useImperativeHandle(
     ref,
     () => ({ focus: focusAsset, clearSelection: () => selectionRef.current?.removeAll(), goToPreset, setLighting }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -378,7 +398,14 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(function Po
       dummyVesselLayersRef.current = [];
       tideFieldRef.current = null;
     };
-     
+    // `[]` is load-bearing: this effect CONSTRUCTS the SceneView and tears it
+    // down with `view.destroy()`. Any dependency that ever changes identity
+    // re-initialises the whole 3D scene — a black map mid-demo. exhaustive-deps
+    // asks for `focusAsset` (reached via the popup `trigger-action` handler);
+    // it reads only refs and re-resolves positions on each call, so the render-0
+    // closure never goes stale. Same reasoning, and the same post-demo TODO, as
+    // the useImperativeHandle above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- edit vessel + berth layers in place on data change ----
