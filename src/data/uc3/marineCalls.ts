@@ -107,6 +107,9 @@ export interface CallLifecycleWire {
   departure_state: string | null;
   shipping_state: string | null;
   portcraft_state: string | null;
+  /** ADDITIVE — absent on a gateway predating the craft lifecycle. */
+  craft_state?: string | null;
+  craft_committed?: number | null;
   is_in_port: boolean | null;
   is_at_berth: boolean | null;
   latest_event: string | null;
@@ -262,6 +265,8 @@ export function mapCallLifecycle(w: CallLifecycleWire | null | undefined): CallL
     departureState: str(w.departure_state),
     shippingState: str(w.shipping_state),
     portcraftState: str(w.portcraft_state),
+    craftState: str(w.craft_state) || 'Idle',
+    craftCommitted: typeof w.craft_committed === 'number' ? w.craft_committed : 0,
     isInPort: Boolean(w.is_in_port),
     isAtBerth: Boolean(w.is_at_berth),
     latestEvent: str(w.latest_event),

@@ -17,14 +17,16 @@ import {
   CalciteTabTitle,
   CalciteTab,
 } from '@esri/calcite-components-react';
+import { Panel } from '@/components/common/Panel';
 import { PortCraftOverview } from '@/components/marine/PortCraftOverview';
 import { PortCraftOperationsTab } from '@/components/marine/PortCraftOperationsTab';
 import { PortCraftFleetRegister } from '@/components/marine/PortCraftFleetRegister';
+import { CraftAssignmentsTab } from '@/components/marine/CraftAssignmentsTab';
 import { PortCraftDataUpload } from '@/components/marine/PortCraftDataUpload';
 import type { MarineImportResult } from '@/data/uc3/marineUpload';
 
 /** Overview is the default — the tab opens on the live operational picture. */
-export type PortCraftSubTab = 'overview' | 'operations' | 'register' | 'upload';
+export type PortCraftSubTab = 'overview' | 'operations' | 'register' | 'assignments' | 'upload';
 
 export interface PortCraftTabsProps {
   active: PortCraftSubTab;
@@ -60,6 +62,13 @@ export function PortCraftTabs({ active, onActivate, registerKey, onImported }: P
           Fleet Register
         </CalciteTabTitle>
         <CalciteTabTitle
+          tab="pc-assignments"
+          selected={active === 'assignments'}
+          onCalciteTabsActivate={() => onActivate('assignments')}
+        >
+          Craft Assignments
+        </CalciteTabTitle>
+        <CalciteTabTitle
           tab="pc-upload"
           selected={active === 'upload'}
           onCalciteTabsActivate={() => onActivate('upload')}
@@ -82,6 +91,13 @@ export function PortCraftTabs({ active, onActivate, registerKey, onImported }: P
       {/* UC-3 fleet register (core.port_craft). */}
       <CalciteTab tab="pc-register" selected={active === 'register'}>
         <PortCraftFleetRegister registerKey={registerKey} />
+      </CalciteTab>
+
+      {/* Launch / tug / mooring commitments against a piloted vessel. Demo-only. */}
+      <CalciteTab tab="pc-assignments" selected={active === 'assignments'}>
+        <Panel title="Craft assignments — launches, tugs and mooring craft from the Fleet Register" height={640}>
+          <CraftAssignmentsTab />
+        </Panel>
       </CalciteTab>
 
       {/* Port-craft Data Upload + history — the shared marine upload flow. */}

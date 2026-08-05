@@ -344,7 +344,13 @@ export interface CallLifecycle {
   pilotState: string;
   departureState: string;
   shippingState: string;
+  /** DEMAND: the engine's verdict on whether this movement REQUIRES craft. */
   portcraftState: string;
+  /** SUPPLY: whether any craft is actually engaged — Idle | Committed | Dispatched |
+   *  OnScene | Assisting. Derived by state_engine from the craft ledger events. */
+  craftState: string;
+  /** How many craft are committed right now. */
+  craftCommitted: number;
   isInPort: boolean;
   isAtBerth: boolean;
   /** Highest-RANK milestone reached — not the latest by clock. */

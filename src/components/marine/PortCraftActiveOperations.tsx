@@ -20,6 +20,7 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import { CalciteInput } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
 import {
   fetchBerthCodes, fetchPortCraftDemand, type CraftMovement,
 } from '@/data/uc3/portCraftState';
@@ -28,6 +29,7 @@ import {
 } from '@/components/marine/craftDemandLabels';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
+import { matchesIdentity, searchHint } from '@/components/marine/identitySearch';
 import { tokens } from '@/theme/tokens';
 
 /** Matches <PortCraftDemandStrip> and <PortCraftBoard>, so the panes never disagree. */
@@ -85,10 +87,12 @@ function btn(disabled: boolean): CSSProperties {
 }
 
 export function PortCraftActiveOperations() {
-  const q = useAdapterQuery(() => fetchPortCraftDemand(), [], REFRESH_MS);
+  // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
+  const marineVersion = useMarineStateVersion();
+  const q = useAdapterQuery(() => fetchPortCraftDemand(), [marineVersion], REFRESH_MS);
   // Separate query: resolving a berth id to its code must never delay or break the table.
   // It resolves to an empty map on failure, and the Berth column falls back to state.
-  const berths = useAdapterQuery(() => fetchBerthCodes(), [], REFRESH_MS);
+  const berths = useAdapterQuery(() => fetchBerthCodes(), [marineVersion], REFRESH_MS);
 
   const [search, setSearch] = useState('');
   const [movement, setMovement] = useState('');
@@ -99,14 +103,14 @@ export function PortCraftActiveOperations() {
     const d = q.data;
     if (!d) return [];
     const codes = berths.data ?? new Map<number, string>();
-    const needle = search.trim().toLowerCase();
+    const needle = search.trim();
     return [...d.inbound, ...d.alongside, ...d.outbound]
       .filter((m) => !movement || m.movementPhase === movement)
       .filter((m) => !status || m.portcraftState === status)
-      .filter((m) => !needle
-        || m.vesselName.toLowerCase().includes(needle)
-        || m.vcn.toLowerCase().includes(needle)
-        || m.viaNo.toLowerCase().includes(needle))
+      // Any identifier the payload carries, not just the vessel name — VCN and IMO are
+      // sparse here (9 and 140 of 561), so a miss usually means the backend never sent
+      // the field, not that the vessel is absent.
+      .filter((m) => matchesIdentity(needle, [m.vesselName, m.vcn, m.viaNo, m.imoNo]))
       .map((m) => ({
         ...m,
         berthDisplay: (m.berthId !== null && codes.get(m.berthId)) || berthLabel(m.berthState),
@@ -127,7 +131,8 @@ export function PortCraftActiveOperations() {
         paddingBottom: tokens.space.sm, flexWrap: 'wrap',
       }}>
         <CalciteInput
-          scale="s" clearable placeholder="Search vessel / VCN / VIA…"
+          scale="s" clearable placeholder="Search vessel / VCN / VIA / IMO…"
+          title={`Matches any of: ${searchHint()}`}
           value={search} style={{ maxWidth: 240 }}
           onCalciteInputChange={(e) =>
             reset(setSearch)((e.target as unknown as { value: string }).value)}

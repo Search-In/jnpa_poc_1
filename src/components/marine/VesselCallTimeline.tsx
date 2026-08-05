@@ -13,6 +13,7 @@
  */
 
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
 import { fetchVesselCallTimeline } from '@/data/uc3/marineCalls';
 import type { VesselCall, VesselCallEvent, CallLifecycle } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
@@ -54,7 +55,15 @@ function Lifecycle({ state }: { state: CallLifecycle }) {
         <Field label="Pilot" value={state.pilotState || '—'} />
         <Field label="Departure" value={state.departureState || '—'} />
         <Field label="Shipping" value={state.shippingState || '—'} />
-        <Field label="Port Craft" value={state.portcraftState || '—'} />
+        {/* SUPPLY, not demand. This field read `portcraftState` — the engine's verdict on
+            whether the movement NEEDS craft — so it stayed 'Busy' after every craft had
+            stood down. An operator reading 'Port Craft' wants to know whether anything is
+            still engaged, which is `craftState`. Demand is shown beside it, named. */}
+        <Field label="Port Craft"
+               value={state.craftCommitted > 0
+                 ? `${state.craftState} (${state.craftCommitted})`
+                 : state.craftState || 'Idle'} />
+        <Field label="Craft Required" value={state.portcraftState || '—'} />
         <Field label="In Port" value={state.isInPort ? 'Yes' : 'No'} />
         <Field label="At Berth" value={state.isAtBerth ? 'Yes' : 'No'} />
         <Field label="Latest Event" value={state.latestEvent || '—'} />
@@ -97,7 +106,7 @@ function Events({ events }: { events: VesselCallEvent[] }) {
     <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
       {events.map((e) => (
         <li
-          key={e.eventId}
+          key={e.eventId || `${e.eventType}-${e.eventTs}`}
           style={{
             display: 'flex',
             alignItems: 'baseline',
@@ -125,11 +134,13 @@ function Events({ events }: { events: VesselCallEvent[] }) {
 }
 
 export function VesselCallTimeline({ callId }: { callId: number | null }) {
+  // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
+  const marineVersion = useMarineStateVersion();
   const q = useAdapterQuery(
     () => (callId === null
       ? Promise.resolve({ call: null, events: [], lifecycle: null })
       : fetchVesselCallTimeline(callId)),
-    [callId],
+    [callId, marineVersion],
   );
 
   // Business state arrives in the SAME response — the gateway derives it from the call and

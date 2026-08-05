@@ -84,12 +84,26 @@ describe('PortCraftRegisterTable — data path', () => {
   });
 
   it('keeps every existing column', async () => {
+    /* The guarantee is that no particular was DROPPED — the register is the fleet's
+       reference data and losing a column silently would be the regression worth catching.
+       Additions are allowed and asserted separately below. */
     render(<PortCraftRegisterTable />);
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
-      'Name', 'Type', 'Owned/Hired', 'Owner', 'Year Built', 'LOA', 'Breadth', 'Draft',
-      'Engines', 'Bollard Pull', 'Speed',
-    ]);
+    const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    for (const col of ['Name', 'Type', 'Owned/Hired', 'Owner', 'Year Built', 'LOA',
+                       'Breadth', 'Draft', 'Engines', 'Bollard Pull', 'Speed']) {
+      expect(headers).toContain(col);
+    }
+  });
+
+  it('adds a live Status column sourced from craft assignments', async () => {
+    /* Availability is a fact about NOW, so it comes from core.manual_craft_assignment —
+       never derived from the register's static particulars. */
+    render(<PortCraftRegisterTable />);
+    const table = await screen.findByRole('table');
+    const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toContain('Status');
+    expect(headers.indexOf('Status')).toBe(1); // beside the name, where an operator looks
   });
 
   it('shows the register-empty hint when nothing has been uploaded', async () => {

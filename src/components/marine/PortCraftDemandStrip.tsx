@@ -29,6 +29,7 @@
 
 import { type CSSProperties } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
 import { fetchPortCraftDemand } from '@/data/uc3/portCraftState';
 import { tokens } from '@/theme/tokens';
 
@@ -75,7 +76,9 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
 export function PortCraftDemandStrip() {
   // Resolves to null on any failure (see fetchPortCraftDemand), so a gateway outage
   // silently omits this summary instead of surfacing an error over the working board.
-  const q = useAdapterQuery(() => fetchPortCraftDemand(), [], REFRESH_MS);
+  // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
+  const marineVersion = useMarineStateVersion();
+  const q = useAdapterQuery(() => fetchPortCraftDemand(), [marineVersion], REFRESH_MS);
   const d = q.data;
   if (!d) return null;
 

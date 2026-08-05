@@ -13,6 +13,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { CalciteButton, CalciteInput, CalciteCheckbox, CalciteLabel } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
 import { fetchVesselCallsPage, type VesselCallFilters } from '@/data/uc3/marineCalls';
 import type { VesselCall } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
@@ -96,6 +97,9 @@ export function VesselCallsTable({
   const [sort, setSort] = useState('updated_at');
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc');
   const [offset, setOffset] = useState(0);
+  // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
+  const marineVersion = useMarineStateVersion();
+
 
   const filters: VesselCallFilters = {
     vessel: vessel.trim() || undefined,
@@ -106,7 +110,7 @@ export function VesselCallsTable({
 
   const q = useAdapterQuery(
     () => fetchVesselCallsPage(filters, PAGE_SIZE, offset),
-    [vessel, inPort, sort, direction, offset],
+    [vessel, inPort, sort, direction, offset, marineVersion],
   );
 
   const toggleSort = (col: (typeof COLUMNS)[number]) => {

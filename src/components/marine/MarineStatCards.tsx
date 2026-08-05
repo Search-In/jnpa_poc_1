@@ -10,6 +10,8 @@
  */
 
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { fetchMarineKpis } from '@/data/uc3/marineKpis';
+import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
 import { fetchMarineStats } from '@/data/uc3/marineCalls';
 import type { MarineCallStats } from '@/types/domain';
 import { PanelError, PanelLoading } from '@/components/common/Panel';
@@ -39,11 +41,17 @@ function hours(v: number | null): string {
 
 export function MarineStatCards() {
   const q = useAdapterQuery<MarineCallStats>(() => fetchMarineStats(), []);
+  // OPERATIONAL KPIs, every figure a tally of the Marine Projection's own verdicts.
+  // Kept alongside the factual /calls/stats cards rather than replacing them: the two
+  // answer different questions, and the stats contract stays untouched.
+  const marineVersion = useMarineStateVersion();
+  const k = useAdapterQuery(() => fetchMarineKpis(), [marineVersion]);
 
   if (q.loading && !q.data) return <PanelLoading label="Loading vessel-call KPIs…" />;
   if (q.error) return <PanelError message={q.error} />;
   const s = q.data;
   if (!s) return null;
+  const ops = k.data;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
@@ -54,6 +62,28 @@ export function MarineStatCards() {
       <StatCard label="Departed" value={String(s.departed)} />
       <StatCard label="Avg turnaround" value={hours(s.avgTurnaroundHours)} hint="ATD − ATA" />
       <StatCard label="Avg pre-berth delay" value={hours(s.avgPreBerthDelayHours)} hint="ATA − ETA (negative = early)" />
+
+      {/* Projection-driven. Rendered only once the KPI call answers, so a gateway that
+          predates the endpoint simply shows the factual cards above — no error, no gap. */}
+      {ops && (
+        <>
+          <StatCard label="Pilots busy" value={`${ops.pilot.busy} / ${ops.pilot.known}`}
+                    hint={`${ops.pilot.utilisationPct}% utilised · ${ops.pilot.available} free`} />
+          <StatCard label="Awaiting pilot" value={String(ops.pilot.waitingAssignment)}
+                    hint="active calls with no pilot assigned" />
+          <StatCard label="Under pilotage" value={String(ops.pilot.underPilotage)} />
+          <StatCard label="Craft busy" value={`${ops.craft.busy} / ${ops.craft.fleetTotal}`}
+                    hint={`${ops.craft.utilisationPct}% utilised · ${ops.craft.available} free`} />
+          <StatCard label="Awaiting craft" value={String(ops.craft.waitingAssignment)}
+                    hint="needs craft, none committed" />
+          <StatCard label="Marine support required" value={String(ops.operations.marineSupportRequired)}
+                    hint="movements the board lists" />
+          <StatCard label="At berth" value={String(ops.operations.atBerth)} />
+          <StatCard label="Awaiting berthing" value={String(ops.operations.awaitingBerthing)} />
+          <StatCard label="Completed today" value={String(ops.operations.completedToday)}
+                    hint="departures since midnight" />
+        </>
+      )}
     </div>
   );
 }

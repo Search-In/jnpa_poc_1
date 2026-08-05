@@ -34,7 +34,7 @@ import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselTable } from '@/components/VesselTable';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
-import { PilotageTable } from '@/components/marine/PilotageTable';
+import { PilotagePage } from '@/components/marine/PilotagePage';
 import { VesselRegisterTable } from '@/components/marine/VesselRegisterTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
@@ -428,11 +428,9 @@ export function App() {
                   </Panel>
                 </CalciteTab>
 
-                {/* New: UC-3 pilotage movements (core.pilotage). */}
+                {/* UC-3 pilotage (core.pilotage), now its own sub-tabbed screen. */}
                 <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
-                  <Panel title="Pilotage movements — UC-3 backend (core.pilotage)" height={640}>
-                    <PilotageTable key={vesselCallUploadKey} />
-                  </Panel>
+                  <PilotagePage uploadKey={vesselCallUploadKey} />
                 </CalciteTab>
 
                 {/* New: UC-3 vessel-call upload (CSV + BERMAN/CALINF/VESPRO XML + pilot XLSX).

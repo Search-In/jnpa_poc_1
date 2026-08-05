@@ -40,6 +40,9 @@ vi.mock('@/components/marine/PortCraftOperationsTab', () => ({
 vi.mock('@/components/marine/PortCraftFleetRegister', () => ({
   PortCraftFleetRegister: ({ registerKey }: { registerKey: number }) => <div>register-pane-{registerKey}</div>,
 }));
+vi.mock('@/components/marine/CraftAssignmentsTab', () => ({
+  CraftAssignmentsTab: () => <div>craft-assignments-pane</div>,
+}));
 vi.mock('@/components/marine/PortCraftDataUpload', () => ({
   PortCraftDataUpload: ({ onImported }: { onImported?: (r: unknown) => void }) => (
     <button onClick={() => onImported?.({})}>fake-import</button>
@@ -56,10 +59,10 @@ beforeEach(() => {
 });
 
 describe('PortCraftPage — tab structure', () => {
-  it('shows Overview, Active Marine Operations, Fleet Register and Data Upload in that order', () => {
+  it('shows Overview, Active Marine Operations, Fleet Register, Craft Assignments and Data Upload in that order', () => {
     render(<PortCraftPage />);
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
-      'Overview', 'Active Marine Operations', 'Fleet Register', 'Data Upload',
+      'Overview', 'Active Marine Operations', 'Fleet Register', 'Craft Assignments', 'Data Upload',
     ]);
   });
 
