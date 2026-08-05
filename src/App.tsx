@@ -27,6 +27,7 @@ import {
   CalciteChip,
 } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
+import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
@@ -247,6 +248,7 @@ export function App() {
           <HeaderBar
             extra={
               <>
+                <DataSourceToggle />
                 <RoleSwitcher />
                 <SimControls />
                 <CalciteButton
