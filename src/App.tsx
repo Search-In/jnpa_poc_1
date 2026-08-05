@@ -27,6 +27,7 @@ import {
   CalciteChip,
 } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
+import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
@@ -55,6 +56,8 @@ import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
 import { PortCraftPage } from '@/components/marine/PortCraftPage';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
+import { PredictionAccuracy } from '@/components/reports/PredictionAccuracy';
+import { PreBerthingBoard } from '@/components/marine/PreBerthingBoard';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
 import { BathymetryPage } from '@/components/marine/BathymetryPage';
@@ -187,7 +190,7 @@ export function App() {
   // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
   // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
   // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
-  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'upload'>('plan');
+  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'preberth' | 'upload'>('plan');
   // Bumped after a successful berthing import so the sibling Terminal Reports view
   // remounts and refetches. Presentation-only — no query logic changes.
   const [berthingReportsKey, setBerthingReportsKey] = useState(0);
@@ -247,6 +250,7 @@ export function App() {
           <HeaderBar
             extra={
               <>
+                <DataSourceToggle />
                 <RoleSwitcher />
                 <SimControls />
                 <CalciteButton
@@ -430,6 +434,11 @@ export function App() {
                 <Panel title="Average Vessel TAT vs target" minHeight={260}>
                   <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
                 </Panel>
+                {/* Spec UI-044 (screen M-09): predicted-vs-actual arrival accuracy —
+                    previously built but never mounted (audit item D9). */}
+                <Panel title="ETA Prediction Accuracy" minHeight={260}>
+                  <PredictionAccuracy />
+                </Panel>
               </div>
             </CalciteTab>
 
@@ -521,6 +530,9 @@ export function App() {
                   <CalciteTabTitle tab="b-reports" selected={berthingSubTab === 'reports'} onCalciteTabsActivate={() => setBerthingSubTab('reports')}>
                     Terminal Reports
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-preberth" selected={berthingSubTab === 'preberth'} onCalciteTabsActivate={() => setBerthingSubTab('preberth')}>
+                    Pre-Berthing Board
+                  </CalciteTabTitle>
                   <CalciteTabTitle tab="b-upload" selected={berthingSubTab === 'upload'} onCalciteTabsActivate={() => setBerthingSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
@@ -529,6 +541,12 @@ export function App() {
                 {/* Existing sim/adapter berth-plan gantt — unchanged, and the DEFAULT sub-tab. */}
                 <CalciteTab tab="b-plan" selected={berthingSubTab === 'plan'}>
                   <BerthGantt5Day />
+                </CalciteTab>
+
+                {/* Spec M-08 / UI-040: the backward-chaining Pre-Berthing Status Board —
+                    for a target berthing, everything that must be true and by when. */}
+                <CalciteTab tab="b-preberth" selected={berthingSubTab === 'preberth'}>
+                  <PreBerthingBoard />
                 </CalciteTab>
 
                 {/* New: UC-3 per-terminal berthing REPORT actuals (jnpa.berthing_reports).

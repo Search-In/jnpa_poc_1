@@ -27,6 +27,7 @@ import {
   CalciteNotice,
 } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { env } from '@/data/config';
 import { useRoleStore } from '@/auth/roleStore';
 import { canEdit } from '@/auth/roles';
 import {
@@ -209,7 +210,7 @@ export function MarineUploadPanel({
     }
   };
 
-  const templateHref = `${'/api'}${MARINE_TEMPLATE_PATH}`;
+  const templateHref = `${env.uc3.apiBase}${MARINE_TEMPLATE_PATH}`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

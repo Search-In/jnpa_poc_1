@@ -50,10 +50,13 @@ export interface Vessel {
   TIMESTAMP: number;
   /**
    * Provenance of this position: 'live' = a real AIS fix from aisstream.io;
-   * 'mock' (or undefined) = the deterministic simulated fleet. Lets the map/feed
-   * badge real vessels so the twin never passes simulated traffic off as live.
+   * 'mock' (or undefined) = the deterministic simulated fleet; 'derived' = a real
+   * vessel whose STATE comes from the ingested operational ledger (PCS messages /
+   * berthing reports / pilot cards) with a position synthesised from port geometry
+   * — real identity, real state, indicative position. Lets the map/feed badge each
+   * hull so the twin never passes simulated or derived traffic off as live.
    */
-  SOURCE?: 'mock' | 'live';
+  SOURCE?: 'mock' | 'live' | 'derived';
 }
 
 /** A berth (quay position). Maps to the **Berths** layer. */
@@ -66,6 +69,23 @@ export interface Berth {
   STATUS: BerthStatus;
   /** Polygon ring [[lon, lat], ...] in WGS84. */
   GEOM: number[][];
+  /**
+   * Occupancy sub-state when STATUS === 'occupied' (spec UI-022): 'working' =
+   * cargo operations running; 'idle' = a ship alongside that is NOT working —
+   * the most expensive state in the port, deliberately distinct so it is never
+   * hidden inside plain "occupied". Absent on sources that cannot tell.
+   */
+  OCCUPANCY?: 'working' | 'idle';
+  /** Name of the vessel currently alongside, when the source knows it. */
+  VESSEL_NAME?: string | null;
+  /** Alongside-since (epoch ms), when the source knows it. */
+  OCCUPIED_SINCE?: number | null;
+  /**
+   * True when LENGTH_M / DRAFT_M are PoC planning assumptions (published quay
+   * totals divided per berth — assumption A-M1) rather than surveyed values;
+   * consumers rendering the numbers must show the provenance.
+   */
+  DIMENSIONS_ASSUMED?: boolean;
 }
 
 /**
@@ -87,6 +107,17 @@ export interface BerthingPlanEntry {
   /** Actual time departed / ATD (epoch ms), null until it happens. */
   ACTUAL_END: number | null;
   STATUS: PlanStatus;
+  /**
+   * Plan-entry provenance (spec UI-028): 'confirmed' = received from the JNPA
+   * berthing feed (terminal reports); 'indicative' = twin-generated from PCS
+   * declarations. The Gantt must style the two differently — nobody may mistake
+   * a twin projection for the port's plan. Absent on mock/ArcGIS entries.
+   */
+  KIND?: 'confirmed' | 'indicative';
+  /** True when PLANNED_END was defaulted (source carried no end time). */
+  END_ESTIMATED?: boolean;
+  /** Human-readable source, e.g. 'JNPA terminal berthing reports'. */
+  PROVENANCE?: string;
 }
 
 /** Pilot / tug / mooring craft. Maps to the **PortCraft** layer. */

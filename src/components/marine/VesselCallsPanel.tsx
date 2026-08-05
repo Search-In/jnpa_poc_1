@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { VesselCallsTable } from './VesselCallsTable';
 import { VesselCallTimeline } from './VesselCallTimeline';
 import { MarineStatCards } from './MarineStatCards';
+import { ArrivalTimesPanel } from './ArrivalTimesPanel';
 import { Panel } from '@/components/common/Panel';
 import type { VesselCall } from '@/types/domain';
 
@@ -31,9 +32,16 @@ export function VesselCallsPanel() {
             onRowClick={(c: VesselCall) => setSelectedCallId(c.callId)}
           />
         </Panel>
-        <Panel title="Call timeline" height={520}>
-          <VesselCallTimeline callId={selectedCallId} />
-        </Panel>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+          <Panel title="Call timeline" height={250}>
+            <VesselCallTimeline callId={selectedCallId} />
+          </Panel>
+          {/* Spec UI-025 (screen M-02): the six arrival-time definitions, each
+              named to its source, rendered independently of the event timeline. */}
+          <Panel title="Six arrival times" height={258}>
+            <ArrivalTimesPanel callId={selectedCallId} />
+          </Panel>
+        </div>
       </div>
     </div>
   );
