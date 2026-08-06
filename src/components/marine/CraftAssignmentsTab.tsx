@@ -11,10 +11,14 @@
  *
  * GATING
  * ------
- * Craft can only be assigned to a vessel that already has a pilot, which is what the
- * requested flow specifies (Pilot Assignment → Port Craft). The pilot may come from
- * either source, so the gate is the union of imported pilotage call_ids and live manual
- * assignments — a vessel with a real imported pilot is a perfectly valid craft target.
+ * Craft follow the pilot: a launch carries him out, tugs and mooring boats work the
+ * movement he is running. So the picker offers a vessel once a pilot is ENGAGED and stops
+ * once that job ends or the vessel sails — `isCraftAssignable`, the projection-driven
+ * sibling of the pilot picker's `isPilotAssignable`.
+ *
+ * Imported and manual are not told apart: the lifecycle reports 'Active' for an imported
+ * boarding and 'Assigned'/'Onboard' for a manual one, and all three mean a pilot is on
+ * the job. This screen reads no pilotage or assignment table of its own.
  */
 
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
@@ -23,12 +27,11 @@ import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { propagateMarineStateUpdate, useMarineStateVersion }
   from '@/data/uc3/marineStateBus';
 import { fetchVesselCallsPage } from '@/data/uc3/marineCalls';
-import { fetchPilotagePage } from '@/data/uc3/pilotage';
 import { fetchPortCraft } from '@/data/uc3/portCraft';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { StatusChip } from '@/components/shipping/dataTable';
 import { lifecycleTone } from '@/components/marine/lifecycleTone';
-import { fetchManualPilotAssignments } from '@/data/uc3/manualPilot';
+import { isCraftAssignable } from '@/components/marine/pilotLifecycle';
 import {
   advanceCraft, assignCraft, fetchManualCraftAssignments,
   type CraftTransition,
@@ -73,11 +76,7 @@ export function CraftAssignmentsTab() {
   // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
   const marineVersion = useMarineStateVersion();
   const calls = useAdapterQuery(() => fetchVesselCallsPage({}, SCAN, 0), [marineVersion]);
-  const pilotage = useAdapterQuery(() => fetchPilotagePage({}, SCAN, 0), [marineVersion]);
   const fleet = useAdapterQuery(() => fetchPortCraft(), [marineVersion]);
-  // Manual pilot assignments are BACKEND state now, so the 'has a pilot' gate reads
-  // the API rather than a browser store that other screens cannot see.
-  const manualPilots = useAdapterQuery(() => fetchManualPilotAssignments({ active: true }), [marineVersion]);
 
   const craftQ = useAdapterQuery(() => fetchManualCraftAssignments({}), [marineVersion]);
   const craft = useMemo(() => craftQ.data?.items ?? [], [craftQ.data]);
@@ -103,24 +102,14 @@ export function CraftAssignmentsTab() {
   const [callId, setCallId] = useState('');
   const [craftKey, setCraftKey] = useState('');
 
-  const importedCallIds = useMemo(
-    () => new Set((pilotage.data?.items ?? [])
-      .map((p) => p.callId).filter((c): c is number => c !== null)),
-    [pilotage.data],
-  );
 
 
-  /** A vessel is a craft target once it has a pilot from EITHER source. */
-  const piloted = new Set<number>([
-    ...importedCallIds,
-    ...(manualPilots.data?.items ?? [])
-      .filter((p) => p.active && p.status !== 'Released')
-      .map((p) => p.callId),
-  ]);
-
-  const candidates = (calls.data?.items ?? [])
-    .filter((c) => c.atd === 0 && (c.ata > 0 || c.eta > 0))
-    .filter((c) => piloted.has(c.callId));
+  // Eligibility comes from the PROJECTION — see isCraftAssignable, the sibling of the
+  // pilot picker's isPilotAssignable. Craft follow the pilot, and the lifecycle already
+  // says whether one is engaged, from EITHER source: an imported boarding reads 'Active',
+  // a manual one 'Assigned'/'Onboard'. Nothing here reads a stored vessel_call column,
+  // and the two sources are not told apart.
+  const candidates = (calls.data?.items ?? []).filter(isCraftAssignable);
 
   /** Fleet Register minus craft already out on a live assignment. */
   const busy = new Set(craft.filter((c) => c.active && c.status !== 'Released')
@@ -156,8 +145,7 @@ export function CraftAssignmentsTab() {
   const live = craft.filter((c) => c.active);
   const superseded = craft.filter((c) => !c.active);
   const loading = (calls.loading && !calls.data) || (fleet.loading && !fleet.data);
-  const error = calls.error || pilotage.error || fleet.error
-    || manualPilots.error || craftQ.error;
+  const error = calls.error || fleet.error || craftQ.error;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, gap: tokens.space.sm }}>

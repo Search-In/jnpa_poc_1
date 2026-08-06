@@ -121,6 +121,49 @@ export function isPilotAssignable(call: VesselCall): boolean {
   return true;
 }
 
+/**
+ * Pilot states meaning A PILOT IS ENGAGED on this movement.
+ *
+ * Named rather than written inline at the call site so the vocabulary lives in one place:
+ * 'Active' is the ENGINE's word for an imported boarding, 'Assigned'/'Onboard' are the
+ * projection's words for a manual one. Listing all three is what makes imported and
+ * manual behave identically — no consumer needs to know which source produced the state.
+ *
+ * 'Completed' and 'Released' are deliberately absent: the pilot's job has ended, so the
+ * movement needs no further craft.
+ */
+const PILOT_ENGAGED_STATES: ReadonlySet<string> = new Set(['Assigned', 'Onboard', 'Active']);
+
+/**
+ * May this call be offered in the Port Craft picker?
+ *
+ * THE MARINE RULE. Craft follow the pilot: a launch carries the pilot out, tugs and
+ * mooring boats work the movement he is running. So a vessel becomes a craft target when
+ * a pilot is engaged, and stops being one when that job ends or the vessel sails.
+ *
+ * DERIVED FROM THE PROJECTION, NOT FROM STORED COLUMNS. This gate used to read
+ * `atd === 0 && (ata > 0 || eta > 0)` — the pre-projection predicate that Phase 4 removed
+ * from the pilot picker but never from here. It was wrong in BOTH directions, measured
+ * against live data:
+ *
+ *   * 86 vessels WITH a pilot were hidden, because assigning a pilot writes neither ATA
+ *     nor ETA and the timestamp gate discarded them after the pilot check had passed;
+ *   * 134 vessels whose pilot job had COMPLETED were still offered craft, because the
+ *     old gate unioned every imported pilotage call_id regardless of completion.
+ *
+ * Reading the lifecycle answers the operational question directly and fixes both.
+ *
+ * A call with NO lifecycle is not eligible: the projection has no opinion about it, and
+ * guessing from columns is exactly what this replaces.
+ */
+export function isCraftAssignable(call: VesselCall): boolean {
+  const lc = call.lifecycle;
+  if (!lc) return false;
+  // A sailed vessel needs no craft, whatever its pilot state says.
+  if (lc.departureState === 'Completed') return false;
+  return PILOT_ENGAGED_STATES.has(lc.pilotState);
+}
+
 /* -------------------------------------------------------------- pilot register */
 
 /** Where a register row's CURRENT status came from. */
