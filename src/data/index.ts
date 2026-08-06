@@ -22,7 +22,6 @@ import { env } from './config';
 import { MockAdapter } from './MockAdapter';
 import { ArcGISAdapter } from './ArcGISAdapter';
 import { LiveOverlayAdapter } from './LiveOverlayAdapter';
-import { Uc3Adapter } from './Uc3Adapter';
 import { SimAdapter } from '@/sim/SimAdapter';
 import type { DataAdapter } from './types';
 import type { DataMode } from './dataMode';
@@ -34,13 +33,17 @@ let singleton: DataAdapter | null = null;
  *   mock   → MockAdapter (offline).
  *   live   → ArcGISAdapter (Stream/Feature Layers only).
  *   hybrid → MockAdapter with real aisstream.io vessels composited on top.
- *   uc3    → Uc3Adapter (ingested JNPA corpus via the UC-3 gateway) with the
- *            aisstream.io overlay on top — real records below, real AIS above.
+ *
+ * THERE IS NO `uc3` MODE, by design. UC-3 gateway data — vessel calls, pilotage,
+ * bathymetry, performance, the live-AIS overlay — is ORTHOGONAL to VITE_DATA_MODE and
+ * switched by VITE_UC3_ENABLED (README, and the note in dataMode.ts). The two are
+ * independent on purpose: gateway records are real whether or not the AIS fleet is
+ * simulated, and the marine screens read the `data/uc3/*` connectors directly rather
+ * than through this adapter seam.
  */
 export function createBaseAdapter(mode: DataMode = env.dataMode): DataAdapter {
   if (mode === 'live') return new ArcGISAdapter();
   if (mode === 'hybrid') return new LiveOverlayAdapter(new MockAdapter());
-  if (mode === 'uc3') return new LiveOverlayAdapter(new Uc3Adapter());
   return new MockAdapter();
 }
 
