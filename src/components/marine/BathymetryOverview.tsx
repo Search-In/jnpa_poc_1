@@ -142,8 +142,8 @@ export function BathymetryOverview({ registerKey = 0 }: BathymetryOverviewProps)
           }}
         >
           <strong>{view.pending}</strong> registered survey{view.pending === 1 ? '' : 's'} carry
-          no soundings yet — the chart PDF has not been uploaded. Use the Data Upload tab; the
-          survey must already be registered for its soundings to attach.
+          no soundings yet — the chart PDF has not been uploaded. Use the Data Upload tab to
+          import the chart; the survey header is created automatically on first successful import.
         </div>
       )}
 
