@@ -33,11 +33,13 @@ import {
   validateMarineCsv,
   importMarineCsv,
   fetchMarineUploads,
+  fetchMarineUpload,
   MARINE_TEMPLATE_PATH,
   type MarineValidateResult,
   type MarineImportResult,
   type MarineParseError,
 } from '@/data/uc3/marineUpload';
+import type { MarineUploadRowError } from '@/types/domain';
 import { Panel, PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
 import { tokens } from '@/theme/tokens';
@@ -94,6 +96,39 @@ function ErrorList({ errors }: { errors: MarineParseError[] }) {
             {e.row_number != null ? `Row ${e.row_number} — ` : ''}
             {e.column_name ? `${e.column_name}: ` : ''}
             {e.error_detail || e.error_code}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Collapse identical ledger messages (a chart can store 15k+ of the same fault). */
+function groupLedgerErrors(errors: MarineUploadRowError[]): { message: string; count: number }[] {
+  const map = new Map<string, number>();
+  for (const e of errors) {
+    const msg = (e.errorMessage || '').trim() || '(no message)';
+    map.set(msg, (map.get(msg) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .map(([message, count]) => ({ message, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function LedgerErrorList({ errors }: { errors: MarineUploadRowError[] }) {
+  if (errors.length === 0) return null;
+  const groups = groupLedgerErrors(errors);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: tokens.textMuted, marginBottom: 4 }}>
+        Ledger errors ({errors.length}
+        {groups.length < errors.length ? ` · ${groups.length} distinct` : ''})
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: tokens.text }}>
+        {groups.slice(0, 20).map((g) => (
+          <li key={g.message}>
+            {g.count > 1 ? `${g.count}× — ` : ''}
+            {g.message}
           </li>
         ))}
       </ul>
@@ -159,6 +194,9 @@ export function MarineUploadPanel({
   const [file, setFile] = useState<File | null>(null);
   const [validation, setValidation] = useState<MarineValidateResult | null>(null);
   const [result, setResult] = useState<MarineImportResult | null>(null);
+  /** Row errors from GET /uploads/{id} — import response often omits repo faults. */
+  const [ledgerErrors, setLedgerErrors] = useState<MarineUploadRowError[]>([]);
+  const [ledgerDetail, setLedgerDetail] = useState<string | null>(null);
   const [busy, setBusy] = useState<'validate' | 'import' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -167,6 +205,8 @@ export function MarineUploadPanel({
     setFile(f);
     setValidation(null);
     setResult(null);
+    setLedgerErrors([]);
+    setLedgerDetail(null);
     setErr(null);
   };
 
@@ -184,21 +224,42 @@ export function MarineUploadPanel({
     }
   };
 
-  const onImport = async () => {
+  const onImport = async (override = false) => {
     if (!file) return;
     setBusy('import');
     setErr(null);
+    setLedgerErrors([]);
+    setLedgerDetail(null);
     try {
-      const r = await importMarineCsv(file);
+      const r = await importMarineCsv(file, { override });
       setResult(r);
       setRefreshKey((k) => k + 1); // refresh history
       onImported?.(r); // let a sibling view (e.g. SeaChannelTable) refresh
+
+      // Persist-path failures write errors to the ledger only — the import body
+      // usually has `warnings`, not `errors`. Pull detail so the operator sees why.
+      const needsDetail =
+        r.file_id != null &&
+        (r.status === 'FAILED' || r.status === 'PARTIAL' || r.status === 'REJECTED') &&
+        !(r.errors && r.errors.length > 0);
+      if (needsDetail) {
+        try {
+          const detail = await fetchMarineUpload(r.file_id!);
+          setLedgerErrors(detail.errors);
+          setLedgerDetail(detail.file?.errorDetail || null);
+        } catch {
+          // Non-fatal — history still refreshed; detail is best-effort.
+        }
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   };
+
+  const isDuplicateSkip =
+    result?.status === 'SKIPPED_DUPLICATE' || result?.duplicate_file === true;
 
   const templateHref = `${'/api'}${MARINE_TEMPLATE_PATH}`;
 
@@ -242,7 +303,7 @@ export function MarineUploadPanel({
             <CalciteButton scale="s" appearance="outline" disabled={!editable || !file || busy != null || undefined} onClick={onValidate}>
               Validate
             </CalciteButton>
-            <CalciteButton scale="s" disabled={!editable || !file || busy != null || undefined} onClick={onImport}>
+            <CalciteButton scale="s" disabled={!editable || !file || busy != null || undefined} onClick={() => onImport(false)}>
               Import
             </CalciteButton>
             {busy && <CalciteLoader inline label={busy === 'validate' ? 'Validating…' : 'Importing…'} />}
@@ -272,7 +333,26 @@ export function MarineUploadPanel({
               {result.status}
               {result.duplicate_file ? ' — identical file already imported' : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
             </div>
+            {ledgerDetail && (
+              <div style={{ marginTop: 6, fontSize: 12, color: tokens.text }}>{ledgerDetail}</div>
+            )}
             {result.errors && <ErrorList errors={result.errors} />}
+            <LedgerErrorList errors={ledgerErrors} />
+            {isDuplicateSkip && editable && file && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  disabled={busy != null || undefined}
+                  onClick={() => onImport(true)}
+                >
+                  Re-import anyway
+                </CalciteButton>
+                <span style={{ fontSize: 11, color: tokens.textMuted }}>
+                  Re-processes this file (override). Upserts rows; does not delete history.
+                </span>
+              </div>
+            )}
           </div>
         )}
       </Panel>

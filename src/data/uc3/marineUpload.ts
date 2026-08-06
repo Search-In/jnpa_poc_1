@@ -12,6 +12,8 @@
  *   upload    → the same parse, then persists. Idempotent at two levels: a
  *               byte-identical file is SKIPPED_DUPLICATE (sha256 ledger), and a
  *               re-seen VCN upserts (enriches) rather than duplicating.
+ *               Pass `override: true` to re-process a ledger hit instead of
+ *               skipping (upserts only — deletes nothing).
  *   uploads   → the audit ledger, newest first.
  *
  * Two things a caller must handle:
@@ -229,10 +231,21 @@ export function marineUploadsQuery(
   return `${MARINE_UPLOADS_PATH}?${q.toString()}`;
 }
 
+/** Options for the import multipart body (validate ignores these). */
+export interface MarineUploadOptions {
+  /**
+   * Re-process a file already in the ledger instead of returning
+   * SKIPPED_DUPLICATE. Gateway form field; default false.
+   */
+  override?: boolean;
+}
+
 /** Wrap a File in the multipart body the gateway expects. Pure. */
-export function buildUploadForm(file: File): FormData {
+export function buildUploadForm(file: File, options: MarineUploadOptions = {}): FormData {
   const fd = new FormData();
   fd.append(UPLOAD_FIELD, file);
+  // Only send when true — omitting keeps the default skip-duplicate behaviour.
+  if (options.override) fd.append('override', 'true');
   return fd;
 }
 
@@ -249,9 +262,13 @@ export async function validateMarineCsv(file: File): Promise<MarineValidateResul
  * Import a Marine CSV. Idempotent: identical bytes resolve with
  * `status: 'SKIPPED_DUPLICATE'` and `duplicate_file: true`; a re-seen VCN
  * enriches the existing call instead of duplicating it.
+ * Pass `{ override: true }` to re-process a ledger hit (upserts only).
  */
-export async function importMarineCsv(file: File): Promise<MarineImportResult> {
-  return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file));
+export async function importMarineCsv(
+  file: File,
+  options: MarineUploadOptions = {},
+): Promise<MarineImportResult> {
+  return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file, options));
 }
 
 /** Fetch the import ledger, newest first. */
