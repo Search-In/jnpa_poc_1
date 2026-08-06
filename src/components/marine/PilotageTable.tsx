@@ -22,6 +22,10 @@ import { berthCode, movementStage, operationalStatus, pilotLabel, vcnOf }
   from '@/components/marine/pilotLifecycle';
 import { matchesIdentity, searchHint } from '@/components/marine/identitySearch';
 import { fetchManualPilotAssignments } from '@/data/uc3/manualPilot';
+import { assessRecord, applyAnomalyFilter } from '@/data/quality/dataQuality';
+import { PILOTAGE_QUALITY } from '@/data/quality/datasets';
+import { AnomalyBadge } from '@/components/common/AnomalyBadge';
+import { ShowAnomalyToggle } from '@/components/common/ShowAnomalyToggle';
 import { tokens } from '@/theme/tokens';
 
 const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse' };
@@ -49,7 +53,14 @@ function fmt(ms: number): string {
 const COLUMNS: {
   key: string; label: string; render: (p: Pilotage) => ReactNode; num?: boolean;
 }[] = [
-  { key: 'vessel', label: 'Vessel', render: (p) => p.vesselName || '—' },
+  { key: 'vessel', label: 'Vessel',
+    render: (p) => (
+      <>
+        {p.vesselName || '—'}
+        <AnomalyBadge result={assessRecord(p, PILOTAGE_QUALITY)}
+                      dataset={PILOTAGE_QUALITY.dataset} />
+      </>
+    ) },
   { key: 'via', label: 'VIA', render: (p) => p.viaNo || '—' },
   { key: 'imo', label: 'IMO', render: (p) => p.imoNo || '—' },
   // Roster code (advance sheets) or acknowledged name (ACKPLM) — the two corpora are
@@ -79,6 +90,7 @@ export function PilotageTable() {
   const [movement, setMovement] = useState('');
   const [vessel, setVessel] = useState('');
   const [offset, setOffset] = useState(0);
+  const [showAnomalies, setShowAnomalies] = useState(true);
   // Backend, not browser state — the assignment is persisted, so this list agrees
   // with Vessel Calls, Port Craft and the Timeline instead of only with itself.
   const manualQ = useAdapterQuery(() => fetchManualPilotAssignments({ active: true }), [marineVersion]);
@@ -113,10 +125,17 @@ export function PilotageTable() {
     .filter((a) => matchesIdentity(vessel,
       [a.vesselName, a.viaNo, a.vcn, a.pilotName, a.pilotCode]));
 
-  const total = matched.length + manual.length;
+  // This table fetches the whole set and pages CLIENT-side, so the filter is exact: it
+  // runs before slicing, and the counter and pager reflect the filtered set precisely.
+  // Manual assignments are operator-entered, not imported, so the import-completeness
+  // rule does not apply to them and they are never filtered.
+  const visible = applyAnomalyFilter(matched, PILOTAGE_QUALITY, showAnomalies);
+  const hiddenCount = matched.length - visible.length;
+
+  const total = visible.length + manual.length;
   // Manual rows sort first: they are the ones still needing operator attention.
   const shownManual = manual.slice(offset, offset + PAGE_SIZE);
-  const rows = matched.slice(Math.max(0, offset - manual.length),
+  const rows = visible.slice(Math.max(0, offset - manual.length),
                              Math.max(0, offset - manual.length) + PAGE_SIZE - shownManual.length);
   const from = total === 0 ? 0 : offset + 1;
   const to = Math.min(offset + PAGE_SIZE, total);
@@ -147,6 +166,8 @@ export function PilotageTable() {
           style={{ maxWidth: 240 }}
           onCalciteInputChange={(e) => { setOffset(0); setVessel((e.target as unknown as { value: string }).value); }}
         />
+        <ShowAnomalyToggle checked={showAnomalies} onChange={setShowAnomalies}
+                           hiddenCount={hiddenCount} />
         <span style={{ marginLeft: 'auto', fontSize: 12, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>
           {from}–{to} of {total}
           {truncated && ' (first 500 loaded)'}

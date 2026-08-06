@@ -20,6 +20,10 @@ import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel'
 import { istDateTime } from '@/util/format';
 import { StatusChip } from '@/components/shipping/dataTable';
 import { lifecycleTone } from '@/components/marine/lifecycleTone';
+import { assessRecord } from '@/data/quality/dataQuality';
+import { VESSEL_CALL_QUALITY } from '@/data/quality/datasets';
+import { AnomalyBadge } from '@/components/common/AnomalyBadge';
+import { ShowAnomalyToggle } from '@/components/common/ShowAnomalyToggle';
 import { tokens } from '@/theme/tokens';
 
 const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse' };
@@ -53,7 +57,16 @@ const PAGE_SIZE = 50;
 const COLUMNS: {
   key: string; label: string; sort?: string; render: (c: VesselCall) => ReactNode;
 }[] = [
-  { key: 'vcn', label: 'VCN', sort: 'vcn', render: (c) => c.vcn || '—' },
+  // The badge marks the ROW and rides with its primary identifier. Computed in the view
+  // model on read (see data/quality) — nothing is persisted and no request changes.
+  { key: 'vcn', label: 'VCN', sort: 'vcn',
+    render: (c) => (
+      <>
+        {c.vcn || '—'}
+        <AnomalyBadge result={assessRecord(c, VESSEL_CALL_QUALITY)}
+                      dataset={VESSEL_CALL_QUALITY.dataset} />
+      </>
+    ) },
   { key: 'vessel', label: 'Vessel', sort: 'vessel_name', render: (c) => c.vesselName || '—' },
   { key: 'via', label: 'VIA', sort: 'via_no', render: (c) => c.viaNo || '—' },
   { key: 'voyage', label: 'Voyage', render: (c) => c.voyageNo || '—' },
@@ -97,6 +110,8 @@ export function VesselCallsTable({
   const [sort, setSort] = useState('updated_at');
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc');
   const [offset, setOffset] = useState(0);
+  // Default ON: the table behaves exactly as before until an operator opts out.
+  const [showAnomalies, setShowAnomalies] = useState(true);
   // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
   const marineVersion = useMarineStateVersion();
 
@@ -127,7 +142,15 @@ export function VesselCallsTable({
 
   const page = q.data;
   const total = page?.total ?? 0;
-  const rows = page?.items ?? [];
+  const fetched = page?.items ?? [];
+  // Filtering is applied to the FETCHED PAGE, because this table is paginated and sorted
+  // SERVER-side and the rule requires no API change. Hiding anomalies therefore thins the
+  // current page rather than re-paginating the whole set — so the count below reports what
+  // was removed instead of silently showing a short page.
+  const rows = showAnomalies
+    ? fetched
+    : fetched.filter((c) => !assessRecord(c, VESSEL_CALL_QUALITY).isAnomaly);
+  const hiddenOnPage = fetched.length - rows.length;
   const from = total === 0 ? 0 : offset + 1;
   const to = Math.min(offset + PAGE_SIZE, total);
 
@@ -156,6 +179,8 @@ export function VesselCallsTable({
           />
           In port only
         </CalciteLabel>
+        <ShowAnomalyToggle checked={showAnomalies} onChange={setShowAnomalies}
+                           hiddenCount={hiddenOnPage} />
         <span style={{ marginLeft: 'auto', fontSize: 12, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>
           {from}–{to} of {total}
         </span>
