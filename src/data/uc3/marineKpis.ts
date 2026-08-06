@@ -17,6 +17,36 @@ import { http } from './client';
 
 export const MARINE_KPIS_PATH = '/marine/state/kpis';
 
+/**
+ * `GET /marine/state/kpis` wire shape.
+ *
+ * EVERY field is optional. That is not laxness — it is the mapper's contract: a gateway
+ * predating a block, or one that omits it, must yield zeroes rather than throw, and an
+ * optional wire type is what lets the compiler enforce that each read is guarded.
+ *
+ * Mirrors the gateway's MarineKpisOut. Declaring it here rather than reaching for `any`
+ * means a backend rename now fails the build instead of silently reading `undefined` and
+ * rendering 0 on the dashboard.
+ */
+export interface MarineKpisWire {
+  scope?: { active_calls?: number; basis?: string } | null;
+  pilot?: {
+    busy?: number; available?: number; known?: number; utilisation_pct?: number;
+    demand?: number; waiting_assignment?: number; under_pilotage?: number;
+    completed?: number;
+  } | null;
+  craft?: {
+    busy?: number; available?: number; fleet_total?: number; utilisation_pct?: number;
+    demand?: number; committed_calls?: number; waiting_assignment?: number;
+    demand_unphased?: number;
+  } | null;
+  operations?: {
+    marine_support_required?: number; awaiting_berthing?: number; at_berth?: number;
+    under_pilotage?: number; preparing_departure?: number; sailing?: number;
+    completed_today?: number;
+  } | null;
+}
+
 export interface MarineKpis {
   scope: { activeCalls: number; basis: string };
   pilot: {
@@ -39,11 +69,15 @@ export interface MarineKpis {
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 /** Wire → domain. Pure and tolerant: a missing block yields zeroes rather than throwing. */
-export function mapMarineKpis(raw: Record<string, any> | null | undefined): MarineKpis {
-  const s = raw?.scope ?? {};
-  const p = raw?.pilot ?? {};
-  const c = raw?.craft ?? {};
-  const o = raw?.operations ?? {};
+export function mapMarineKpis(raw: unknown): MarineKpis {
+  // Narrowed ONCE at the boundary, as mapPerformanceKpi does. `unknown` is what the
+  // caller genuinely has — an unvalidated HTTP body — and the optional wire type below
+  // forces every read past this line to be guarded.
+  const w = (raw ?? null) as MarineKpisWire | null;
+  const s = w?.scope ?? {};
+  const p = w?.pilot ?? {};
+  const c = w?.craft ?? {};
+  const o = w?.operations ?? {};
   return {
     scope: { activeCalls: n(s.active_calls), basis: typeof s.basis === 'string' ? s.basis : '' },
     pilot: {
@@ -68,5 +102,5 @@ export function mapMarineKpis(raw: Record<string, any> | null | undefined): Mari
 }
 
 export async function fetchMarineKpis(): Promise<MarineKpis> {
-  return mapMarineKpis(await http<Record<string, any>>(MARINE_KPIS_PATH));
+  return mapMarineKpis(await http<MarineKpisWire>(MARINE_KPIS_PATH));
 }
