@@ -4,6 +4,7 @@ import {
   fetchPilotage,
   fetchPilotagePage,
   mapPilotage,
+  mapPilotageLifecycle,
   parsePilotagePage,
   pilotageQuery,
   type PilotageWire,
@@ -121,5 +122,52 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     vi.stubGlobal('fetch', vi.fn((url: string) =>
       String(url).endsWith('/auth/login') ? jsonResponse(loginBody) : jsonResponse({ error: 'x' }, 403, 'Forbidden')));
     await expect(fetchPilotagePage()).rejects.toThrow(/HTTP 403/);
+  });
+});
+
+describe('mapPilotageLifecycle (extras.lifecycle → domain)', () => {
+  const LIFECYCLE = {
+    pilot_status: 'Departure Pilot Completed',
+    pilot_boarded_at: '2026-06-30T13:00:00Z',
+    all_fast_at: '2026-07-29T15:54:00Z',
+    call_id: 48,
+    call_status: 'At Berth',
+  };
+
+  it('lifts the block the gateway nests under extras', () => {
+    const lc = mapPilotageLifecycle({ lifecycle: LIFECYCLE });
+    expect(lc?.pilotStatus).toBe('Departure Pilot Completed');
+    expect(lc?.callId).toBe(48);
+    expect(lc?.callStatus).toBe('At Berth');
+    expect(lc?.allFastAt).toBeGreaterThan(0);
+  });
+
+  // A pilot card can be imported before its PCS call exists — a real state, not an error.
+  it('yields null when the movement has no linked call', () => {
+    expect(mapPilotageLifecycle(null)).toBeNull();
+    expect(mapPilotageLifecycle(undefined)).toBeNull();
+    expect(mapPilotageLifecycle({})).toBeNull();
+    expect(mapPilotageLifecycle({ lifecycle: null })).toBeNull();
+  });
+
+  it('tolerates a malformed block rather than throwing', () => {
+    expect(mapPilotageLifecycle({ lifecycle: 'nope' })).toBeNull();
+    const lc = mapPilotageLifecycle({ lifecycle: {} });
+    expect(lc?.pilotStatus).toBe('');
+    expect(lc?.callId).toBeNull();
+  });
+
+  it('mapPilotage attaches it, and leaves extras untouched', () => {
+    const p = mapPilotage({ ...ROW, extras: { lifecycle: LIFECYCLE, sheet_col: 'x' } });
+    expect(p?.lifecycle?.pilotStatus).toBe('Departure Pilot Completed');
+    // extras is still passed through verbatim — no existing consumer changes.
+    expect(p?.extras.sheet_col).toBe('x');
+    expect(p?.extras.lifecycle).toEqual(LIFECYCLE);
+  });
+
+  it('a row with no lifecycle still maps, with lifecycle null', () => {
+    const p = mapPilotage(ROW);
+    expect(p?.pilotageId).toBe(7);
+    expect(p?.lifecycle).toBeNull();
   });
 });

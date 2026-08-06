@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import type { Vessel } from '@/types/domain';
 import type { KpiBundle } from '@/types/kpi';
 import { getAdapter, type ConnectionState, type Unsubscribe } from '@/data';
+import { applyLiveKpis, fetchLiveKpis } from '@/data/uc3/dashboardKpis';
 
 interface AppState {
   mode: 'mock' | 'live';
@@ -49,7 +50,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   refreshKpis: async () => {
     try {
       const kpis = await getAdapter().getKPIs();
-      set({ kpis, kpiError: null });
+      // Overlay the cards that have a real corpus source (Avg TAT, Berth Occupancy) from
+      // the EXISTING /marine/calls/stats and /marine/state/berths endpoints. Cards with no
+      // corpus source keep the adapter's value rather than being fabricated, and a failed
+      // fetch resolves to null so the Wall renders exactly as it did before.
+      set({ kpis: applyLiveKpis(kpis, await fetchLiveKpis()), kpiError: null });
     } catch (err) {
       set({ kpiError: err instanceof Error ? err.message : String(err) });
     }

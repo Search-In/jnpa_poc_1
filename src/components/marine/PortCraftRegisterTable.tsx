@@ -24,6 +24,10 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import { CalciteInput } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { fetchManualCraftAssignments } from '@/data/uc3/manualCraft';
+import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
+import { StatusChip } from '@/components/shipping/dataTable';
+import { lifecycleTone } from '@/components/marine/lifecycleTone';
 import { fetchPortCraftPage, type PortCraftFilters } from '@/data/uc3/portCraft';
 import type { PortCraft } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
@@ -66,8 +70,19 @@ function options(rows: PortCraft[], pick: (c: PortCraft) => string): string[] {
   return seen;
 }
 
-const COLUMNS: { key: string; label: string; render: (c: PortCraft) => string; wrap?: boolean }[] = [
+/** craft_id -> its live commitment status, or undefined when the craft is free. */
+export type CraftStatusMap = Record<number, string | undefined>;
+
+const COLUMNS: {
+  key: string; label: string; render: (c: PortCraft, live: CraftStatusMap) => string;
+  wrap?: boolean;
+}[] = [
   { key: 'name', label: 'Name', render: (c) => c.name || '—' },
+  // LIVE operational status, from core.manual_craft_assignment. The register is the
+  // fleet's particulars; availability is a fact about right now, so it is never derived
+  // from these static columns — it is read from the assignments that own it.
+  { key: 'status', label: 'Status',
+    render: (c, live) => live[c.craftId] || 'Available' },
   { key: 'type', label: 'Type', render: (c) => c.craftType || '—' },
   { key: 'oh', label: 'Owned/Hired', render: (c) => c.ownedOrHired || '—' },
   { key: 'owner', label: 'Owner', render: (c) => c.ownerName || '—' },
@@ -94,6 +109,16 @@ export function PortCraftRegisterTable() {
   // Read the register once per mount. The parent remounts this component (via `key`)
   // after a successful upload, which is what triggers the post-import refetch.
   const q = useAdapterQuery(() => fetchPortCraftPage(REGISTER_QUERY, FETCH_LIMIT, 0), []);
+  // Live commitments, refetched on every marine mutation via the shared propagation bus —
+  // no polling, no local state. Availability is a fact about NOW, so it cannot come from
+  // the register's static particulars.
+  const marineVersion = useMarineStateVersion();
+  const liveQ = useAdapterQuery(() => fetchManualCraftAssignments({ active: true }),
+                                [marineVersion]);
+  const live: CraftStatusMap = {};
+  for (const a of liveQ.data?.items ?? []) {
+    if (a.status !== 'Released') live[a.craftId] = a.status;
+  }
 
   const all = q.data?.items ?? NO_ROWS;
   const serverTotal = q.data?.total ?? 0;
@@ -183,7 +208,11 @@ export function PortCraftRegisterTable() {
                       key={col.key}
                       style={{ ...TD, fontWeight: col.key === 'name' ? 600 : undefined, whiteSpace: col.wrap ? 'normal' : 'nowrap', maxWidth: col.wrap ? 260 : undefined }}
                     >
-                      {col.render(c)}
+                      {col.key === 'status'
+                        ? <StatusChip label={col.render(c, live)}
+                                      tone={lifecycleTone(
+                                        col.render(c, live) === 'Available' ? 'Idle' : 'Busy')} />
+                        : col.render(c, live)}
                     </td>
                   ))}
                 </tr>

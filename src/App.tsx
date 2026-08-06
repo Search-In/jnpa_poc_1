@@ -27,6 +27,7 @@ import {
   CalciteChip,
 } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
+import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
@@ -34,7 +35,8 @@ import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselTable } from '@/components/VesselTable';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
-import { PilotageTable } from '@/components/marine/PilotageTable';
+import { PilotagePage } from '@/components/marine/PilotagePage';
+import { VesselRegisterTable } from '@/components/marine/VesselRegisterTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
 import { ContainerTrackPanel } from '@/components/marine/ContainerTrackPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
@@ -54,6 +56,8 @@ import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
 import { PortCraftPage } from '@/components/marine/PortCraftPage';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
+import { PredictionAccuracy } from '@/components/reports/PredictionAccuracy';
+import { PreBerthingBoard } from '@/components/marine/PreBerthingBoard';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
 import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
 import { BathymetryPage } from '@/components/marine/BathymetryPage';
@@ -164,7 +168,8 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
-  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload' | 'track'>('live');
+  const [vesselSubTab, setVesselSubTab] =
+    useState<'live' | 'calls' | 'register' | 'pilotage' | 'upload' | 'track'>('live');
   // Shipping Lines is now a top-level module — its sub-tab and post-import refresh
   // state live inside <ShippingLinesPage>.
   // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
@@ -185,7 +190,7 @@ export function App() {
   // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
   // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
   // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
-  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'upload'>('plan');
+  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'preberth' | 'upload'>('plan');
   // Bumped after a successful berthing import so the sibling Terminal Reports view
   // remounts and refetches. Presentation-only — no query logic changes.
   const [berthingReportsKey, setBerthingReportsKey] = useState(0);
@@ -245,6 +250,7 @@ export function App() {
           <HeaderBar
             extra={
               <>
+                <DataSourceToggle />
                 <RoleSwitcher />
                 <SimControls />
                 <CalciteButton
@@ -428,6 +434,11 @@ export function App() {
                 <Panel title="Average Vessel TAT vs target" minHeight={260}>
                   <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
                 </Panel>
+                {/* Spec UI-044 (screen M-09): predicted-vs-actual arrival accuracy —
+                    previously built but never mounted (audit item D9). */}
+                <Panel title="ETA Prediction Accuracy" minHeight={260}>
+                  <PredictionAccuracy />
+                </Panel>
               </div>
             </CalciteTab>
 
@@ -439,6 +450,9 @@ export function App() {
                   </CalciteTabTitle>
                   <CalciteTabTitle tab="v-calls" selected={vesselSubTab === 'calls'} onCalciteTabsActivate={() => setVesselSubTab('calls')}>
                     Vessel Calls
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-register" selected={vesselSubTab === 'register'} onCalciteTabsActivate={() => setVesselSubTab('register')}>
+                    Vessel Register
                   </CalciteTabTitle>
                   <CalciteTabTitle tab="v-pilotage" selected={vesselSubTab === 'pilotage'} onCalciteTabsActivate={() => setVesselSubTab('pilotage')}>
                     Pilotage
@@ -464,11 +478,17 @@ export function App() {
                   <VesselCallsPanel key={vesselCallUploadKey} />
                 </CalciteTab>
 
-                {/* New: UC-3 pilotage movements (core.pilotage). */}
-                <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
-                  <Panel title="Pilotage movements — UC-3 backend (core.pilotage)" height={640}>
-                    <PilotageTable />
+                {/* New: UC-3 vessel MASTER register (core.vessel, VESPRO-sourced). Keyed on the
+                    same upload counter as Vessel Calls so a VESPRO import remounts and refetches. */}
+                <CalciteTab tab="v-register" selected={vesselSubTab === 'register'}>
+                  <Panel title="Vessel register — UC-3 backend (core.vessel, VESPRO)" height={640}>
+                    <VesselRegisterTable key={vesselCallUploadKey} />
                   </Panel>
+                </CalciteTab>
+
+                {/* UC-3 pilotage (core.pilotage), now its own sub-tabbed screen. */}
+                <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
+                  <PilotagePage uploadKey={vesselCallUploadKey} />
                 </CalciteTab>
 
                 {/* New: UC-3 vessel-call upload (CSV + BERMAN/CALINF/VESPRO XML + pilot XLSX).
@@ -490,7 +510,9 @@ export function App() {
                 Carrier Registry / Data Upload. Composition lives in
                 <ShippingLinesPage>, which also owns the post-import refresh. */}
             <CalciteTab tab="shipping" selected={activeTab === 'shipping'}>
-              <ShippingLinesPage />
+              {/* Carrier Registry's lifecycle columns come from the marine
+                  projection, so a marine import refreshes them too. */}
+              <ShippingLinesPage key={vesselCallUploadKey} />
             </CalciteTab>
 
             <CalciteTab tab="tide" selected={activeTab === 'tide'}>
@@ -508,6 +530,9 @@ export function App() {
                   <CalciteTabTitle tab="b-reports" selected={berthingSubTab === 'reports'} onCalciteTabsActivate={() => setBerthingSubTab('reports')}>
                     Terminal Reports
                   </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-preberth" selected={berthingSubTab === 'preberth'} onCalciteTabsActivate={() => setBerthingSubTab('preberth')}>
+                    Pre-Berthing Board
+                  </CalciteTabTitle>
                   <CalciteTabTitle tab="b-upload" selected={berthingSubTab === 'upload'} onCalciteTabsActivate={() => setBerthingSubTab('upload')}>
                     Data Upload
                   </CalciteTabTitle>
@@ -518,10 +543,20 @@ export function App() {
                   <BerthGantt5Day />
                 </CalciteTab>
 
+                {/* Spec M-08 / UI-040: the backward-chaining Pre-Berthing Status Board —
+                    for a target berthing, everything that must be true and by when. */}
+                <CalciteTab tab="b-preberth" selected={berthingSubTab === 'preberth'}>
+                  <PreBerthingBoard />
+                </CalciteTab>
+
                 {/* New: UC-3 per-terminal berthing REPORT actuals (jnpa.berthing_reports).
                     Keyed on the upload counter so a successful import remounts + refetches. */}
                 <CalciteTab tab="b-reports" selected={berthingSubTab === 'reports'}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} key={berthingReportsKey}>
+                  {/* Keyed on BOTH upload counters: the rows come from berthing reports,
+                      but the Lifecycle and Berth State columns come from the marine
+                      projection, so a marine import changes this view too. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                       key={`${berthingReportsKey}-${vesselCallUploadKey}`}>
                     <Panel title="Berthing reports — UC-3 backend (jnpa.berthing_reports)" minHeight={120}>
                       <BerthingStats />
                     </Panel>
@@ -609,7 +644,9 @@ export function App() {
                 Overview on a guided-tour beat since the `tab: 'craft'` steps narrate
                 the resource board. */}
             <CalciteTab tab="craft" selected={activeTab === 'craft'}>
-              <PortCraftPage />
+              {/* Marine-projection consumer: remount after a marine import so the
+                  demand board and operations table reflect the new lifecycle. */}
+              <PortCraftPage key={vesselCallUploadKey} />
             </CalciteTab>
             <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
               <Scenarios />

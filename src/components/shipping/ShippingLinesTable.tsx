@@ -19,9 +19,13 @@
  * box, the two filters, sortable headers and the pager are additive.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchShippingLines } from '@/data/uc3/shippingLines';
+import {
+  fetchCarrierLifecycleMap, type CarrierLifecycle,
+} from '@/data/uc3/shippingLinesState';
+import { AnomalyMark } from '@/components/marine/AnomalyMark';
 import type { ShippingLine } from '@/types/domain';
 import { istDateTime } from '@/util/format';
 import { tokens } from '@/theme/tokens';
@@ -37,6 +41,36 @@ import {
 const PAGE_SIZE = 15;
 const NO_ROWS: ShippingLine[] = [];
 
+/**
+ * A registry row joined to its lifecycle tally. `lc` is undefined when the carrier has no
+ * resolved vessel visit — the lifecycle columns then render '—' rather than 0, because
+ * "no vessel tracked" and "zero vessels in port" are different facts.
+ */
+type Row = ShippingLine & { lc?: CarrierLifecycle };
+
+/**
+ * Count → text. '—' unless the carrier has at least one CORRELATED visit: a real 0
+ * ("no vessel in port") is worth showing, a fabricated 0 for a carrier nothing resolved
+ * for is not.
+ */
+function count(lc: CarrierLifecycle | undefined, pick: (l: CarrierLifecycle) => number): string {
+  return lc && lc.activeVessels > 0 ? String(pick(lc)) : '—';
+}
+
+/**
+ * Tooltip for the correlation warning. Reports ONLY what the gateway returned: how many
+ * of the carrier's advance-list visits resolved to no vessel call, and — as context, not
+ * as a second warning — how many matched by the weaker composite rule.
+ */
+function correlationReason(lc: CarrierLifecycle): string {
+  const n = lc.unmatchedVisits;
+  const head = `${n} vessel visit${n === 1 ? '' : 's'} could not be correlated to a vessel call`;
+  return lc.compositeMatches > 0
+    ? `${head}. ${lc.compositeMatches} of ${lc.activeVessels} matched visit`
+      + `${lc.activeVessels === 1 ? '' : 's'} resolved by vessel-code prefix, not by VIA.`
+    : `${head}.`;
+}
+
 /** Container-availability filter — carriers actually carrying boxes vs. code-only rows. */
 const AVAILABILITY = ['With containers', 'Without containers'];
 
@@ -45,22 +79,49 @@ function fmt(ms: number): string {
   return ms ? istDateTime(ms) : '—';
 }
 
-const SORT_VALUE: Record<string, (l: ShippingLine) => SortValue> = {
+const SORT_VALUE: Record<string, (l: Row) => SortValue> = {
   code: (l) => l.lineCode,
   name: (l) => l.lineName,
   source: (l) => l.source,
   containers: (l) => l.containerCount,
   first: (l) => l.firstSeen,
   last: (l) => l.lastSeen,
+  // Lifecycle columns sort on the raw number/epoch, so a carrier with no data sorts as 0
+  // rather than as the string '—'.
+  active: (l) => l.lc?.activeVessels ?? 0,
+  inport: (l) => l.lc?.inPort ?? 0,
+  atberth: (l) => l.lc?.atBerth ?? 0,
+  activity: (l) => l.lc?.latestActivity ?? '',
+  updated: (l) => l.lc?.lastUpdated ?? 0,
 };
 
-const COLUMNS: { key: string; label: string; render: (l: ShippingLine) => string; num?: boolean }[] = [
+const COLUMNS: {
+  key: string; label: string; render: (l: Row) => ReactNode; num?: boolean;
+}[] = [
   { key: 'code', label: 'Line Code', render: (l) => l.lineCode || '—' },
   { key: 'name', label: 'Name', render: (l) => l.lineName || '—' },
   { key: 'source', label: 'Source', render: (l) => l.source || '—' },
   { key: 'containers', label: 'Containers', render: (l) => String(l.containerCount), num: true },
   { key: 'first', label: 'First Seen', render: (l) => fmt(l.firstSeen) },
   { key: 'last', label: 'Last Seen', render: (l) => fmt(l.lastSeen) },
+  // Lifecycle columns — counts of the engine's own verdicts, from
+  // /api/marine/state/shipping-lines. Nothing is derived here.
+  // The ⚠ marks a VERIFIED correlation failure the gateway reported (`lifecycle: null`
+  // on a visit) — never an empty value. Active Vessels is the affected field: it is the
+  // count correlation produces, so a failure belongs here and nowhere else.
+  { key: 'active', label: 'Active Vessels', num: true,
+    render: (l) => (
+      <>
+        {count(l.lc, (x) => x.activeVessels)}
+        {l.lc && l.lc.unmatchedVisits > 0 && (
+          <AnomalyMark reason={correlationReason(l.lc)} />
+        )}
+      </>
+    ) },
+  { key: 'inport', label: 'In Port', render: (l) => count(l.lc, (x) => x.inPort), num: true },
+  { key: 'atberth', label: 'At Berth', render: (l) => count(l.lc, (x) => x.atBerth), num: true },
+  { key: 'activity', label: 'Latest Activity', render: (l) => l.lc?.latestActivity || '—' },
+  { key: 'updated', label: 'Last Updated', render: (l) => fmt(l.lc?.lastUpdated ?? 0) },
 ];
 
 export function ShippingLinesTable() {
@@ -72,9 +133,19 @@ export function ShippingLinesTable() {
   const [offset, setOffset] = useState(0);
 
   const query = useAdapterQuery(() => fetchShippingLines(), []);
+  // Separate query: the lifecycle tally must never delay or break the registry. It
+  // resolves to an empty map on failure, and the lifecycle columns then show '—'.
+  const lifecycle = useAdapterQuery(() => fetchCarrierLifecycleMap(), []);
 
-  const loaded = query.data ?? NO_ROWS;
-  const sourceOptions = useOptions(loaded, (l) => l.source);
+  const registry = query.data ?? NO_ROWS;
+  const sourceOptions = useOptions(registry, (l) => l.source);
+
+  // Join by carrier code. Registry rows are never dropped or reordered by this — a
+  // carrier with no resolved visit simply carries no `lc`.
+  const loaded = useMemo<Row[]>(
+    () => registry.map((l) => ({ ...l, lc: lifecycle.data?.get(l.lineCode) })),
+    [registry, lifecycle.data],
+  );
 
   const refined = useMemo(
     () =>

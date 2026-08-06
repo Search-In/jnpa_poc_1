@@ -119,6 +119,36 @@ describe('mapVesselCall (wire → domain)', () => {
     expect(c.igmNo).toBeNull();
   });
 
+  it('maps the resolved terminal code alongside the FK', () => {
+    const c = mapVesselCall({ ...CALL, terminal_id: 5, terminal_code: 'BMCT' })!;
+    expect(c.terminalId).toBe(5);
+    expect(c.terminalCode).toBe('BMCT');
+  });
+
+  it('maps the allotted berth code alongside the FK', () => {
+    const c = mapVesselCall({ ...CALL, berth_id: 12, berth_code: 'CB05' })!;
+    expect(c.berthId).toBe(12);
+    expect(c.berthCode).toBe('CB05');
+  });
+
+  it('leaves berthCode empty before BERALT allots a berth', () => {
+    // A planned or berth-applied call genuinely has no berth yet — a stage, not a gap.
+    const c = mapVesselCall(CALL)!;
+    expect(c.berthId).toBeNull();
+    expect(c.berthCode).toBe('');
+  });
+
+  it('leaves terminalCode empty when the PCS code did not resolve', () => {
+    // 12 of 20 corpus CALINFs declare only the port (INJNP1), which is not a terminal.
+    const c = mapVesselCall({ ...CALL, terminal_id: null, terminal_code: null })!;
+    expect(c.terminalCode).toBe('');
+  });
+
+  it('tolerates a gateway response predating the terminal_code field', () => {
+    const c = mapVesselCall(CALL)!;
+    expect(c.terminalCode).toBe('');
+  });
+
   it('keeps a pre-VCN call: vcn is empty, not a reason to drop the row', () => {
     const c = mapVesselCall({ ...CALL, vcn: null })!;
     expect(c.vcn).toBe('');
@@ -198,7 +228,38 @@ describe('parseVesselCallTimeline', () => {
 
   it('tolerates a call with no events array', () => {
     expect(parseVesselCallTimeline(CALL).events).toEqual([]);
-    expect(parseVesselCallTimeline(null)).toEqual({ call: null, events: [] });
+    expect(parseVesselCallTimeline(null)).toEqual({ call: null, events: [], lifecycle: null });
+  });
+
+  it('maps the lifecycle that rides along in the SAME payload', () => {
+    const { lifecycle } = parseVesselCallTimeline({
+      ...CALL,
+      events: [],
+      lifecycle: {
+        status: 'At Berth',
+        arrival_state: 'Arrived',
+        berth_state: 'Occupied',
+        pilot_state: 'Pilot Onboard',
+        departure_state: 'In Port',
+        shipping_state: 'At Berth',
+        portcraft_state: 'Assigned',
+        is_in_port: true,
+        is_at_berth: true,
+        latest_event: 'BERTHED',
+        latest_event_time: '2026-06-05T09:00:00Z',
+      },
+    });
+    expect(lifecycle?.status).toBe('At Berth');
+    expect(lifecycle?.berthState).toBe('Occupied');
+    expect(lifecycle?.isInPort).toBe(true);
+    expect(lifecycle?.latestEvent).toBe('BERTHED');
+  });
+
+  // Backward compatibility: the field is additive, so a gateway that predates it must
+  // still yield a usable timeline — the pane then renders the stored fields alone.
+  it('yields a null lifecycle when the gateway does not send one', () => {
+    expect(parseVesselCallTimeline({ ...CALL, events: [] }).lifecycle).toBeNull();
+    expect(parseVesselCallTimeline({ ...CALL, lifecycle: null }).lifecycle).toBeNull();
   });
 });
 
@@ -324,31 +385,52 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     expect((await fetchVesselCall(12))?.callId).toBe(12);
   });
 
-  it('fetchVesselCallTimeline returns the call plus ordered actuals', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) =>
-        String(url).endsWith('/auth/login')
-          ? jsonResponse(loginBody)
-          : jsonResponse({
-              ...CALL,
-              events: [
-                {
-                  event_id: 9,
-                  call_id: 12,
-                  event_type: 'SAILED',
-                  event_ts: '2026-06-06T20:00:00Z',
-                  berth_id: null,
-                  source_file: null,
-                  created_at: null,
-                },
-              ],
-            }),
-      ),
+  it('fetchVesselCallTimeline returns call, actuals AND lifecycle in ONE request', async () => {
+    const fetchMock = vi.fn((url: string) =>
+      String(url).endsWith('/auth/login')
+        ? jsonResponse(loginBody)
+        : jsonResponse({
+            ...CALL,
+            events: [
+              {
+                event_id: 9,
+                call_id: 12,
+                event_type: 'SAILED',
+                event_ts: '2026-06-06T20:00:00Z',
+                berth_id: null,
+                source_file: null,
+                created_at: null,
+              },
+            ],
+            lifecycle: {
+              status: 'Departed',
+              arrival_state: 'Arrived',
+              berth_state: 'Vacated',
+              pilot_state: 'Pilot Onboard',
+              departure_state: 'Sailed',
+              shipping_state: 'Departed',
+              portcraft_state: 'Released',
+              is_in_port: false,
+              is_at_berth: false,
+              latest_event: 'SAILED',
+              latest_event_time: '2026-06-06T20:00:00Z',
+            },
+          }),
     );
-    const { call, events } = await fetchVesselCallTimeline(12);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { call, events, lifecycle } = await fetchVesselCallTimeline(12);
     expect(call?.callId).toBe(12);
     expect(events[0].eventType).toBe('SAILED');
+    expect(lifecycle?.status).toBe('Departed');
+
+    // The whole point of the refactor: the lifecycle costs no extra round trip. Only
+    // the timeline itself is requested — anything else here means a second call crept back.
+    const dataCalls = fetchMock.mock.calls.filter(
+      ([url]) => !String(url).endsWith('/auth/login'),
+    );
+    expect(dataCalls).toHaveLength(1);
+    expect(String(dataCalls[0][0])).toContain('/marine/calls/12/timeline');
   });
 
   it('fetchMarineStats returns zeroes against an empty backend', async () => {
@@ -376,5 +458,50 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     );
     // A rejected promise is what useAdapterQuery surfaces as `error`.
     await expect(fetchVesselCalls()).rejects.toThrow(/HTTP 403/);
+  });
+});
+
+describe('mapVesselCall — derived lifecycle beside the stored stage', () => {
+  const LIFECYCLE = {
+    status: 'At Berth',
+    arrival_state: 'Completed',
+    berth_state: 'Occupied',
+    pilot_state: 'Completed',
+    departure_state: 'Pending',
+    shipping_state: 'In Port',
+    portcraft_state: 'Busy',
+    is_in_port: true,
+    is_at_berth: true,
+    latest_event: 'ARRIVED',
+    latest_event_time: '2026-07-29T15:54:00Z',
+  };
+
+  it('attaches the derived state the list endpoint now returns', () => {
+    const c = mapVesselCall({ ...CALL, status: 'Berth Allotted', lifecycle: LIFECYCLE });
+    expect(c?.lifecycle?.status).toBe('At Berth');
+    expect(c?.lifecycle?.isAtBerth).toBe(true);
+  });
+
+  // Two different facts: the message stage and the operational state. Both are returned
+  // and neither overwrites the other, so the source-vs-derived comparison stays visible.
+  it('leaves the stored parser status untouched', () => {
+    const c = mapVesselCall({ ...CALL, status: 'Berth Allotted', lifecycle: LIFECYCLE });
+    expect(c?.status).toBe('Berth Allotted');
+    expect(c?.lifecycle?.status).toBe('At Berth');
+  });
+
+  it('is null when the gateway sends none — old gateway, or nothing ingested', () => {
+    expect(mapVesselCall(CALL)?.lifecycle).toBeNull();
+    expect(mapVesselCall({ ...CALL, lifecycle: null })?.lifecycle).toBeNull();
+  });
+
+  it('a page maps every row, lifecycle included', () => {
+    const page = parseVesselCallsPage({
+      items: [{ ...CALL, call_id: 48, lifecycle: LIFECYCLE },
+              { ...CALL, call_id: 51, lifecycle: null }],
+    });
+    expect(page).toHaveLength(2);
+    expect(page[0].lifecycle?.status).toBe('At Berth');
+    expect(page[1].lifecycle).toBeNull();
   });
 });

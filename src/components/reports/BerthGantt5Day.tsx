@@ -362,6 +362,13 @@ export function BerthGantt5Day() {
               <rect width={6} height={6} fill={tokens.panelAlt} />
               <line x1={0} y1={0} x2={0} y2={6} stroke={tokens.offline} strokeWidth={1.5} />
             </pattern>
+            {/* Spec UI-028: indicative (twin-generated) entries are hatched so nobody
+                can mistake our projection for the port's confirmed plan — at a glance,
+                from six metres. */}
+            <pattern id="indicative-hatch" width={7} height={7} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width={7} height={7} fill={tokens.accentDim} />
+              <line x1={0} y1={0} x2={0} y2={7} stroke={tokens.panel} strokeWidth={2.5} />
+            </pattern>
           </defs>
 
           {/* day gridlines + labels */}
@@ -452,14 +459,19 @@ export function BerthGantt5Day() {
                         width={w}
                         height={laneH - 12}
                         rx={3}
-                        fill={statusFill(e.STATUS)}
-                        stroke={moved ? tokens.text : 'none'}
-                        strokeDasharray={moved ? '3 2' : undefined}
-                        strokeWidth={moved ? 1 : 0}
+                        fill={e.KIND === 'indicative' ? 'url(#indicative-hatch)' : statusFill(e.STATUS)}
+                        stroke={moved ? tokens.text : e.KIND === 'indicative' ? tokens.accentDim : 'none'}
+                        strokeDasharray={moved ? '3 2' : e.KIND === 'indicative' ? '4 2' : undefined}
+                        strokeWidth={moved ? 1 : e.KIND === 'indicative' ? 1 : 0}
                         opacity={dragId === e.PLAN_ID ? 0.8 : 1}
                       >
                         <title>
                           {`${e.VESSEL_NAME} — ${e.STATUS}\n${istDateTime(start)} → ${istTime(end)}` +
+                            (e.KIND
+                              ? `\n${e.KIND === 'confirmed' ? 'CONFIRMED' : 'INDICATIVE (twin-generated)'}` +
+                                `${e.PROVENANCE ? ` — ${e.PROVENANCE}` : ''}` +
+                                (e.END_ESTIMATED ? '\nend time estimated (source carried none)' : '')
+                              : '') +
                             (moved ? '\n(simulated replan)' : '')}
                         </title>
                       </rect>
@@ -508,6 +520,20 @@ export function BerthGantt5Day() {
         <LegendSwatch color={tokens.accent} label="active" />
         <LegendSwatch color={tokens.good} label="completed" />
         <LegendSwatch color={tokens.bad} label="cancelled" />
+        <span style={{ opacity: 0.5 }}>│</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span
+            style={{
+              width: 14,
+              height: 10,
+              background: `repeating-linear-gradient(45deg, ${tokens.accentDim}, ${tokens.accentDim} 2px, ${tokens.panel} 2px, ${tokens.panel} 4px)`,
+              display: 'inline-block',
+              borderRadius: 2,
+              border: `1px dashed ${tokens.accentDim}`,
+            }}
+          />
+          indicative (twin-generated) vs solid confirmed (JNPA report)
+        </span>
         <span style={{ opacity: 0.5 }}>│</span>
         <LegendSwatch color={windowFill('go')} label="DUKC go" border />
         <LegendSwatch color={windowFill('marginal')} label="marginal" border />
