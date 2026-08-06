@@ -16,8 +16,7 @@ import {
   CalciteSegmentedControl,
   CalciteSegmentedControlItem,
 } from '@esri/calcite-components-react';
-import { Panel, PanelLoading, TechnicalDetails } from '@/components/common/Panel';
-import { ldbFallbackMessage } from '@/data/ldb/failure';
+import { Panel, PanelLoading } from '@/components/common/Panel';
 import { ContainerTrackMap } from '@/components/marine/ContainerTrackMap';
 import { env } from '@/data/config';
 import {
@@ -75,7 +74,7 @@ const formBarStyle: CSSProperties = {
 };
 
 export function ContainerTrackPanel() {
-  const [containerNo, setContainerNo] = useState('CCLU7468361');
+  const [containerNo, setContainerNo] = useState('');
   const [mobileNo, setMobileNo] = useState(env.ldb.mobileNo);
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
@@ -319,22 +318,6 @@ export function ContainerTrackPanel() {
 
         {track && (
           <>
-            {/* The sample-fallback state, stated where it cannot be missed.
-                It replaces a 10px amber caption inside SummaryBar that was
-                effectively invisible on a projector — and, more importantly, said
-                only THAT the sample was used, never why. With the fallback on by
-                default, a rejected token and a switched-off integration otherwise
-                render as the same successful-looking demo track. */}
-            {track.fromSample && (
-              <CalciteNotice open kind="warning" icon="exclamation-mark-triangle" scale="s">
-                <div slot="title">Showing bundled sample data — not live LDB</div>
-                <div slot="message">
-                  {ldbFallbackMessage(track.sampleReason ?? 'error')} This is the bundled
-                  CCLU7468361 demo track, not a live NLDS record.
-                  {track.sampleDetail && <TechnicalDetails detail={track.sampleDetail} />}
-                </div>
-              </CalciteNotice>
-            )}
             <SummaryBar track={track} />
             <div
               style={{

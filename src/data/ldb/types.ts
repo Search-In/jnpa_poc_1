@@ -3,8 +3,6 @@
  * `/apigateway/track/cntr/`). Wire types stay in mapper.ts; UI consumes these.
  */
 
-import type { LdbFallbackReason } from './failure';
-
 export type ContainerTransportMode = 'TRUCK' | 'VESSEL' | 'RAIL' | 'OTHER';
 
 export interface ContainerLocation {
@@ -65,14 +63,4 @@ export interface ContainerTrackResult {
     freeDays: string;
     daysInCharge: string;
   };
-  /** True when the bundled sample was used (live LDB call unavailable). */
-  fromSample: boolean;
-  /**
-   * WHY the sample was served — see `classifyLdbFailure`. Optional so the live
-   * mapper is unaffected; only ever set alongside `fromSample: true`. Without it
-   * a rejected token and a switched-off integration look identical on screen.
-   */
-  sampleReason?: LdbFallbackReason;
-  /** Raw failure message behind `sampleReason`, for the details disclosure. */
-  sampleDetail?: string;
 }

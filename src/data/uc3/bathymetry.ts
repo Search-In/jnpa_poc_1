@@ -340,3 +340,100 @@ export async function fetchBathymetrySoundingPage(
     offset: Number(page?.offset ?? offset),
   };
 }
+
+/**
+ * Browser overlay budget — a survey alone is 15k–30k rows; the corpus is ~190k.
+ * Prefer every georeferenced above-design (shoal) sounding, then fill remaining
+ * slots with strided normal georeferenced soundings. All rows come from UC-3;
+ * this is display sampling of real data, not a mock set.
+ */
+export const BATHYMETRY_OVERLAY_POINT_BUDGET = 18_000;
+
+export interface BathymetryOverlayPayload {
+  soundings: BathymetrySounding[];
+  surveysById: Map<number, BathymetrySurvey>;
+}
+
+/**
+ * Load georeferenced soundings for the map overlay from UC-3.
+ *
+ * Pages `/marine/bathymetry/soundings` per survey (gateway requires `survey_id`).
+ * Silent empty result when the register has no charts yet — same posture as sea channels.
+ */
+export async function fetchBathymetryOverlaySoundings(
+  budget = BATHYMETRY_OVERLAY_POINT_BUDGET,
+): Promise<BathymetryOverlayPayload> {
+  const surveys = await fetchBathymetrySurveys({ sort: 'drawing_no', direction: 'asc' });
+  const surveysById = new Map(surveys.map((s) => [s.surveyId, s]));
+  const withData = surveys.filter((s) => s.soundingCount > 0);
+  if (!withData.length) return { soundings: [], surveysById };
+
+  const pageSize = BATHYMETRY_SOUNDING_MAX_LIMIT;
+  const collected: BathymetrySounding[] = [];
+  const seen = new Set<number>();
+
+  const push = (rows: BathymetrySounding[]) => {
+    for (const row of soundingsWithPosition(rows)) {
+      if (seen.has(row.soundingId)) continue;
+      seen.add(row.soundingId);
+      collected.push(row);
+      if (collected.length >= budget) return true;
+    }
+    return false;
+  };
+
+  // 1) Shoals first — ops-critical and usually a minority of the corpus.
+  for (const survey of withData) {
+    if (collected.length >= budget) break;
+    let offset = 0;
+    for (;;) {
+      const page = await fetchBathymetrySoundingPage(
+        survey.surveyId,
+        { aboveDesign: true, georeferenced: true },
+        pageSize,
+        offset,
+      );
+      if (push(page.items)) break;
+      offset += page.limit;
+      if (page.items.length === 0 || offset >= page.total) break;
+    }
+  }
+
+  // 2) Fill remaining budget with normal georeferenced soundings (strided pages).
+  if (collected.length < budget) {
+    for (const survey of withData) {
+      if (collected.length >= budget) break;
+      const first = await fetchBathymetrySoundingPage(
+        survey.surveyId,
+        { aboveDesign: false, georeferenced: true },
+        pageSize,
+        0,
+      );
+      if (first.total <= 0) continue;
+      const remain = budget - collected.length;
+      const surveysLeft = Math.max(1, withData.length);
+      const share = Math.max(pageSize, Math.ceil(remain / surveysLeft));
+      const stride = Math.max(pageSize, Math.floor(first.total / Math.max(1, Math.ceil(share / pageSize))));
+      let offset = 0;
+      let takenForSurvey = 0;
+      while (collected.length < budget && takenForSurvey < share && offset < first.total) {
+        const page =
+          offset === 0
+            ? first
+            : await fetchBathymetrySoundingPage(
+                survey.surveyId,
+                { aboveDesign: false, georeferenced: true },
+                pageSize,
+                offset,
+              );
+        const before = collected.length;
+        if (push(page.items)) break;
+        takenForSurvey += collected.length - before;
+        offset += stride;
+        if (page.items.length === 0) break;
+      }
+    }
+  }
+
+  return { soundings: collected.slice(0, budget), surveysById };
+}

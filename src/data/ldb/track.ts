@@ -7,12 +7,11 @@
  *
  * Token comes from mobile OTP (`otp-sms/generate` + `otp-sms/verify`). One
  * verified session tracks ANY container until LDB returns 401.
+ * Live API only — no bundled sample / offline fallback.
  */
 
 import { env } from '@/data/config';
-import { classifyLdbFailure } from './failure';
 import { mapTrackResponse } from './mapper';
-import { SAMPLE_CONTAINER_NO, sampleContainerTrack } from './sample';
 import {
   clearSearateToken,
   getSearateToken,
@@ -26,7 +25,11 @@ export function isValidContainerNo(raw: string): boolean {
   return /^[A-Z]{4}\d{7}$/.test(raw.trim().toUpperCase());
 }
 
-export function ldbTrackUrl(cntrNo: string, mobileNo: string, proxyBase = env.ldb.proxyBase): string {
+export function ldbTrackUrl(
+  cntrNo: string,
+  mobileNo: string,
+  proxyBase = env.ldb.proxyBase
+): string {
   const root = proxyBase.replace(/\/+$/, '');
   const q = new URLSearchParams({
     cntrNo: cntrNo.trim().toUpperCase(),
@@ -53,7 +56,7 @@ function isUnauthorizedPayload(json: unknown, status: number): boolean {
 async function fetchTrackOnce(
   cntrNo: string,
   mobileNo: string,
-  bearer: string,
+  bearer: string
 ): Promise<ContainerTrackResult> {
   // LDB Angular client uses POST (empty body) + query params — match that.
   const res = await fetch(ldbTrackUrl(cntrNo, mobileNo), {
@@ -74,16 +77,14 @@ async function fetchTrackOnce(
 
   if (isUnauthorizedPayload(json, res.status)) {
     clearSearateToken();
-    throw new LdbAuthRequiredError(
-      'Your session expired. Please verify your mobile number again.',
-    );
+    throw new LdbAuthRequiredError('Your session expired. Please verify your mobile number again.');
   }
 
   if (!res.ok) {
     throw new Error('Couldn’t look up this container. Please try again.');
   }
 
-  const mapped = mapTrackResponse(json, cntrNo, false);
+  const mapped = mapTrackResponse(json, cntrNo);
   if (!mapped) {
     throw new Error('No tracking details found for this container.');
   }
@@ -97,9 +98,7 @@ async function fetchLive(cntrNo: string, mobileNoHint: string): Promise<Containe
 
   const bearer = getSearateToken();
   if (!bearer) {
-    throw new LdbAuthRequiredError(
-      'Please verify your mobile number to track a container.',
-    );
+    throw new LdbAuthRequiredError('Please verify your mobile number to track a container.');
   }
 
   // Prefer mobile from the signed-in session over the form hint.
@@ -112,12 +111,12 @@ async function fetchLive(cntrNo: string, mobileNoHint: string): Promise<Containe
 }
 
 /**
- * Track a container by id. Requires an OTP-verified searateToken (shared for
- * every container until expiry).
+ * Track a container by id against live LDB. Requires an OTP-verified
+ * searateToken (shared for every container until expiry).
  */
 export async function trackContainerById(
   cntrNo: string,
-  mobileNo: string = env.ldb.mobileNo,
+  mobileNo: string = env.ldb.mobileNo
 ): Promise<ContainerTrackResult> {
   const no = cntrNo.trim().toUpperCase();
   if (!no) throw new Error('Container number is required');
@@ -132,23 +131,13 @@ export async function trackContainerById(
     // on ("verify your mobile number"), and answering it with a demo track would
     // hide the only actionable state this panel has.
     if (err instanceof LdbAuthRequiredError) throw err;
-
-    // The sample is served ONLY for the container it actually describes. Any
-    // other number would otherwise render CCLU7468361's journey with the typed
-    // number swapped in — a fabricated record presented as a lookup result.
-    if (env.ldb.useSampleFallback && no === SAMPLE_CONTAINER_NO) {
-      // Carry WHY forward. With the fallback on, a dead proxy, an empty record
-      // and a switched-off integration otherwise render as the same
-      // successful-looking demo track — which is exactly what makes a live
-      // switch-over impossible to verify.
-      const { reason, detail } = classifyLdbFailure(err);
-      return { ...sampleContainerTrack(), sampleReason: reason, sampleDetail: detail };
-    }
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
-      reason.startsWith('Couldn’t') || reason.startsWith('No tracking') || reason.startsWith('Enter')
+      reason.startsWith('Couldn’t') ||
+        reason.startsWith('No tracking') ||
+        reason.startsWith('Enter')
         ? reason
-        : `Couldn’t track ${no}. Please try again.`,
+        : `Couldn’t track ${no}. Please try again.`
     );
   }
 }

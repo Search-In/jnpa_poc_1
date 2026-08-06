@@ -44,7 +44,7 @@ export function tideFieldLayer(): MediaLayer {
 export function updateTideField(
   layer: MediaLayer,
   stations: TideStation[],
-  v: FieldVar,
+  v: FieldVar
 ): [number, number] | null {
   const source = layer.source as LocalMediaElementSource;
   const elements = source.elements;
