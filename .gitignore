@@ -28,3 +28,6 @@ package-lock.json
 pnpm-lock.yaml
 
 docs/Bathymetry Data/
+
+# local DB dumps (never commit)
+backups/

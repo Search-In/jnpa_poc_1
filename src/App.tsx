@@ -59,7 +59,9 @@ import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
 import { BathymetryPage } from '@/components/marine/BathymetryPage';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
+import { WindFieldLegend } from '@/components/WindFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
+import { useWindFieldStore } from '@/map/windFieldStore';
 import { useLiveVesselStore } from '@/map/liveVesselStore';
 import { env } from '@/data/config';
 import { Scenarios } from '@/sim/ScenariosPanel';
@@ -153,6 +155,8 @@ export function App() {
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
   const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
+  const windFieldVisible = useWindFieldStore((s) => s.visible);
+  const toggleWindField = useWindFieldStore((s) => s.toggleVisible);
   // Live AIS overlay (real MarineTraffic-sourced traffic via the shared gateway).
   // Shared store, not local state, so the toggle survives a 2D↔3D flip.
   const liveAisOn = useLiveVesselStore((s) => s.enabled);
@@ -350,6 +354,15 @@ export function App() {
                 </CalciteButton>
                 <CalciteButton
                   scale="s"
+                  appearance={windFieldVisible ? 'solid' : 'outline'}
+                  iconStart="wind"
+                  title="Toggle Zoom Earth–style wind particle overlay (Open-Meteo 10 m)"
+                  onClick={() => toggleWindField()}
+                >
+                  Wind
+                </CalciteButton>
+                <CalciteButton
+                  scale="s"
                   appearance="outline"
                   iconStart="exclamation-mark-triangle"
                   title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
@@ -389,6 +402,19 @@ export function App() {
               {tideFieldVisible && (
                 <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 5 }}>
                   <TideFieldLegend />
+                </div>
+              )}
+              {/* Wind particle colourbar — bottom-right above tide legend when both on. */}
+              {windFieldVisible && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: tideFieldVisible ? 120 : 12,
+                    right: 12,
+                    zIndex: 5,
+                  }}
+                >
+                  <WindFieldLegend />
                 </div>
               )}
             </div>

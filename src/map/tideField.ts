@@ -112,8 +112,8 @@ export function fieldRange(stations: TideStation[], v: FieldVar): [number, numbe
  * 0..1 diagonal position toward the NE corner; anything past `LAND_EDGE` fades.
  */
 const LAND_EDGE = 0.72;
-function landAlpha(nx: number, ny: number): number {
-  // nx,ny are 0..1 across the extent (E and N). NE corner = (1,1) = land.
+/** nx,ny are 0..1 across the extent (E and N). NE corner = (1,1) = land. */
+export function fieldLandAlpha(nx: number, ny: number): number {
   const toLand = (nx + ny) / 2; // diagonal position toward NE
   if (toLand <= LAND_EDGE) return 1;
   return Math.max(0, 1 - (toLand - LAND_EDGE) / (1 - LAND_EDGE));
@@ -166,7 +166,7 @@ export function renderFieldCanvas(
       const lon = xmin + nx * (xmax - xmin);
       const val = idw(lon, lat, stations, v);
       const [r, g, b] = viridis((val - lo) / span);
-      const a = Math.round(255 * 0.82 * landAlpha(nx, ny)); // 0.82 = see basemap through
+      const a = Math.round(255 * 0.82 * fieldLandAlpha(nx, ny)); // 0.82 = see basemap through
       const o = (py * GRID_W + px) * 4;
       img.data[o] = r;
       img.data[o + 1] = g;
