@@ -50,10 +50,13 @@ export interface Vessel {
   TIMESTAMP: number;
   /**
    * Provenance of this position: 'live' = a real AIS fix from aisstream.io;
-   * 'mock' (or undefined) = the deterministic simulated fleet. Lets the map/feed
-   * badge real vessels so the twin never passes simulated traffic off as live.
+   * 'mock' (or undefined) = the deterministic simulated fleet; 'derived' = a real
+   * vessel whose STATE comes from the ingested operational ledger (PCS messages /
+   * berthing reports / pilot cards) with a position synthesised from port geometry
+   * — real identity, real state, indicative position. Lets the map/feed badge each
+   * hull so the twin never passes simulated or derived traffic off as live.
    */
-  SOURCE?: 'mock' | 'live';
+  SOURCE?: 'mock' | 'live' | 'derived';
 }
 
 /** A berth (quay position). Maps to the **Berths** layer. */
@@ -66,6 +69,23 @@ export interface Berth {
   STATUS: BerthStatus;
   /** Polygon ring [[lon, lat], ...] in WGS84. */
   GEOM: number[][];
+  /**
+   * Occupancy sub-state when STATUS === 'occupied' (spec UI-022): 'working' =
+   * cargo operations running; 'idle' = a ship alongside that is NOT working —
+   * the most expensive state in the port, deliberately distinct so it is never
+   * hidden inside plain "occupied". Absent on sources that cannot tell.
+   */
+  OCCUPANCY?: 'working' | 'idle';
+  /** Name of the vessel currently alongside, when the source knows it. */
+  VESSEL_NAME?: string | null;
+  /** Alongside-since (epoch ms), when the source knows it. */
+  OCCUPIED_SINCE?: number | null;
+  /**
+   * True when LENGTH_M / DRAFT_M are PoC planning assumptions (published quay
+   * totals divided per berth — assumption A-M1) rather than surveyed values;
+   * consumers rendering the numbers must show the provenance.
+   */
+  DIMENSIONS_ASSUMED?: boolean;
 }
 
 /**
@@ -87,6 +107,17 @@ export interface BerthingPlanEntry {
   /** Actual time departed / ATD (epoch ms), null until it happens. */
   ACTUAL_END: number | null;
   STATUS: PlanStatus;
+  /**
+   * Plan-entry provenance (spec UI-028): 'confirmed' = received from the JNPA
+   * berthing feed (terminal reports); 'indicative' = twin-generated from PCS
+   * declarations. The Gantt must style the two differently — nobody may mistake
+   * a twin projection for the port's plan. Absent on mock/ArcGIS entries.
+   */
+  KIND?: 'confirmed' | 'indicative';
+  /** True when PLANNED_END was defaulted (source carried no end time). */
+  END_ESTIMATED?: boolean;
+  /** Human-readable source, e.g. 'JNPA terminal berthing reports'. */
+  PROVENANCE?: string;
 }
 
 /** Pilot / tug / mooring craft. Maps to the **PortCraft** layer. */
@@ -193,4 +224,745 @@ export interface ArrivalsDeparturesBlock {
   label: string;
   arrivals: number;
   departures: number;
+}
+
+/**
+ * A shipping line (ocean carrier) in the shared JNPA registry — the master list
+ * behind `GET /api/shipping-lines/lines` on the UC-3 backend.
+ *
+ * Unlike `Vessel` / `Berth` / `BerthingPlanEntry` above, this does NOT mirror an
+ * ArcGIS Feature Service schema, so it follows the camelCase convention used by
+ * the other non-Feature-Service types here (`WeatherReading`,
+ * `ArrivalsDeparturesBlock`, the prediction fields) rather than UPPER_SNAKE.
+ * Timestamps are epoch ms, matching every other time field in this file.
+ */
+export interface ShippingLine {
+  /** Carrier code as it appears in the source advance lists, e.g. 'KMD'. */
+  lineCode: string;
+  /**
+   * Display name. The backend column `line_name` is currently ALWAYS null — the
+   * importer upserts `line_code` only — so this falls back to `lineCode`. It is
+   * therefore never null here, and a code showing where a name is expected is
+   * correct behaviour, not missing data.
+   */
+  lineName: string;
+  /** How the code was discovered, e.g. 'ADVANCE_LIST'. */
+  source: string;
+  /** First import that produced this code (epoch ms; 0 when unparseable). */
+  firstSeen: number;
+  /** Most recent import touching this code (epoch ms; 0 when unparseable). */
+  lastSeen: number;
+  /** Advance-list container rows attributed to this carrier. */
+  containerCount: number;
+}
+
+/**
+ * Dashboard counts for the Shipping Lines layer, from `GET /api/shipping-lines/summary`
+ * (the `totals` block). Every field is a count (0 against an empty backend). camelCase +
+ * epoch-agnostic, matching the ShippingLine convention above.
+ */
+export interface ShippingLinesSummary {
+  /** Import-ledger files processed. */
+  files: number;
+  /** IAL/EAL advance-list line items. */
+  advanceContainers: number;
+  /** Distinct container numbers across the advance lists. */
+  distinctContainers: number;
+  /** EDO / CODECO delivery orders. */
+  deliveryOrders: number;
+  /** Carrier codes in the registry. */
+  shippingLines: number;
+  /** Advance-list rows carrying a Bill of Lading. */
+  withBl: number;
+  /** Import files that failed. */
+  failedFiles: number;
+}
+
+/* ==========================================================================
+ * UC-1 Marine — vessel CALLS (UC-3 backed, `core.vessel_call`).
+ *
+ * A vessel CALL is a port VISIT (one row per arrival→departure), sourced from
+ * the NLP-Marine PCS message family (CALINF → BERMAN → BERALT/PLTMEM → VESARR →
+ * VESDEP → CALINV) and normalised by the UC-3 backend.
+ *
+ * This is a DIFFERENT entity from `Vessel` above: `Vessel` is live AIS/simulated
+ * telemetry (position, SOG/COG, nav status) driving the 3D scene and the
+ * simulator; `VesselCall` is scheduling/actuals reference data with no position.
+ * They are NOT joinable today — a call carries IMO/VCN, a Vessel carries MMSI —
+ * so the two must never be merged into one table or one feed.
+ *
+ * Convention (same as ShippingLine): camelCase fields, timestamps as epoch ms
+ * with 0 meaning "unknown/absent", never null.
+ * ========================================================================== */
+
+/** One vessel call (port visit). Mirrors `core.vessel_call`. */
+export interface VesselCall {
+  /** Surrogate key; the only field the UI can reliably key on. */
+  callId: number;
+  /** Full PCS Vessel Call Number, e.g. 'INNSA1BM0R3119'. '' when not yet assigned. */
+  vcn: string;
+  /** Short VIA form, e.g. 'S0561'. Recycles across years — NOT unique. */
+  viaNo: string;
+  /** IMO number. '' when the call is not yet linked to a vessel master row. */
+  imoNo: string;
+  vesselName: string;
+  voyageNo: string;
+  rotationNo: string;
+  /** FK to the terminal dimension; null when the PCS terminal code did not resolve. */
+  terminalId: number | null;
+  /**
+   * Canonical terminal code for `terminalId` (e.g. 'BMCT'), resolved server-side from the
+   * CALINF DockORTOCode or the BERMAN VCN infix. '' when unresolved — 12 of 20 corpus
+   * CALINFs declare only the PORT code (INJNP1), which is deliberately not a terminal.
+   */
+  terminalCode: string;
+  /** FK to the berth dimension; null until a berth is allotted/resolved (BERALT). */
+  berthId: number | null;
+  /**
+   * Canonical berth code for `berthId` (e.g. 'CB05'), resolved server-side from the
+   * BERALT allotment. '' until a berth is allotted — a call that is only planned or
+   * berth-applied has no berth yet, which is a stage, not missing data.
+   */
+  berthCode: string;
+  purpose: string;
+  /**
+   * PARSER stage. The column is free-text by design (migration 0038 [D8]); the parser
+   * layer supplies the vocabulary — 'Planned' (CALINF) → 'Berth Planned' (BERMAN), with
+   * later stages added by the actuals messages.
+   *
+   * This is the stage the MESSAGES reached, not where the vessel is. For the operational
+   * state prefer `lifecycle.status` and fall back to this — see `lifecycle` below.
+   */
+  status: string;
+  /**
+   * DERIVED operational state from the backend Marine Projection, returned alongside
+   * `status` on the list endpoint. Null when the projection has nothing for this call —
+   * a real state (nothing ingested yet), not an error.
+   *
+   * Nothing is computed client-side: this is a read of a value the API already sends.
+   */
+  lifecycle: CallLifecycle | null;
+  /** Linked customs manifest number, when known. */
+  igmNo: number | null;
+  sourceNote: string;
+  /** Estimated: arrival / berthing / departure (epoch ms; 0 = unknown). */
+  eta: number;
+  etb: number;
+  etd: number;
+  /** Actual: arrival / completion-of-ops / departure (epoch ms; 0 = unknown). */
+  ata: number;
+  atc: number;
+  atd: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * One fine-grained actual on a call (anchored, pilot boarded, all fast, sailed…).
+ * The backend permits REPEATED event types at different timestamps (shifting, a
+ * second anchoring), so consumers must order by `eventTs` and never assume a
+ * milestone appears at most once.
+ */
+/**
+ * Business state of a call, derived SERVER-SIDE by the Marine Projection Layer and
+ * returned inside the timeline response. Nothing here is computed in the browser.
+ */
+export interface CallLifecycle {
+  /** Engine status: the parser stage until milestones exist, then 'At Berth'/'Departed'. */
+  status: string;
+  arrivalState: string;
+  berthState: string;
+  pilotState: string;
+  departureState: string;
+  shippingState: string;
+  /** DEMAND: the engine's verdict on whether this movement REQUIRES craft. */
+  portcraftState: string;
+  /** SUPPLY: whether any craft is actually engaged — Idle | Committed | Dispatched |
+   *  OnScene | Assisting. Derived by state_engine from the craft ledger events. */
+  craftState: string;
+  /** How many craft are committed right now. */
+  craftCommitted: number;
+  isInPort: boolean;
+  isAtBerth: boolean;
+  /** Highest-RANK milestone reached — not the latest by clock. */
+  latestEvent: string;
+}
+
+export interface VesselCallEvent {
+  eventId: number;
+  callId: number;
+  /** e.g. 'BERTH_ALLOTTED' | 'ANCHORED' | 'PILOT_BOARDED' | 'SAILED'. Free-text. */
+  eventType: string;
+  /** Epoch ms; 0 = unparseable (the backend requires this column, so 0 is a red flag). */
+  eventTs: number;
+  berthId: number | null;
+  /** Canonical code for `berthId` (e.g. 'CB05'); '' when the milestone names no berth. */
+  berthCode: string;
+  sourceFile: number | null;
+  createdAt: number;
+}
+
+/** Aggregate KPIs over the vessel-call set (UC-1 turnaround / pre-berthing delay). */
+export interface MarineCallStats {
+  total: number;
+  withVcn: number;
+  withoutVcn: number;
+  arrived: number;
+  inPort: number;
+  opsCompleted: number;
+  departed: number;
+  terminals: number;
+  /** Mean (atd − ata) in hours; null when no call has both actuals. */
+  avgTurnaroundHours: number | null;
+  /**
+   * Mean (ata − eta) in hours; null when unavailable. MAY BE NEGATIVE — a vessel
+   * arriving ahead of its ETA is real signal, not an error.
+   */
+  avgPreBerthDelayHours: number | null;
+  byStatus: { status: string; count: number }[];
+  byTerminal: { terminalId: number | null; count: number; inPort: number }[];
+}
+
+/** One row of the Marine CSV import ledger (`core.marine_import_files`). */
+export interface MarineUploadFile {
+  id: number;
+  filename: string;
+  fileHash: string;
+  /** 'CSV' today; the ledger allows XLS/XLSX/PDF for later formats. */
+  physicalFormat: string;
+  uploadedBy: string;
+  /** 'PENDING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED_DUPLICATE'. */
+  status: string;
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+  duplicateRows: number;
+  /** 'UPLOAD' (interactive) | 'DIRECTORY' (CLI importer). */
+  source: string;
+  errorDetail: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One per-row parse/validation error attached to an upload. */
+export interface MarineUploadRowError {
+  id: number;
+  /** 1-based source row; null for file-level (structural) errors. */
+  rowNumber: number | null;
+  errorMessage: string;
+  rawData: string;
+  createdAt: number;
+}
+
+/* ==========================================================================
+ * UC-1 Marine — PILOTAGE movements (UC-3 backed, `core.pilotage`).
+ *
+ * One pilot-card movement (INWARD / OUTWARD / SHIFTING) from Pilot_card_data.xlsx,
+ * ingested through the shared marine upload endpoints. Marine-side ACTUALS (pilot
+ * boarded / first line / all fast / disembark), distinct from the vessel-call spine
+ * and from live AIS. camelCase + epoch-ms (0 = unknown), never null, matching the
+ * other UC-3 connectors. Sheet-specific columns are preserved verbatim in `extras`.
+ * ========================================================================== */
+export interface Pilotage {
+  pilotageId: number;
+  /** INWARD | OUTWARD | SHIFTING (the source sheet name). */
+  movementType: string;
+  /** Linked vessel call when resolvable by VIA; null otherwise. */
+  callId: number | null;
+  viaNo: string;
+  imoNo: string;
+  vesselName: string;
+  /** Pilot roster code (e.g. 'JP 91'). */
+  pilotCode: string;
+  vesselCondition: string;
+  fromBerthId: number | null;
+  toBerthId: number | null;
+  draftFwdM: number | null;
+  draftAftM: number | null;
+  /** Marine actuals (epoch ms; 0 = unknown). */
+  pilotBoardedAt: number;
+  firstLineAt: number;
+  allFastAt: number;
+  pilotDisembarkedAt: number;
+  berthVacatedAt: number;
+  anchorDownAt: number;
+  anchorUpAt: number;
+  submittedAt: number;
+  /** Sheet-specific columns not promoted to canonical fields (verbatim). */
+  extras: Record<string, unknown>;
+  importFileId: number | null;
+  /**
+   * Workflow position for THIS movement, derived by the backend Marine Projection Layer
+   * from the linked call's events (services/marine/pilot_status.py) and returned inside
+   * the open `extras` jsonb. Null when the movement has no linked call.
+   *
+   * Nothing here is computed client-side — this is a read of a value the API already
+   * sends, so the projection stays the single source of truth.
+   */
+  lifecycle: PilotageLifecycle | null;
+}
+
+/** The lifecycle block the gateway nests under `extras.lifecycle` on a pilotage row. */
+export interface PilotageLifecycle {
+  /** Planned | Pilot Requested | Pilot Boarded | Pilot Completed | Departure Pilot Completed. */
+  pilotStatus: string;
+  /** Card time, else the call's BERTHED milestone — already merged by the backend. */
+  allFastAt: number;
+  pilotBoardedAt: number;
+  /** The linked vessel call, and its engine status ('At Berth', 'Departed'…). */
+  callId: number | null;
+  callStatus: string;
+}
+
+/* ==========================================================================
+ * UC-1 Marine — VESSEL MASTER register (UC-3 backed, `core.vessel`).
+ *
+ * The port-approved HULL registry sourced from VESPRO (vessel-profile) messages and
+ * ingested via the shared marine upload endpoints. Keyed on IMO.
+ *
+ * Three distinct vessel-shaped entities exist in this app and must never be merged:
+ *   • `Vessel`       — live AIS / simulated telemetry (position, SOG/COG), keyed on MMSI.
+ *   • `VesselCall`   — one port VISIT (arrival→departure), keyed on VCN, carries IMO.
+ *   • `VesselMaster` — the HULL and its particulars (this type), keyed on IMO.
+ * A hull has many calls; a call may exist before its hull is known (a CALINF-seeded call
+ * carries no vessel row yet), so `VesselCall.imoNo` may not resolve here.
+ *
+ * VESPRO is a SPARSE document: TEU appears in 6 of the 9 corpus files and MMSI in 2, so
+ * numeric particulars are null when the message omits them — never 0, which would read as
+ * "a vessel with no capacity". Thrusters are tri-state: null means "fit not stated".
+ * ========================================================================== */
+export interface VesselMaster {
+  /** IMO number — the natural key. Always present (the parser rejects a hull without it). */
+  imoNo: string;
+  vesselName: string;
+  callSign: string;
+  flag: string;
+  /** PCS numeric type code as printed, e.g. '1534'. */
+  vesselType: string;
+  loaM: number | null;
+  beamM: number | null;
+  lbpM: number | null;
+  maxDraftM: number | null;
+  grt: number | null;
+  nrt: number | null;
+  dwt: number | null;
+  teuCapacity: number | null;
+  /** Text, never coerced to a number — leading zeros are significant. */
+  mmsi: string;
+  engineType: string;
+  propulsionType: string;
+  maxSpeedKn: number | null;
+  /** Tri-state: null = fit not stated in the message. */
+  bowThruster: boolean | null;
+  sternThruster: boolean | null;
+  /** ISO date (yyyy-mm-dd) as returned, or '' when absent. */
+  builtDate: string;
+  regPort: string;
+  ownerName: string;
+  /** P&I cover; populated on the single-vessel read only, [] on list rows. */
+  insurance: { piClub: string; validUntil: string }[];
+}
+
+/* ==========================================================================
+ * UC-1 Marine — PORT CRAFT register (UC-3 backed, `core.port_craft`).
+ *
+ * The static tug/launch fleet REGISTER from Details_of_Port_Crafts.pdf (particulars:
+ * LOA, bollard pull, owner, engines), ingested via the shared marine upload endpoints.
+ * DISTINCT from `PortCraftUnit` above — that is live-ops telemetry (status / assigned
+ * MMSI / response time) from the mock adapter; this is the reference register. The two
+ * are never merged. camelCase; numeric particulars are null when the PDF omits them.
+ * ========================================================================== */
+export interface PortCraft {
+  craftId: number;
+  name: string;
+  /** Tug | Launch | Pilot Launch | VIP Launch | … */
+  craftType: string;
+  ownedOrHired: string;
+  ownerName: string;
+  /** As printed — mixed 'Apr-18' / '2020'. */
+  yearBuilt: string;
+  loaM: number | null;
+  breadthM: number | null;
+  draftM: number | null;
+  mainEngines: string;
+  bollardPullT: number | null;
+  designSpeedKn: number | null;
+  /** Raw parsed row + any unparsed remainder (never-drop-client-data). */
+  extras: Record<string, unknown>;
+}
+
+/* ==========================================================================
+ * UC-1 Marine — SEA CHANNEL geometry (UC-3 backed, `core.sea_channel`).
+ *
+ * A JNPA navigation channel / anchorage / berth-pocket polygon from the
+ * JNPA_Sea_Channels ESRI shapefile, ingested via the shared marine upload endpoints.
+ * Geometry is GeoJSON reprojected to WGS84 (EPSG:4326) at parse time — the DUKC /
+ * tidal-window static overlay. camelCase; numeric fields null when the source omits.
+ * ========================================================================== */
+export interface SeaChannelGeometry {
+  type: 'Polygon';
+  /** WGS84 rings: [[[lon, lat], …], …]. */
+  coordinates: number[][][];
+}
+
+export interface SeaChannel {
+  channelId: number;
+  name: string;
+  sectionLabel: string;
+  areaHa: number | null;
+  lengthM: number | null;
+  /** GeoJSON Polygon (WGS84), or null if the record carried no geometry. */
+  geometry: SeaChannelGeometry | null;
+}
+
+/* ==========================================================================
+ * UC-1 Marine — BATHYMETRY (UC-3 backed, `core.bathymetry_survey/_sounding`).
+ *
+ * Depth soundings extracted from the JNPA multibeam chart PDFs (or pushed as canonical
+ * JSON) through the shared marine upload endpoints. A survey is one chart; a sounding is
+ * one plotted depth on it.
+ *
+ * Two properties drive the UI and are NOT defects:
+ *  • `depthM` is metres BELOW Chart Datum, and `aboveDesign` marks a shoal plotted red —
+ *    the sounding is shallower than the design depth, i.e. a hazard, not a deep spot.
+ *  • Coordinates are NULLABLE. Charts whose page->UTM grid could not be fitted carry only
+ *    page coordinates, so any map overlay must skip those rather than assume 0/0.
+ * camelCase; numeric fields null when the source omits. Surveys are few (~12); soundings
+ * are MANY (15k-30k per survey), so they are always read scoped + paginated.
+ * ========================================================================== */
+export interface BathymetrySurvey {
+  surveyId: number;
+  /** Natural key — the chart's drawing number. */
+  drawingNo: string;
+  sectionLabel: string;
+  /** Design depth below Chart Datum (m), null when the title block omits it. */
+  designDepthM: number | null;
+  surveyStart: string;
+  surveyEnd: string;
+  surveyVessel: string;
+  /** Soundings currently stored for this survey (0 before its chart is imported). */
+  soundingCount: number;
+}
+
+/** UTM Zone 43N (EPSG:32643) extent of a survey's georeferenced soundings. */
+export interface BathymetryBBox {
+  minEastingM: number | null;
+  maxEastingM: number | null;
+  minNorthingM: number | null;
+  maxNorthingM: number | null;
+}
+
+export interface BathymetrySurveyStats {
+  surveyId: number;
+  drawingNo: string;
+  designDepthM: number | null;
+  soundingCount: number;
+  /** Soundings shallower than design depth (plotted red on the chart). */
+  aboveDesignCount: number;
+  /** Soundings carrying easting/northing; may be 0 on a page-space-only chart. */
+  georeferencedCount: number;
+  minDepthM: number | null;
+  maxDepthM: number | null;
+  avgDepthM: number | null;
+  /** Null when the survey has no georeferenced soundings. */
+  bbox: BathymetryBBox | null;
+}
+
+export interface BathymetrySounding {
+  soundingId: number;
+  surveyId: number;
+  /** UTM 43N; null on an ungeoreferenced chart. */
+  eastingM: number | null;
+  northingM: number | null;
+  /** WGS84; null on an ungeoreferenced chart. */
+  lat: number | null;
+  lon: number | null;
+  /** Metres below Chart Datum. */
+  depthM: number;
+  /** True = shallower than design depth (shoal). */
+  aboveDesign: boolean;
+  /** Chart page coordinates — always present, the fallback locator. */
+  pageXPt: number | null;
+  pageYPt: number | null;
+}
+
+/* ==========================================================================
+ * Berthing Reports (UC-III module 7, UC-3 backed, `jnpa.berthing_reports`).
+ *
+ * The reported per-terminal berthing vessel-call for the five JNPA container terminals
+ * (APMT / BMCT / NSFT / NSICT / NSIGT), parsed from the daily terminal reports and
+ * ingested through the Berthing Data-Upload endpoints. This is the ACTUALS layer
+ * (EXPECTED → … → DEPARTED), DISTINCT from the forward-looking `BerthingPlanEntry`
+ * 5-Day plan above — the two are never merged. camelCase; timestamps are epoch ms
+ * (0 = unknown), text fields '' rather than null, matching the other UC-3 connectors.
+ * ========================================================================== */
+export interface BerthingReport {
+  id: number;
+  /** APMT | BMCT | NSFT | NSICT | NSIGT. */
+  terminal: string;
+  vesselName: string;
+  /** Absent in every source file today — kept for forward-compatibility ('' when unknown). */
+  imoNumber: string;
+  /** JNPA rotation / VIA no (e.g. S0561). */
+  voyageNumber: string;
+  shippingLine: string;
+  /** NSFT reports carry no berth column → '' there. */
+  berthNumber: string;
+  /** EXPECTED | ARRIVED | BERTH_ASSIGNED | BERTHING_STARTED | CARGO_OPERATION | COMPLETED | DEPARTED. */
+  status: string;
+  sourceFile: string;
+  /** Lifecycle timestamps (epoch ms; 0 = unknown). */
+  eta: number;
+  ata: number;
+  berthingTime: number;
+  departureTime: number;
+  cargoOperationStart: number;
+  cargoOperationEnd: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Aggregate KPIs over the berthing-report set (per-terminal counts + berth time). */
+export interface BerthingStats {
+  total: number;
+  expected: number;
+  arrived: number;
+  berthed: number;
+  completed: number;
+  departed: number;
+  terminals: number;
+  /** Mean (departure − ata) in hours; null when no call has both. */
+  avgBerthHours: number | null;
+  byTerminal: { terminal: string; count: number; berthed: number }[];
+}
+
+/* ==========================================================================
+ * UC-1 Shipping Lines — cargo documents (UC-3 backed).
+ *
+ * The document layer behind the carrier registry above: IAL/EAL advance-list
+ * container line items (`core.advance_list_container`) and EDO/CODECO delivery
+ * orders (`core.delivery_order_line`), plus the import ledger
+ * (`core.sl_import_file`).
+ *
+ * Convention (same as ShippingLine): camelCase fields, timestamps as epoch ms
+ * with 0 meaning "unknown/absent", never null; free-text as '' never null;
+ * genuinely optional numerics stay `number | null` so "absent" is not shown as 0.
+ * ========================================================================== */
+
+/** One IAL/EAL advance-list container line item. */
+export interface AdvanceListItem {
+  /** Stable list key. The server's `id` when present, else a composite of the
+   *  row's business key and position — identity never gates whether a row renders. */
+  id: string;
+  /** Import-ledger file this row came from. */
+  importFileId: number | null;
+  /** 'IAL' (import) | 'EAL' (export) — derived by the backend from `direction`. */
+  listType: string;
+  /** Terminal code, e.g. 'NSICT'. */
+  terminal: string;
+  containerNo: string;
+  isoCode: string;
+  /** ISO code passed the backend's checksum validation. */
+  containerValidIso: boolean;
+  /** 'FULL' | 'EMPTY' | '' — derived by the backend from `load_status`. */
+  freightKind: string;
+  /** 'IMPORT' | 'EXPORT' | 'TRANSHIP' | 'OTHER' | ''. */
+  category: string;
+  /** Normalised to kg by the backend (MT sources are multiplied). */
+  grossWeightKg: number | null;
+  /** Source unit before normalisation ('KG' | 'MT' | ''). */
+  weightSourceUom: string;
+  /** Port of loading / discharge (UN/LOCODE-ish source values). */
+  pol: string;
+  pod: string;
+  destination: string;
+  /** Carrier code; joins the registry's `lineCode`. */
+  shippingLineCode: string;
+  /** Composite vessel+voyage+call string, e.g. 'KMIS0276'. NOT the VCN. */
+  vesselVisit: string;
+  voyage: string;
+  billOfLading: string;
+  sealNo: string;
+  reeferStatus: string;
+  reeferTemp: number | null;
+  /** IMDG dangerous-goods class (slot 1 only). */
+  imdgCode: string;
+  unNumber: string;
+  departureMode: string;
+  nominatedCfs: string;
+  /** Row ingest time (epoch ms; 0 when unknown) — the only date this row carries. */
+  createdAt: number;
+}
+
+/** One EDO / CODECO delivery-order line. */
+export interface DeliveryOrder {
+  /** Stable list key — see AdvanceListItem.id. */
+  id: string;
+  /** CODECO common reference — the closest thing to an "EDO number". */
+  commonRefNumber: string;
+  containerNo: string;
+  isoCode: string;
+  containerValidIso: boolean;
+  /** Equipment status, used as the row's status chip. */
+  equipmentStatus: string;
+  /** Agent code. NOT the same field as the registry's carrier code. */
+  shippingAgentCode: string;
+  /** Vessel Call Number, matching `core.vessel_call.vcn` by value. */
+  vcn: string;
+  imoNumber: string;
+  loadingPort: string;
+  destPort: string;
+  finalPod: string;
+  deliveryMode: string;
+  gatePassNo: string;
+  vehicleNo: string;
+  gateNumber: string;
+  /** Timestamps as epoch ms; 0 when absent. */
+  arrivalTs: number;
+  receiptDate: number;
+  gatePassTs: number;
+  issuedTs: number;
+  createdAt: number;
+}
+
+/** One row of the shipping-lines import ledger (upload history). */
+export interface ShippingUploadFile {
+  /** Stable list key — see AdvanceListItem.id. */
+  id: string;
+  /** Original file name as uploaded. */
+  sourceFile: string;
+  /** 'IAL' | 'EAL' | 'EDO'. */
+  listType: string;
+  terminal: string;
+  /** 'CSV' | 'XLS' | 'XLSX' | 'CODECO_XML'. */
+  physicalFormat: string;
+  recordCount: number;
+  importedCount: number;
+  errorCount: number;
+  /** 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED_DUPLICATE' | 'PENDING'. */
+  importStatus: string;
+  errorDetail: string;
+  uploadedBy: string;
+  /** 'UPLOAD' (through the UI) | 'DIRECTORY' (bulk importer). */
+  source: string;
+  createdAt: number;
+}
+
+/* ==========================================================================
+ * UC-1 Performance & Daily Reports (UC-3 backed, READ-ONLY).
+ *
+ * Mirrors `/api/performance` — the official JNPA Daily Status Report, monthly JN
+ * Port TEU and NLDS/LDB analytics tables (`core.perf_*`). This is a reporting
+ * surface: UC-1 only reads it, never writes, and it is served by the UC-3 gateway
+ * rather than by the DataAdapter chain.
+ *
+ * Convention note — DATES ARE KEPT AS 'YYYY-MM-DD' STRINGS here, deliberately
+ * departing from the epoch-ms convention used for instants elsewhere in this file.
+ * `report_date` is a calendar date, not a point in time; converting it to epoch ms
+ * would pin it to a timezone and can shift it a day either side of IST. It is also
+ * the value the gateway expects back in `date` / `from` / `to` parameters.
+ * ========================================================================== */
+
+/** One headline metric set. Every field is nullable — a report may omit a section. */
+export interface PerformanceMetrics {
+  totalTeus: number | null;
+  totalTonnes: number | null;
+  vesselCalls: number | null;
+  yardOccupancyPct: number | null;
+  gateTotalTeus: number | null;
+  gateInTeus: number | null;
+  gateOutTeus: number | null;
+  totalPendencyTeus: number | null;
+  reeferAvailableSlots: number | null;
+  reeferTotalSlots: number | null;
+}
+
+/** `GET /performance/kpi` — headline metrics plus day-over-day deltas. */
+export interface PerformanceKpi {
+  /** Report date these metrics describe, 'YYYY-MM-DD'. */
+  reportDate: string;
+  /** The previous report used for the deltas; '' when this is the earliest report. */
+  prevReportDate: string;
+  metrics: PerformanceMetrics;
+  /**
+   * Signed change vs `prevReportDate`, per metric. A key is ABSENT (null) when the
+   * gateway could not compute it — either metric missing on either day. Never 0 as
+   * a stand-in for "unknown".
+   */
+  deltas: Partial<Record<keyof PerformanceMetrics, number | null>>;
+}
+
+/** `GET /performance/daily/traffic` — container TEU + rail movements per terminal. */
+export interface PerformanceTraffic {
+  /** Stable list key — composite, since the row has no surrogate id. */
+  id: string;
+  reportDate: string;
+  terminalCode: string;
+  /** 'DAY' | 'MONTH' | 'YEAR' — the aggregation grain of the row. */
+  period: string;
+  vessels: number | null;
+  impTeus: number | null;
+  expTeus: number | null;
+  totalTeus: number | null;
+  rakes: number | null;
+  railDisTeus: number | null;
+  railLdgTeus: number | null;
+  railTotalTeus: number | null;
+}
+
+/** `GET /performance/terminals` — the canonical terminal dimension. */
+export interface PerformanceTerminal {
+  code: string;
+  fullName: string;
+  operator: string;
+  terminalType: string;
+  isContainer: boolean;
+  sortOrder: number | null;
+}
+
+/** `GET /performance/meta` — which report dates exist. */
+export interface PerformanceMeta {
+  /** Newest first, as returned by the gateway. */
+  reportDates: string[];
+  /** '' when no daily report has been imported yet. */
+  latestReportDate: string;
+}
+
+/**
+ * One real AIS position from the shared gateway's MarineTraffic proxy
+ * (`GET /api/marine/vessels/live`) — genuine live traffic in the JNPA / Mumbai
+ * tile window, as opposed to the simulated `Vessel` fleet above.
+ *
+ * Deliberately a SEPARATE type from `Vessel`: it carries no berth assignment,
+ * ETA, nav-status or DQ provenance (the feed has none of those), and forcing it
+ * into `Vessel` would mean inventing all four. The map layers consume it
+ * directly; nothing in the KPI/planning stack reads it.
+ *
+ * ⚠ `mmsi` is NOT a real MMSI — the backend fills it from MarineTraffic's
+ * `SHIP_ID` (falling back to `MMSI`). It is stable and unique enough to key a
+ * graphic, but must never be displayed as an MMSI or joined against one.
+ */
+export interface LiveVessel {
+  /** MarineTraffic SHIP_ID — a stable graphic key, NOT an MMSI. See above. */
+  mmsi: string;
+  vesselName: string;
+  imoNo: string | null;
+  lat: number;
+  lon: number;
+  /** Knots. The gateway already divides the upstream tenths-of-a-knot value. */
+  speedKnots: number;
+  /** Course over ground, degrees true. */
+  course: number;
+  /** Heading, degrees true. Null upstream → falls back to `course`. */
+  heading: number;
+  /** AIS ITU-R M.1371 ship type code. */
+  shipTypeCode: number;
+  /** Bucketed label the gateway derives from `shipTypeCode` ('Cargo', …). */
+  shipTypeLabel: string;
+  destination: string | null;
+  flag: string | null;
+  /** Metres. Null/0 when the vessel has sent no static report. */
+  length: number | null;
+  /** Age of the position report, seconds. */
+  elapsedSeconds: number | null;
 }

@@ -31,6 +31,7 @@ import type {
   KpiSnapshot,
   PortCraftUnit,
   PredictionPoint,
+  ShippingLine,
   TideStationsReading,
   Vessel,
   WeatherReading,
@@ -264,6 +265,10 @@ export class LiveOverlayAdapter implements DataAdapter {
   }
   getKpiHistory(window?: TimeWindow): Promise<KpiSnapshot[]> {
     return this.base.getKpiHistory(window);
+  }
+  // Carrier reference data — nothing for the AIS overlay to composite.
+  getShippingLines(): Promise<ShippingLine[]> {
+    return this.base.getShippingLines();
   }
   runWhatIf(scenario: WhatIfScenario): Promise<WhatIfResult> {
     return this.base.runWhatIf(scenario);

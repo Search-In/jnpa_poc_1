@@ -1,14 +1,26 @@
 /** Typed access to the Vite build-time env. Centralised so adapters and the
  * selector read config from one place (and missing-var errors are explicit). */
 
+import { resolveDataMode, type DataMode } from './dataMode';
+
 export interface AppEnv {
   /**
    * mock   — offline simulated fleet, zero credentials (default).
    * live   — real feeds only (Velocity StreamLayer / aisstream), no simulation.
    * hybrid — simulated JNPA fleet WITH real aisstream.io vessels layered on top
    *          (LiveOverlayAdapter). Needs VITE_AISSTREAM_TOKEN for the live layer.
+   *
+   * Validated by `resolveDataMode` (src/data/dataMode.ts) — an unrecognised value
+   * can no longer masquerade as a working configuration. See `dataModeWarning`.
    */
-  dataMode: 'mock' | 'live' | 'hybrid';
+  dataMode: DataMode;
+  /**
+   * Set when `VITE_DATA_MODE` held something unrecognised and we fell back to
+   * mock. Surfaced three ways so it cannot be missed: the build fails
+   * (vite.config.ts), the console logs it, and ConfigWarningBanner shows it in
+   * the header for values injected after the build.
+   */
+  dataModeWarning: string | null;
   portalUrl: string;
   arcgisApiKey: string;
   oauthAppId: string;
@@ -74,6 +86,74 @@ export interface AppEnv {
     /** True when the region is a coverage stand-in (not JNPA). */
     isStandIn: boolean;
   };
+  /**
+   * UC-3 shared backend (the common JNPA gateway) — the source of Shipping Line
+   * master data (`GET /api/shipping-lines/lines`, RBAC: control room + customs).
+   *
+   * Deliberately INDEPENDENT of `dataMode`: shipping-line rows are real records
+   * from the shared database whether or not the AIS feed is simulated, so mock
+   * mode must not silently imply "no UC-3" and live mode must not imply "UC-3".
+   * Two orthogonal switches — flip this one with VITE_UC3_ENABLED.
+   *
+   * SCOPE HONESTY: `username`/`password` are Vite build-time values, so they are
+   * INLINED INTO THE BUNDLE and readable by anyone with devtools. That is
+   * acceptable only for the PoC demo credential. Production must move the login
+   * server-side (a real sign-in, or token injection at the nginx tier) — the
+   * same posture note as the client-side role scoping in src/auth/roles.ts.
+   */
+  uc3: {
+    /** Master switch. Off → the app never contacts UC-3 (mock stays offline). */
+    enabled: boolean;
+    /**
+     * Path prefix the app calls, NOT an absolute origin. Left relative ("/api")
+     * so the dev proxy (vite.config.ts) and nginx keep the browser same-origin.
+     * Endpoint helpers therefore pass the SUFFIX only ("/auth/login"), never the
+     * full "/api/auth/login" — that would resolve to "/api/api/…".
+     */
+    apiBase: string;
+    /** PoC login (POST {apiBase}/auth/login). See the scope-honesty note above. */
+    username: string;
+    password: string;
+  };
+  /**
+   * NLDS Logistics Data Bank container tracking — same guest searate auth as
+   * ldb.co.in: mobile OTP → sessionStorage.searateToken → POST /apigateway/track/cntr/.
+   * One OTP session tracks any container until the JWT expires (401).
+   * Live AIS overlay — REAL vessel positions from the shared UC-3 gateway's
+   * MarineTraffic proxy (`GET /api/marine/vessels/live`). Rides on `uc3` (same
+   * base, same bearer), so it needs no origin/credential of its own; turning
+   * `uc3.enabled` off disables this too.
+   *
+   * Deliberately independent of `dataMode` for the same reason as `uc3`: the
+   * feed is real whether or not the simulated fleet is running, and the operator
+   * toggles it per-map rather than per-mode.
+   */
+  liveAis: {
+    /** Master switch for the map toggle. Off → the button is not offered. */
+    enabled: boolean;
+    /**
+     * Poll period, ms. The gateway caches upstream for 60 s, so anything faster
+     * just re-fetches identical rows; 60 s is therefore the floor that still
+     * shows every refresh the backend has.
+     */
+    pollMs: number;
+  };
+  /**
+   * NLDS Logistics Data Bank container tracking — live API only (OTP → track).
+   * Browser calls stay same-origin via `/ldb-proxy` (Vite) / nginx.
+   */
+  ldb: {
+    enabled: boolean;
+    /** Relative proxy prefix → https://ldb.co.in */
+    proxyBase: string;
+    /**
+     * Optional bootstrap searateToken (paste from LDB sessionStorage). Prefer
+     * in-app OTP verify which stores the same key.
+     */
+    accessToken: string;
+    /** Default mobile for the OTP login form. */
+    mobileNo: string;
+  };
 }
 
 function str(v: string | undefined, fallback = ''): string {
@@ -114,8 +194,20 @@ const ROTTERDAM_STANDIN_BBOX = [
 ];
 void ROTTERDAM_STANDIN_BBOX;
 
+// Resolved once, at module load. `vite.config.ts` runs the SAME resolver at build
+// time and throws, so in a normal build this warning is already impossible; it
+// still fires for a value injected into a prebuilt bundle (nginx substitution, a
+// hand-edited config) which the build could not have seen.
+const resolvedDataMode = resolveDataMode(import.meta.env.VITE_DATA_MODE);
+if (resolvedDataMode.warning) {
+  // console.error, not warn: this is the difference between real and invented
+  // vessels on screen, and it is the only signal a headless/CI consumer gets.
+  console.error(`[config] ${resolvedDataMode.warning}`);
+}
+
 export const env: AppEnv = {
-  dataMode: (import.meta.env.VITE_DATA_MODE as 'mock' | 'live' | 'hybrid') ?? 'mock',
+  dataMode: resolvedDataMode.mode,
+  dataModeWarning: resolvedDataMode.warning,
   portalUrl: str(import.meta.env.VITE_PORTAL_URL, 'https://www.arcgis.com'),
   arcgisApiKey: str(import.meta.env.VITE_ARCGIS_API_KEY),
   oauthAppId: str(import.meta.env.VITE_OAUTH_APPID),
@@ -155,5 +247,26 @@ export const env: AppEnv = {
     isStandIn:
       str(import.meta.env.VITE_AIS_BBOX) !== '' &&
       str(import.meta.env.VITE_LIVE_REGION_IS_TARGET) !== 'true',
+  },
+  uc3: {
+    // On by default so a configured gateway works out of the box; set
+    // VITE_UC3_ENABLED=false to keep the app fully offline (same opt-out idiom
+    // as aisHub.enabled above).
+    enabled: str(import.meta.env.VITE_UC3_ENABLED, 'true') !== 'false',
+    apiBase: str(import.meta.env.VITE_UC3_API_BASE, '/api'),
+    username: str(import.meta.env.VITE_UC3_USERNAME),
+    password: str(import.meta.env.VITE_UC3_PASSWORD),
+  },
+  liveAis: {
+    enabled: str(import.meta.env.VITE_LIVE_AIS_ENABLED, 'true') !== 'false',
+    // Floor of 60 s — the gateway's own cache TTL. A smaller value is clamped
+    // rather than honoured, so a mis-set env can't hammer the shared backend.
+    pollMs: Math.max(60_000, num(import.meta.env.VITE_LIVE_AIS_POLL_MS, 60_000)),
+  },
+  ldb: {
+    enabled: str(import.meta.env.VITE_LDB_ENABLED, 'true') !== 'false',
+    proxyBase: str(import.meta.env.VITE_LDB_PROXY_BASE, '/ldb-proxy'),
+    accessToken: str(import.meta.env.VITE_LDB_ACCESS_TOKEN),
+    mobileNo: str(import.meta.env.VITE_LDB_MOBILE_NO),
   },
 };

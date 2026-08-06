@@ -23,3 +23,8 @@ npm-debug.log*
 # vite / vitest cache
 .vite/
 *.tsbuildinfo
+
+package-lock.json
+pnpm-lock.yaml
+
+docs/Bathymetry Data/

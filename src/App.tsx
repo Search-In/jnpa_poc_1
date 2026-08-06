@@ -27,30 +27,45 @@ import {
   CalciteChip,
 } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
+import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
-import { VesselFeed } from '@/components/VesselFeed';
 import { VesselTable } from '@/components/VesselTable';
+import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
+import { PilotagePage } from '@/components/marine/PilotagePage';
+import { VesselRegisterTable } from '@/components/marine/VesselRegisterTable';
+import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
+import { ContainerTrackPanel } from '@/components/marine/ContainerTrackPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
 import { DemoPlayer } from '@/sim/DemoPlayer';
 import { SimControls } from '@/sim/SimControls';
 import { PlacementToolbar } from '@/map/PlacementToolbar';
 import { Panel } from '@/components/common/Panel';
+import { ConfigWarningBanner } from '@/components/common/ConfigWarningBanner';
 import { BerthGantt5Day } from '@/components/reports/BerthGantt5Day';
+import { BerthingStats } from '@/components/berthing/BerthingStats';
+import { BerthingReportsTable } from '@/components/berthing/BerthingReportsTable';
+import { BerthingUploadPanel } from '@/components/berthing/BerthingUploadPanel';
+import { ShippingLinesPage } from '@/components/shipping/ShippingLinesPage';
+import { PerformanceReportsPage } from '@/components/performance/PerformanceReportsPage';
 import { PlanImportPanel } from '@/planning/PlanImportPanel';
-import { ArrivalsDepartures } from '@/components/reports/ArrivalsDepartures';
 import { JustInTime } from '@/components/reports/JustInTime';
 import { DelayTrend } from '@/components/reports/DelayTrend';
-import { PortCraftBoard } from '@/components/reports/PortCraftBoard';
+import { PortCraftPage } from '@/components/marine/PortCraftPage';
 import { PredictionConvergence } from '@/components/reports/PredictionConvergence';
+import { PredictionAccuracy } from '@/components/reports/PredictionAccuracy';
+import { PreBerthingBoard } from '@/components/marine/PreBerthingBoard';
 import { DukcCorridor } from '@/components/reports/DukcCorridor';
-import { WeatherPanel } from '@/components/WeatherPanel';
+import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
+import { BathymetryPage } from '@/components/marine/BathymetryPage';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
+import { useLiveVesselStore } from '@/map/liveVesselStore';
+import { env } from '@/data/config';
 import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
@@ -59,7 +74,6 @@ import { WorkflowComposer } from '@/workflow/WorkflowComposer';
 import { ConnectorReadiness } from '@/console/ConnectorReadiness';
 import { AnalyticsPanel } from '@/planning/AnalyticsPanel';
 import { MethodologyPanel } from '@/components/MethodologyPanel';
-import { ExportToolbar } from '@/reports/ExportToolbar';
 import { KPI_TARGETS } from '@/config/targets';
 import type { Berth } from '@/types/domain';
 import { useAppStore } from '@/store/useAppStore';
@@ -72,6 +86,10 @@ import { tokens } from '@/theme/tokens';
 const TABS = [
   { id: 'kpis', label: 'KPI Wall' },
   { id: 'vessels', label: 'Vessels' },
+  // Shipping Lines — a cargo/customs capability (carrier registry + IAL/EAL advance
+  // lists + EDO delivery orders), a PEER of Vessels rather than a child of it: a
+  // carrier intersects vessel calls many-to-many through the container line item.
+  { id: 'shipping', label: 'Shipping Lines' },
   { id: 'tide', label: 'Tide & Sea State' },
   { id: 'gantt', label: '5-Day Berthing' },
   { id: 'plan', label: 'Plan Import' },
@@ -81,7 +99,10 @@ const TABS = [
   { id: 'workflows', label: 'Workflows' },
   { id: 'analytics', label: 'Analytics & JIT' },
   { id: 'connectors', label: 'Connectors' },
-  { id: 'reports', label: 'Reports' },
+  // Renamed only — the id stays 'reports' so nothing that addresses this tab (and no
+  // guided-tour step) has to change. Content is now Overview / Daily Traffic /
+  // Operational, the last being the original Reports panels moved verbatim.
+  { id: 'reports', label: 'Performance & Reports' },
   { id: 'methodology', label: 'Methodology' },
 ] as const;
 
@@ -95,6 +116,16 @@ export function App() {
   }, []);
   useSimClock();
   useSimReactivity();
+
+  // The live-AIS overlay starts OFF on every load, so first paint never depends
+  // on a gateway call and no session ever comes up claiming to show real traffic
+  // the operator didn't ask for. The store already defaults to false and is not
+  // persisted; this mount-time reset additionally covers Vite HMR in dev, where
+  // module state SURVIVES a hot update and would otherwise leave the overlay on
+  // across what looks like a fresh start.
+  useEffect(() => {
+    useLiveVesselStore.getState().setEnabled(false);
+  }, []);
 
   // Suite deep-link: `?scenario=<id>` opens straight into a what-if (parity with
   // UC-2/UC-3), so the Suite DTCCC console can drive UC-1 as part of the
@@ -126,7 +157,43 @@ export function App() {
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
   const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
+  // Live AIS overlay (real MarineTraffic-sourced traffic via the shared gateway).
+  // Shared store, not local state, so the toggle survives a 2D↔3D flip.
+  const liveAisOn = useLiveVesselStore((s) => s.enabled);
+  const toggleLiveAis = useLiveVesselStore((s) => s.toggle);
+  const liveAisCount = useLiveVesselStore((s) => s.count);
+  const liveAisError = useLiveVesselStore((s) => s.error);
+  const liveAisLoading = useLiveVesselStore((s) => s.loading);
+  const liveAisAvailable = env.liveAis.enabled && env.uc3.enabled;
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
+  // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
+  // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
+  const [vesselSubTab, setVesselSubTab] =
+    useState<'live' | 'calls' | 'register' | 'pilotage' | 'upload' | 'track'>('live');
+  // Shipping Lines is now a top-level module — its sub-tab and post-import refresh
+  // state live inside <ShippingLinesPage>.
+  // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
+  // VesselCallsPanel remounts and refetches — without this the calls table keeps the
+  // stale pre-import result. Presentation-only — no query logic changes.
+  const [vesselCallUploadKey, setVesselCallUploadKey] = useState(0);
+  // DUKC tab sub-view. 'analysis' (the existing DukcCorridor / RTUKC view) is the default
+  // so the tab opens exactly as before; 'channels' hosts the sea-channel section.
+  const [dukcSubTab, setDukcSubTab] = useState<'analysis' | 'channels' | 'bathymetry'>('analysis');
+  // Sea Channels section sub-view (nested under DUKC ▸ Sea Channels): 'data' (the
+  // SeaChannelTable, the default) or 'upload' (MarineUploadPanel + upload history).
+  const [seaChannelSubTab, setSeaChannelSubTab] = useState<'data' | 'upload'>('data');
+  // Bumped after a successful sea-channel import so the sibling SeaChannelTable remounts
+  // and refetches (DUKC ▸ Sea Channels). Presentation-only — no query logic changes.
+  const [seaChannelUploadKey, setSeaChannelUploadKey] = useState(0);
+  // Port Craft tab: analysis section + Fleet Register / Data Upload tabs. Its sub-tab
+  // and post-import refresh state now live inside <PortCraftPage>.
+  // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
+  // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
+  // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
+  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'preberth' | 'upload'>('plan');
+  // Bumped after a successful berthing import so the sibling Terminal Reports view
+  // remounts and refetches. Presentation-only — no query logic changes.
+  const [berthingReportsKey, setBerthingReportsKey] = useState(0);
   const [offlineBase, setOfflineBase] = useState(false);
   // Scene handle in state (not just a ref) so the DemoPlayer re-renders once the
   // SceneView is mounted and can receive the imperative handle. The callback ref
@@ -177,9 +244,13 @@ export function App() {
     <>
       <CalciteShell style={{ height: '100vh', background: tokens.bg }}>
         <div slot="header">
+          {/* Silent-misconfiguration backstop — renders nothing when config is
+              sound. See ConfigWarningBanner for why it sits above everything. */}
+          <ConfigWarningBanner />
           <HeaderBar
             extra={
               <>
+                <DataSourceToggle />
                 <RoleSwitcher />
                 <SimControls />
                 <CalciteButton
@@ -254,6 +325,26 @@ export function App() {
                 )}
                 {/* 3D asset placement editing (shared positions.json workflow). */}
                 {mapMode === '3d' && <PlacementToolbar />}
+                {/* Live AIS — real vessel positions from the shared gateway's
+                    MarineTraffic proxy. Replaces the simulated fleet on the map
+                    (never overlays it), in both 2D and 3D. */}
+                {liveAisAvailable && (
+                  <CalciteButton
+                    scale="s"
+                    appearance={liveAisOn ? 'solid' : 'outline'}
+                    kind={liveAisError ? 'danger' : 'brand'}
+                    iconStart="satellite-3"
+                    loading={liveAisOn && liveAisLoading ? true : undefined}
+                    title={
+                      liveAisError
+                        ? `Live AIS feed error — showing the last good positions. ${liveAisError}`
+                        : 'Show REAL live AIS traffic (MarineTraffic, via the shared JNPA gateway) instead of the simulated fleet'
+                    }
+                    onClick={() => toggleLiveAis()}
+                  >
+                    {liveAisOn ? `Live AIS · ${liveAisCount}` : 'Live AIS'}
+                  </CalciteButton>
+                )}
                 <CalciteButton
                   scale="s"
                   appearance={tideFieldVisible ? 'solid' : 'outline'}
@@ -343,13 +434,85 @@ export function App() {
                 <Panel title="Average Vessel TAT vs target" minHeight={260}>
                   <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
                 </Panel>
+                {/* Spec UI-044 (screen M-09): predicted-vs-actual arrival accuracy —
+                    previously built but never mounted (audit item D9). */}
+                <Panel title="ETA Prediction Accuracy" minHeight={260}>
+                  <PredictionAccuracy />
+                </Panel>
               </div>
             </CalciteTab>
 
             <CalciteTab tab="vessels" selected={activeTab === 'vessels'}>
-              <Panel title="All vessels — live AIS feed" height={640}>
-                <VesselTable />
-              </Panel>
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="v-live" selected={vesselSubTab === 'live'} onCalciteTabsActivate={() => setVesselSubTab('live')}>
+                    Live AIS Feed
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-calls" selected={vesselSubTab === 'calls'} onCalciteTabsActivate={() => setVesselSubTab('calls')}>
+                    Vessel Calls
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-register" selected={vesselSubTab === 'register'} onCalciteTabsActivate={() => setVesselSubTab('register')}>
+                    Vessel Register
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-pilotage" selected={vesselSubTab === 'pilotage'} onCalciteTabsActivate={() => setVesselSubTab('pilotage')}>
+                    Pilotage
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
+                    Data Upload
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="v-track" selected={vesselSubTab === 'track'} onCalciteTabsActivate={() => setVesselSubTab('track')}>
+                    Track by Container
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing AIS feed — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="v-live" selected={vesselSubTab === 'live'}>
+                  <Panel title="All vessels — live AIS feed" height={640}>
+                    <VesselTable />
+                  </Panel>
+                </CalciteTab>
+
+                {/* New: UC-3 vessel calls (core.vessel_call). Keyed on the upload counter so a
+                    successful import on the Data Upload sub-tab remounts it and refetches. */}
+                <CalciteTab tab="v-calls" selected={vesselSubTab === 'calls'}>
+                  <VesselCallsPanel key={vesselCallUploadKey} />
+                </CalciteTab>
+
+                {/* New: UC-3 vessel MASTER register (core.vessel, VESPRO-sourced). Keyed on the
+                    same upload counter as Vessel Calls so a VESPRO import remounts and refetches. */}
+                <CalciteTab tab="v-register" selected={vesselSubTab === 'register'}>
+                  <Panel title="Vessel register — UC-3 backend (core.vessel, VESPRO)" height={640}>
+                    <VesselRegisterTable key={vesselCallUploadKey} />
+                  </Panel>
+                </CalciteTab>
+
+                {/* UC-3 pilotage (core.pilotage), now its own sub-tabbed screen. */}
+                <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
+                  <PilotagePage uploadKey={vesselCallUploadKey} />
+                </CalciteTab>
+
+                {/* New: UC-3 vessel-call upload (CSV + BERMAN/CALINF/VESPRO XML + pilot XLSX).
+                    On a successful import, bump the key so the Vessel Calls sub-tab refetches. */}
+                <CalciteTab tab="v-upload" selected={vesselSubTab === 'upload'}>
+                  <MarineUploadPanel onImported={() => setVesselCallUploadKey((k) => k + 1)} />
+                </CalciteTab>
+
+                {/* NLDS / LDB container track by id — SeaRates-shaped UI under
+                    /apigateway/track/cntr/ (see src/data/ldb). */}
+                <CalciteTab tab="v-track" selected={vesselSubTab === 'track'}>
+                  <ContainerTrackPanel />
+                </CalciteTab>
+
+              </CalciteTabs>
+            </CalciteTab>
+
+            {/* Shipping Lines — top-level cargo/customs module: Overview (default) /
+                Carrier Registry / Data Upload. Composition lives in
+                <ShippingLinesPage>, which also owns the post-import refresh. */}
+            <CalciteTab tab="shipping" selected={activeTab === 'shipping'}>
+              {/* Carrier Registry's lifecycle columns come from the marine
+                  projection, so a marine import refreshes them too. */}
+              <ShippingLinesPage key={vesselCallUploadKey} />
             </CalciteTab>
 
             <CalciteTab tab="tide" selected={activeTab === 'tide'}>
@@ -359,16 +522,131 @@ export function App() {
             </CalciteTab>
 
             <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>
-              <BerthGantt5Day />
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="b-plan" selected={berthingSubTab === 'plan'} onCalciteTabsActivate={() => setBerthingSubTab('plan')}>
+                    5-Day Plan
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-reports" selected={berthingSubTab === 'reports'} onCalciteTabsActivate={() => setBerthingSubTab('reports')}>
+                    Terminal Reports
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-preberth" selected={berthingSubTab === 'preberth'} onCalciteTabsActivate={() => setBerthingSubTab('preberth')}>
+                    Pre-Berthing Board
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="b-upload" selected={berthingSubTab === 'upload'} onCalciteTabsActivate={() => setBerthingSubTab('upload')}>
+                    Data Upload
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing sim/adapter berth-plan gantt — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="b-plan" selected={berthingSubTab === 'plan'}>
+                  <BerthGantt5Day />
+                </CalciteTab>
+
+                {/* Spec M-08 / UI-040: the backward-chaining Pre-Berthing Status Board —
+                    for a target berthing, everything that must be true and by when. */}
+                <CalciteTab tab="b-preberth" selected={berthingSubTab === 'preberth'}>
+                  <PreBerthingBoard />
+                </CalciteTab>
+
+                {/* New: UC-3 per-terminal berthing REPORT actuals (jnpa.berthing_reports).
+                    Keyed on the upload counter so a successful import remounts + refetches. */}
+                <CalciteTab tab="b-reports" selected={berthingSubTab === 'reports'}>
+                  {/* Keyed on BOTH upload counters: the rows come from berthing reports,
+                      but the Lifecycle and Berth State columns come from the marine
+                      projection, so a marine import changes this view too. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                       key={`${berthingReportsKey}-${vesselCallUploadKey}`}>
+                    <Panel title="Berthing reports — UC-3 backend (jnpa.berthing_reports)" minHeight={120}>
+                      <BerthingStats />
+                    </Panel>
+                    <Panel title="Terminal berthing reports" height={520}>
+                      <BerthingReportsTable />
+                    </Panel>
+                  </div>
+                </CalciteTab>
+
+                {/* New: berthing Data Upload (PDF/CSV/XLS/XLSX). On import, bump the key
+                    so the Terminal Reports sub-tab refetches. */}
+                <CalciteTab tab="b-upload" selected={berthingSubTab === 'upload'}>
+                  <BerthingUploadPanel onImported={() => setBerthingReportsKey((k) => k + 1)} />
+                </CalciteTab>
+              </CalciteTabs>
             </CalciteTab>
             <CalciteTab tab="plan" selected={activeTab === 'plan'}>
               <PlanImportPanel />
             </CalciteTab>
             <CalciteTab tab="dukc" selected={activeTab === 'dukc'}>
-              <DukcCorridor />
+              <CalciteTabs layout="inline">
+                <CalciteTabNav slot="title-group">
+                  <CalciteTabTitle tab="d-analysis" selected={dukcSubTab === 'analysis'} onCalciteTabsActivate={() => setDukcSubTab('analysis')}>
+                    DUKC Analysis
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="d-channels" selected={dukcSubTab === 'channels'} onCalciteTabsActivate={() => setDukcSubTab('channels')}>
+                    Sea Channels
+                  </CalciteTabTitle>
+                  <CalciteTabTitle tab="d-bathymetry" selected={dukcSubTab === 'bathymetry'} onCalciteTabsActivate={() => setDukcSubTab('bathymetry')}>
+                    Bathymetry
+                  </CalciteTabTitle>
+                </CalciteTabNav>
+
+                {/* Existing DUKC / RTUKC view — unchanged, and the DEFAULT sub-tab. */}
+                <CalciteTab tab="d-analysis" selected={dukcSubTab === 'analysis'}>
+                  <DukcCorridor />
+                </CalciteTab>
+
+                {/* Sea-channel section (DUKC domain) — its own nested Data / Upload tabs,
+                    same inline style as the Vessels sub-tabs. */}
+                <CalciteTab tab="d-channels" selected={dukcSubTab === 'channels'}>
+                  <CalciteTabs layout="inline">
+                    <CalciteTabNav slot="title-group">
+                      <CalciteTabTitle tab="sc-data" selected={seaChannelSubTab === 'data'} onCalciteTabsActivate={() => setSeaChannelSubTab('data')}>
+                        Sea Channel Data
+                      </CalciteTabTitle>
+                      <CalciteTabTitle tab="sc-upload" selected={seaChannelSubTab === 'upload'} onCalciteTabsActivate={() => setSeaChannelSubTab('upload')}>
+                        Data Upload
+                      </CalciteTabTitle>
+                    </CalciteTabNav>
+
+                    {/* Sea-channel register (core.sea_channel) — table only, the DEFAULT. */}
+                    <CalciteTab tab="sc-data" selected={seaChannelSubTab === 'data'}>
+                      <Panel title="Sea channels — UC-3 backend (core.sea_channel, WGS84 GeoJSON)" height={420}>
+                        <SeaChannelTable key={seaChannelUploadKey} />
+                      </Panel>
+                    </CalciteTab>
+
+                    {/* Sea-channel Data Upload + history. Reuses MarineUploadPanel with a
+                        SEA_CHANNEL config; on a successful import it bumps the key above so
+                        SeaChannelTable remounts and refetches. */}
+                    <CalciteTab tab="sc-upload" selected={seaChannelSubTab === 'upload'}>
+                      <MarineUploadPanel
+                        title="Sea-channel data upload — validate → import (UC-3 backend)"
+                        accept=".zip,.shp,application/zip,application/x-zip-compressed"
+                        showTemplate={false}
+                        helpText="Accepts the zipped ESRI shapefile bundle (e.g. JNPA_Sea_Channels.zip). The backend detects the format by content and reprojects to WGS84."
+                        onImported={() => setSeaChannelUploadKey((k) => k + 1)}
+                      />
+                    </CalciteTab>
+                  </CalciteTabs>
+                </CalciteTab>
+
+                {/* Bathymetry (DUKC domain) — Overview (default) / Surveys / Data Upload.
+                    Composition lives in <BathymetryPage>, mirroring <PortCraftPage>. It sits
+                    here rather than as a top-level tab because the soundings ARE the survey
+                    evidence behind the charted depths this corridor computes UKC from. */}
+                <CalciteTab tab="d-bathymetry" selected={dukcSubTab === 'bathymetry'}>
+                  <BathymetryPage />
+                </CalciteTab>
+              </CalciteTabs>
             </CalciteTab>
+            {/* Port Craft — Overview (default) / Fleet Register / Data Upload internal
+                tabs. Composition lives in <PortCraftPage>, which also snaps back to
+                Overview on a guided-tour beat since the `tab: 'craft'` steps narrate
+                the resource board. */}
             <CalciteTab tab="craft" selected={activeTab === 'craft'}>
-              <PortCraftBoard />
+              {/* Marine-projection consumer: remount after a marine import so the
+                  demand board and operations table reflect the new lifecycle. */}
+              <PortCraftPage key={vesselCallUploadKey} />
             </CalciteTab>
             <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
               <Scenarios />
@@ -391,21 +669,11 @@ export function App() {
             <CalciteTab tab="connectors" selected={activeTab === 'connectors'}>
               <ConnectorReadiness />
             </CalciteTab>
+            {/* Performance & Reports — Overview / Daily Traffic (both read-only over
+                /api/performance) + Operational, which holds the original Reports
+                panels verbatim. Composition lives in <PerformanceReportsPage>. */}
             <CalciteTab tab="reports" selected={activeTab === 'reports'}>
-              <ExportToolbar />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
-                <Panel title="Arrivals & Departures (4h blocks)" minHeight={260}>
-                  <ArrivalsDepartures />
-                </Panel>
-                <Panel title="Weather & Sea-State" minHeight={260}>
-                  <WeatherPanel />
-                </Panel>
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <Panel title="Live Vessel Feed (priority order)" height={360}>
-                    <VesselFeed />
-                  </Panel>
-                </div>
-              </div>
+              <PerformanceReportsPage />
             </CalciteTab>
             <CalciteTab tab="methodology" selected={activeTab === 'methodology'}>
               <MethodologyPanel />

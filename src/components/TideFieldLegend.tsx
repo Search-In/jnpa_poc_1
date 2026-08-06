@@ -48,8 +48,12 @@ export function TideFieldLegend() {
         boxShadow: '0 2px 8px rgba(0,0,0,.35)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: tokens.text }}>Tide &amp; Sea State</span>
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: tokens.text }}>
+          Tide &amp; Sea State
+        </span>
         <CalciteSelect
           scale="s"
           label="Field variable"

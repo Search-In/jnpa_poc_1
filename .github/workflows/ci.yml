@@ -1,0 +1,54 @@
+# Quality gate — the mechanism that keeps audit/PRODUCTION_ACCEPTANCE.md Gates 1
+# and 2 honest rather than aspirational.
+#
+# Until this file existed, `deploy.yml` was the only workflow and it went
+# straight from `npm ci` to `vite build`: nothing ran lint, typecheck or the test
+# suite. The zero-warning gate was documented, believed, and quietly broken (5
+# warnings, including a per-render raster rebuild in the 3D map).
+#
+# DELIBERATELY NOT WIRED INTO deploy.yml (no `needs:`) before the expert demo. A
+# hard gate means one flaky test blocks a demo-morning hotfix deploy, which is a
+# worse outcome than an advisory gate a human reads. Make it blocking once the
+# demo window closes.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  quality:
+    name: Lint · typecheck · tests · build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # `eslint . --max-warnings 0` — the gate PRODUCTION_ACCEPTANCE.md claims.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # Also proves VITE_DATA_MODE validation: an unrecognised value throws in
+      # vite.config.ts, so a typo in deploy.yml's env block would fail here first
+      # instead of shipping a bundle that serves simulated data as if it were real.
+      - name: Build
+        run: node --max-old-space-size=4096 ./node_modules/.bin/vite build

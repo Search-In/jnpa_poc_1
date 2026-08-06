@@ -24,5 +24,15 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // The app entry mounts the tree (`createRoot(...).render(...)`) and exports
+    // nothing by design, so it is never a Fast Refresh boundary — the rule's
+    // advice ("move your component to a separate file") is aimed at modules that
+    // OTHER files import, which this one is not. Scoped to the single entry file
+    // rather than disabled globally, and kept here so the whole exemption surface
+    // stays in the eslint config instead of drifting into file-top pragmas.
+    files: ['src/main.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
   prettier
 );
