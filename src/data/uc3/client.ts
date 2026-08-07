@@ -20,7 +20,7 @@
 
 import { env } from '../config';
 import { getDataSourceMode } from '../dataSourceMode';
-import { clearAuthToken, getAuthToken } from './token';
+import { clearAuthToken, endSession, getAuthToken } from './token';
 
 /**
  * Join `env.uc3.apiBase` with a path suffix.
@@ -101,6 +101,10 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401) {
     clearAuthToken();
     res = await send(path, init, await getAuthToken());
+    // Still 401 with a freshly-read bearer: the SESSION is dead, not just this
+    // module's cache. Drop it so AuthGate returns the user to the sign-in screen
+    // instead of every panel failing against a token that can never work again.
+    if (res.status === 401) endSession();
   }
 
   if (!res.ok) {

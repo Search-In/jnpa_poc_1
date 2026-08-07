@@ -239,9 +239,9 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const page = await fetchAdvanceListPage({ listType: 'IAL' }, 1000, 0);
     expect(page.items).toHaveLength(1);
     expect(page.total).toBe(137);
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/shipping-lines?list_type=IAL&limit=1000&offset=0');
-    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');
   });
 
   it('delivery orders: maps the envelope', async () => {

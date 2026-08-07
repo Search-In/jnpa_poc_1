@@ -205,13 +205,13 @@ describe('validateMarineCsv / importMarineCsv (multipart transport)', () => {
     const res = await validateMarineCsv(csvFile());
     expect(res.status).toBe('VALIDATED');
 
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe(`/api${MARINE_VALIDATE_PATH}`);
     expect(init?.method).toBe('POST');
     expect(init?.body).toBeInstanceOf(FormData);
     // The browser must set content-type itself so the multipart boundary matches.
     const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers.authorization).toBe('Bearer T1');
+    expect(headers.authorization).toBe('Bearer test.jwt.token');
     expect(headers['content-type']).toBeUndefined();
   });
 
@@ -234,7 +234,7 @@ describe('validateMarineCsv / importMarineCsv (multipart transport)', () => {
 
     const res = await importMarineCsv(csvFile());
     expect(res).toMatchObject({ file_id: 1, status: 'SUCCESS', imported: 3 });
-    expect(spy.mock.calls[1][0]).toBe(`/api${MARINE_UPLOAD_PATH}`);
+    expect(spy.mock.calls[0][0]).toBe(`/api${MARINE_UPLOAD_PATH}`);
   });
 
   it('resolves (does NOT reject) when the backend rejects the file', async () => {
@@ -311,7 +311,7 @@ describe('fetchMarineUploads / fetchMarineUpload', () => {
     const rows = await fetchMarineUploads();
     expect(rows).toHaveLength(1);
     expect(rows[0].filename).toBe('calls.csv');
-    expect(spy.mock.calls[1][0]).toBe('/api/marine/uploads?limit=50&offset=0');
+    expect(spy.mock.calls[0][0]).toBe('/api/marine/uploads?limit=50&offset=0');
   });
 
   it('fetchMarineUploadsPage passes the envelope through', async () => {

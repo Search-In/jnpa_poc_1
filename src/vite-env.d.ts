@@ -23,8 +23,10 @@ interface ImportMetaEnv {
   // UC-3 shared backend (see src/data/config.ts → env.uc3).
   readonly VITE_UC3_ENABLED?: string;
   readonly VITE_UC3_API_BASE?: string;
-  readonly VITE_UC3_USERNAME?: string;
-  readonly VITE_UC3_PASSWORD?: string;
+  // Sign-in gate, same variable and semantics as UC-3's console. Unset = no
+  // login step (the credential-free mock/demo build). There are deliberately no
+  // username/password variables: Vite inlines VITE_* into the shipped bundle.
+  readonly VITE_AUTH_ENABLED?: string;
   // NLDS Logistics Data Bank container track (see src/data/config.ts → env.ldb).
   readonly VITE_LDB_ENABLED?: string;
   readonly VITE_LDB_PROXY_BASE?: string;

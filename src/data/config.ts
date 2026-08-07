@@ -95,11 +95,14 @@ export interface AppEnv {
    * mode must not silently imply "no UC-3" and live mode must not imply "UC-3".
    * Two orthogonal switches — flip this one with VITE_UC3_ENABLED.
    *
-   * SCOPE HONESTY: `username`/`password` are Vite build-time values, so they are
-   * INLINED INTO THE BUNDLE and readable by anyone with devtools. That is
-   * acceptable only for the PoC demo credential. Production must move the login
-   * server-side (a real sign-in, or token injection at the nginx tier) — the
-   * same posture note as the client-side role scoping in src/auth/roles.ts.
+   * AUTHENTICATION: there is no credential here. This block used to carry
+   * `username`/`password` from VITE_UC3_USERNAME / VITE_UC3_PASSWORD, which Vite
+   * INLINED INTO THE BUNDLE where anyone with devtools could read them. The
+   * scope-honesty note that stood here called for exactly the fix now in place:
+   * a real sign-in. The user authenticates at src/auth/LoginGate.tsx and the
+   * resulting bearer is held by src/auth/session.ts — the credential never
+   * enters the build. (The client-side role scoping in src/auth/roles.ts is a
+   * separate concern and still a presentation filter, not a security boundary.)
    */
   uc3: {
     /** Master switch. Off → the app never contacts UC-3 (mock stays offline). */
@@ -111,9 +114,6 @@ export interface AppEnv {
      * full "/api/auth/login" — that would resolve to "/api/api/…".
      */
     apiBase: string;
-    /** PoC login (POST {apiBase}/auth/login). See the scope-honesty note above. */
-    username: string;
-    password: string;
   };
   /**
    * NLDS Logistics Data Bank container tracking — same guest searate auth as
@@ -254,8 +254,10 @@ export const env: AppEnv = {
     // as aisHub.enabled above).
     enabled: str(import.meta.env.VITE_UC3_ENABLED, 'true') !== 'false',
     apiBase: str(import.meta.env.VITE_UC3_API_BASE, '/api'),
-    username: str(import.meta.env.VITE_UC3_USERNAME),
-    password: str(import.meta.env.VITE_UC3_PASSWORD),
+    // No username/password here, deliberately. The bearer now comes from the
+    // user signing in (src/auth/session.ts → POST {apiBase}/auth/login). Vite
+    // inlines VITE_* at build time, so a credential configured here would be
+    // compiled into the shipped bundle and readable by anyone with devtools.
   },
   liveAis: {
     enabled: str(import.meta.env.VITE_LIVE_AIS_ENABLED, 'true') !== 'false',

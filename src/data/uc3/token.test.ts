@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  AUTH_BACKOFF_BASE_MS,
   LOGIN_PATH,
+  UNAUTHENTICATED,
   clearAuthToken,
+  endSession,
   getAuthToken,
   hasAuthToken,
   login,
 } from './token';
+import { clearSession, getToken as getSessionToken, setSession } from '../../auth/sessionStore';
 
 /** Minimal Response stand-in — the module only touches ok/status/statusText/json. */
 function jsonResponse(body: unknown, status = 200, statusText = 'OK'): Response {
@@ -79,153 +81,50 @@ describe('login (flow + response contract)', () => {
     await expect(login('admin', 'admin')).rejects.toThrow(/no access_token/);
   });
 });
+describe('getAuthToken (session-backed, never logs in)', () => {
+  it('serves the token the sign-in form stored', async () => {
+    const fetchSpy = stubFetch(() => jsonResponse({}));
+    setSession(TOKEN_A, 'DTCCC_ADMIN', 'admin');
+    await expect(getAuthToken()).resolves.toBe(TOKEN_A);
+    // The whole point: no auto-login. A data panel asking for a bearer must
+    // never put credentials on the wire.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 
-describe('getAuthToken (caching + single-flight)', () => {
-  it('logs in once, then serves the cached token', async () => {
-    const spy = stubFetch(() => jsonResponse(loginBody(TOKEN_A)));
+  it('rejects when nobody is signed in, without touching the network', async () => {
+    const fetchSpy = stubFetch(() => jsonResponse({}));
+    clearSession(); // src/test/setup.ts signs in by default; this test needs signed-OUT
+    clearAuthToken();
+    await expect(getAuthToken()).rejects.toThrow(UNAUTHENTICATED);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 
-    expect(hasAuthToken()).toBe(false);
-    expect(await getAuthToken()).toBe(TOKEN_A);
-    expect(await getAuthToken()).toBe(TOKEN_A);
-    expect(await getAuthToken()).toBe(TOKEN_A);
-
-    expect(spy).toHaveBeenCalledTimes(1); // NOT one login per request
+  it('caches, so a burst of callers reads storage once', async () => {
+    setSession(TOKEN_A, 'DTCCC_ADMIN', 'admin');
+    const [a, b, c] = await Promise.all([getAuthToken(), getAuthToken(), getAuthToken()]);
+    expect([a, b, c]).toEqual([TOKEN_A, TOKEN_A, TOKEN_A]);
     expect(hasAuthToken()).toBe(true);
   });
 
-  it('collapses concurrent callers onto ONE login (single-flight)', async () => {
-    let resolveLogin: (r: Response) => void = () => {};
-    const spy = stubFetch(
-      () => new Promise<Response>((resolve) => { resolveLogin = resolve; }),
-    );
-
-    // Three callers race before any login has completed.
-    const all = Promise.all([getAuthToken(), getAuthToken(), getAuthToken()]);
-    resolveLogin(jsonResponse(loginBody(TOKEN_A)));
-
-    expect(await all).toEqual([TOKEN_A, TOKEN_A, TOKEN_A]);
-    expect(spy).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not wedge every later caller after a failed login', async () => {
-    // A rejected in-flight promise must not be cached, or one blip would poison
-    // the module for the life of the page. Recovery is now gated by the backoff
-    // (see the storm tests below) rather than being immediate — but it must
-    // still happen without a reload.
-    let attempt = 0;
-    const spy = stubFetch(() => {
-      attempt += 1;
-      return attempt === 1
-        ? jsonResponse({ detail: 'boom' }, 500, 'Internal Server Error')
-        : jsonResponse(loginBody(TOKEN_A));
-    });
-    vi.useFakeTimers();
-    try {
-      await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
-      expect(hasAuthToken()).toBe(false);
-
-      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
-      expect(await getAuthToken()).toBe(TOKEN_A); // recovers, no reload needed
-      expect(spy).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('picks up a NEW session after the previous one was cleared', async () => {
+    setSession(TOKEN_A, 'DTCCC_ADMIN', 'admin');
+    await expect(getAuthToken()).resolves.toBe(TOKEN_A);
+    clearAuthToken();
+    setSession(TOKEN_B, 'DTCCC_ADMIN', 'admin');
+    await expect(getAuthToken()).resolves.toBe(TOKEN_B);
   });
 });
 
-describe('rejected credentials (no login storm)', () => {
-  it('attempts the login ONCE, then fails fast without touching the network', async () => {
-    const spy = stubFetch(() => jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized'));
+describe('clearAuthToken (the 401 path)', () => {
+  it('drops the STORED SESSION too, so a dead token cannot be re-presented', async () => {
+    setSession(TOKEN_A, 'DTCCC_ADMIN', 'admin');
+    await expect(getAuthToken()).resolves.toBe(TOKEN_A);
 
-    await expect(getAuthToken()).rejects.toThrow(/HTTP 401/);
-    // Eleven connectors + polling panels would each retry the login otherwise.
-    for (let i = 0; i < 5; i++) await expect(getAuthToken()).rejects.toThrow(/HTTP 401/);
+    endSession(); // what client.ts calls once a RETRIED 401 also fails
 
-    expect(spy).toHaveBeenCalledTimes(1);
-  });
-
-  it('names the missing env vars when no credential is configured', async () => {
-    stubFetch(() => jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized'));
-    // env.uc3.username/password are unset in tests — the same shape as a .env
-    // that never filled them in.
-    await expect(getAuthToken()).rejects.toThrow(/VITE_UC3_USERNAME/);
-  });
-
-  it('backs off a TRANSIENT failure too — a dead gateway is not retried per call', async () => {
-    // A dev proxy that cannot reach its target answers 500 (Vite's ECONNREFUSED
-    // response), which used to retry on every single caller.
-    const spy = stubFetch(() => jsonResponse({ detail: 'ECONNREFUSED' }, 500, 'Internal Server Error'));
-    vi.useFakeTimers();
-    try {
-      await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
-      for (let i = 0; i < 5; i++) await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
-      expect(spy).toHaveBeenCalledTimes(1);
-
-      // …but it recovers by itself once the backoff elapses, unlike a 401.
-      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
-      await expect(getAuthToken()).rejects.toThrow(/HTTP 500/);
-      expect(spy).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('doubles the transient backoff, capped, and resets it on success', async () => {
-    let fail = true;
-    const spy = stubFetch(() =>
-      fail ? jsonResponse({ detail: 'down' }, 503, 'Service Unavailable') : jsonResponse(loginBody(TOKEN_A)),
-    );
-    vi.useFakeTimers();
-    try {
-      await expect(getAuthToken()).rejects.toThrow(); // failure #1 → base
-      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
-      await expect(getAuthToken()).rejects.toThrow(); // failure #2 → 2× base
-      expect(spy).toHaveBeenCalledTimes(2);
-
-      // Half of the doubled window is not enough to try again.
-      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
-      await expect(getAuthToken()).rejects.toThrow();
-      expect(spy).toHaveBeenCalledTimes(2);
-
-      vi.advanceTimersByTime(AUTH_BACKOFF_BASE_MS);
-      fail = false;
-      expect(await getAuthToken()).toBe(TOKEN_A);
-      expect(spy).toHaveBeenCalledTimes(3);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('allows one fresh attempt after clearAuthToken (the stale-session path)', async () => {
-    let attempt = 0;
-    const spy = stubFetch(() => {
-      attempt += 1;
-      return attempt === 1
-        ? jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized')
-        : jsonResponse(loginBody(TOKEN_A));
-    });
-
-    await expect(getAuthToken()).rejects.toThrow(/HTTP 401/);
-    await expect(getAuthToken()).rejects.toThrow(/HTTP 401/); // memo: no 2nd call
-    expect(spy).toHaveBeenCalledTimes(1);
-
-    clearAuthToken();
-    expect(await getAuthToken()).toBe(TOKEN_A);
-    expect(spy).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('clearAuthToken', () => {
-  it('forces the next call to log in again (the 401 path)', async () => {
-    let attempt = 0;
-    const spy = stubFetch(() => jsonResponse(loginBody(attempt++ === 0 ? TOKEN_A : TOKEN_B)));
-
-    expect(await getAuthToken()).toBe(TOKEN_A);
-
-    clearAuthToken();
     expect(hasAuthToken()).toBe(false);
-
-    expect(await getAuthToken()).toBe(TOKEN_B);
-    expect(spy).toHaveBeenCalledTimes(2);
+    expect(getSessionToken()).toBeNull();
+    // Nothing left to serve — AuthGate returns the user to the sign-in screen.
+    await expect(getAuthToken()).rejects.toThrow(UNAUTHENTICATED);
   });
 });
