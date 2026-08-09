@@ -246,228 +246,226 @@ export function MarineUploadPanel({
     }
   };
 
-  const onImport = async (override = false) => {
-    /**
-     * Import, optionally overriding the ledger's duplicate check.
-     *
-     * ONE code path: override changes only which connector runs. The success handling —
-     * result panel, history refresh, `onImported` — is identical, so every lifecycle view
-     * that already refreshes after an import refreshes after an override too, with no
-     * second notification path to keep in sync.
-     */
-    const runImport = async (override: boolean) => {
-      if (!file) return;
-      setBusy(override ? 'override' : 'import');
-      setErr(null);
-      setLedgerErrors([]);
-      setLedgerDetail(null);
-      try {
-        const r = override ? await overrideImportMarineCsv(file) : await importMarineCsv(file);
-        setResult(r);
-        setRefreshKey((k) => k + 1); // refresh history
-        onImported?.(r); // let a sibling view (e.g. SeaChannelTable) refresh
+  /**
+   * Import, optionally overriding the ledger's duplicate check.
+   *
+   * ONE code path: override changes only which connector runs. The success handling —
+   * result panel, history refresh, `onImported` — is identical, so every lifecycle view
+   * that already refreshes after an import refreshes after an override too, with no
+   * second notification path to keep in sync.
+   */
+  const runImport = async (override: boolean) => {
+    if (!file) return;
+    setBusy(override ? 'override' : 'import');
+    setErr(null);
+    setLedgerErrors([]);
+    setLedgerDetail(null);
+    try {
+      const r = override ? await overrideImportMarineCsv(file) : await importMarineCsv(file);
+      setResult(r);
+      setRefreshKey((k) => k + 1); // refresh history
+      onImported?.(r); // let a sibling view (e.g. SeaChannelTable) refresh
 
-        // Persist-path failures write errors to the ledger only — the import body
-        // usually has `warnings`, not `errors`. Pull detail so the operator sees why.
-        const needsDetail =
-          r.file_id != null &&
-          (r.status === 'FAILED' || r.status === 'PARTIAL' || r.status === 'REJECTED') &&
-          !(r.errors && r.errors.length > 0);
-        if (needsDetail) {
-          try {
-            const detail = await fetchMarineUpload(r.file_id!);
-            setLedgerErrors(detail.errors);
-            setLedgerDetail(detail.file?.errorDetail || null);
-          } catch {
-            // Non-fatal — history still refreshed; detail is best-effort.
-          }
+      // Persist-path failures write errors to the ledger only — the import body
+      // usually has `warnings`, not `errors`. Pull detail so the operator sees why.
+      const needsDetail =
+        r.file_id != null &&
+        (r.status === 'FAILED' || r.status === 'PARTIAL' || r.status === 'REJECTED') &&
+        !(r.errors && r.errors.length > 0);
+      if (needsDetail) {
+        try {
+          const detail = await fetchMarineUpload(r.file_id!);
+          setLedgerErrors(detail.errors);
+          setLedgerDetail(detail.file?.errorDetail || null);
+        } catch {
+          // Non-fatal — history still refreshed; detail is best-effort.
         }
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        setBusy(null);
       }
-    };
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
-    const isDuplicateSkip =
-      result?.status === 'SKIPPED_DUPLICATE' || result?.duplicate_file === true;
+  const isDuplicateSkip =
+    result?.status === 'SKIPPED_DUPLICATE' || result?.duplicate_file === true;
 
-    const templateHref = `${env.uc3.apiBase}${MARINE_TEMPLATE_PATH}`;
+  const templateHref = `${env.uc3.apiBase}${MARINE_TEMPLATE_PATH}`;
 
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <Panel title={title} minHeight={160}>
-          {!editable && (
-            <CalciteNotice open kind="warning" scale="s" icon="lock">
-              <div slot="message">Your role is read-only — validation and import are disabled.</div>
-            </CalciteNotice>
-          )}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Panel title={title} minHeight={160}>
+        {!editable && (
+          <CalciteNotice open kind="warning" scale="s" icon="lock">
+            <div slot="message">Your role is read-only — validation and import are disabled.</div>
+          </CalciteNotice>
+        )}
 
-          <fieldset
-            disabled={!editable || undefined}
-            style={{
-              border: 'none',
-              padding: 0,
-              margin: editable ? 0 : '8px 0 0',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}
-          >
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                ref={fileRef}
-                type="file"
-                accept={accept}
-                style={{ display: 'none' }}
-                onChange={(e) => pick(e.target.files?.[0] ?? null)}
-              />
-              <CalciteButton
-                scale="s"
-                iconStart="upload"
-                disabled={!editable || undefined}
-                onClick={() => fileRef.current?.click()}
+        <fieldset
+          disabled={!editable || undefined}
+          style={{
+            border: 'none',
+            padding: 0,
+            margin: editable ? 0 : '8px 0 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={accept}
+              style={{ display: 'none' }}
+              onChange={(e) => pick(e.target.files?.[0] ?? null)}
+            />
+            <CalciteButton
+              scale="s"
+              iconStart="upload"
+              disabled={!editable || undefined}
+              onClick={() => fileRef.current?.click()}
+            >
+              Choose file
+            </CalciteButton>
+            <span style={{ fontSize: 12, color: tokens.textMuted }}>
+              {file ? file.name : 'No file chosen'}
+            </span>
+            {showTemplate && (
+              <a
+                href={templateHref}
+                style={{ fontSize: 12, color: tokens.accent, marginLeft: 'auto' }}
+                title="Download the vessel-call CSV template"
               >
-                Choose file
-              </CalciteButton>
-              <span style={{ fontSize: 12, color: tokens.textMuted }}>
-                {file ? file.name : 'No file chosen'}
-              </span>
-              {showTemplate && (
-                <a
-                  href={templateHref}
-                  style={{ fontSize: 12, color: tokens.accent, marginLeft: 'auto' }}
-                  title="Download the vessel-call CSV template"
-                >
-                  Download template
-                </a>
-              )}
-            </div>
+                Download template
+              </a>
+            )}
+          </div>
 
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <CalciteButton
-                scale="s"
-                appearance="outline"
-                disabled={!editable || !file || busy != null || undefined}
-                onClick={onValidate}
-              >
-                Validate
-              </CalciteButton>
-              <CalciteButton
-                scale="s"
-                disabled={!editable || !file || busy != null || undefined}
-                onClick={() => runImport(false)}
-              >
-                Import
-              </CalciteButton>
-              {/* Development / audit affordance: re-process a file the ledger already has.
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <CalciteButton
+              scale="s"
+              appearance="outline"
+              disabled={!editable || !file || busy != null || undefined}
+              onClick={onValidate}
+            >
+              Validate
+            </CalciteButton>
+            <CalciteButton
+              scale="s"
+              disabled={!editable || !file || busy != null || undefined}
+              onClick={() => runImport(false)}
+            >
+              Import
+            </CalciteButton>
+            {/* Development / audit affordance: re-process a file the ledger already has.
                 Outline + neutral, so Import stays the primary action. Not destructive —
                 the gateway upserts and deletes nothing — so no confirmation dialog. */}
-              <CalciteButton
-                scale="s"
-                appearance="outline"
-                kind="neutral"
-                disabled={!editable || !file || busy != null || undefined}
-                onClick={() => runImport(true)}
-                title="Re-process this file even if it was imported before. Updates existing records and refreshes the lifecycle; deletes nothing."
+            <CalciteButton
+              scale="s"
+              appearance="outline"
+              kind="neutral"
+              disabled={!editable || !file || busy != null || undefined}
+              onClick={() => runImport(true)}
+              title="Re-process this file even if it was imported before. Updates existing records and refreshes the lifecycle; deletes nothing."
+            >
+              Override Import
+            </CalciteButton>
+            {busy && (
+              <CalciteLoader
+                inline
+                label={
+                  busy === 'validate'
+                    ? 'Validating…'
+                    : busy === 'override'
+                      ? 'Re-processing…'
+                      : 'Importing…'
+                }
+              />
+            )}
+          </div>
+
+          <div style={{ fontSize: 11, color: tokens.textMuted }}>{helpText}</div>
+        </fieldset>
+
+        {err && (
+          <div style={{ marginTop: 8 }}>
+            <PanelError message={err} />
+          </div>
+        )}
+
+        {/* Validate (dry-run) outcome */}
+        {validation && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              background: tokens.panelAlt,
+              borderRadius: tokens.radius.sm,
+              borderLeft: `3px solid ${statusTone(validation.status)}`,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(validation.status) }}>
+              {validation.status} — {validation.summary.valid} valid /{' '}
+              {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
+            </div>
+            <ErrorList errors={validation.errors} />
+          </div>
+        )}
+
+        {/* Import outcome */}
+        {result && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              background: tokens.panelAlt,
+              borderRadius: tokens.radius.sm,
+              borderLeft: `3px solid ${statusTone(result.status)}`,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(result.status) }}>
+              {result.status}
+              {result.duplicate_file
+                ? ' — identical file already imported'
+                : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
+            </div>
+            {ledgerDetail && (
+              <div style={{ marginTop: 6, fontSize: 12, color: tokens.text }}>{ledgerDetail}</div>
+            )}
+            {result.errors && <ErrorList errors={result.errors} />}
+            <LedgerErrorList errors={ledgerErrors} />
+            {isDuplicateSkip && editable && file && (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
               >
-                Override Import
-              </CalciteButton>
-              {busy && (
-                <CalciteLoader
-                  inline
-                  label={
-                    busy === 'validate'
-                      ? 'Validating…'
-                      : busy === 'override'
-                        ? 'Re-processing…'
-                        : 'Importing…'
-                  }
-                />
-              )}
-            </div>
-
-            <div style={{ fontSize: 11, color: tokens.textMuted }}>{helpText}</div>
-          </fieldset>
-
-          {err && (
-            <div style={{ marginTop: 8 }}>
-              <PanelError message={err} />
-            </div>
-          )}
-
-          {/* Validate (dry-run) outcome */}
-          {validation && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: 10,
-                background: tokens.panelAlt,
-                borderRadius: tokens.radius.sm,
-                borderLeft: `3px solid ${statusTone(validation.status)}`,
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(validation.status) }}>
-                {validation.status} — {validation.summary.valid} valid /{' '}
-                {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
-              </div>
-              <ErrorList errors={validation.errors} />
-            </div>
-          )}
-
-          {/* Import outcome */}
-          {result && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: 10,
-                background: tokens.panelAlt,
-                borderRadius: tokens.radius.sm,
-                borderLeft: `3px solid ${statusTone(result.status)}`,
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(result.status) }}>
-                {result.status}
-                {result.duplicate_file
-                  ? ' — identical file already imported'
-                  : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
-              </div>
-              {ledgerDetail && (
-                <div style={{ marginTop: 6, fontSize: 12, color: tokens.text }}>{ledgerDetail}</div>
-              )}
-              {result.errors && <ErrorList errors={result.errors} />}
-              <LedgerErrorList errors={ledgerErrors} />
-              {isDuplicateSkip && editable && file && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                  }}
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  disabled={busy != null || undefined}
+                  onClick={() => runImport(true)}
                 >
-                  <CalciteButton
-                    scale="s"
-                    appearance="outline"
-                    disabled={busy != null || undefined}
-                    onClick={() => onImport(true)}
-                  >
-                    Re-import anyway
-                  </CalciteButton>
-                  <span style={{ fontSize: 11, color: tokens.textMuted }}>
-                    Re-processes this file (override). Upserts rows; does not delete history.
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </Panel>
+                  Re-import anyway
+                </CalciteButton>
+                <span style={{ fontSize: 11, color: tokens.textMuted }}>
+                  Re-processes this file (override). Upserts rows; does not delete history.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
 
-        <Panel title="Upload history" minHeight={160}>
-          <UploadHistory refreshKey={refreshKey} />
-        </Panel>
-      </div>
-    );
-  };
+      <Panel title="Upload history" minHeight={160}>
+        <UploadHistory refreshKey={refreshKey} />
+      </Panel>
+    </div>
+  );
 }

@@ -28,6 +28,7 @@ package-lock.json
 pnpm-lock.yaml
 
 docs/Bathymetry Data/
+docs/Berthing Report/
 
 # local DB dumps (never commit)
 backups/

@@ -17,6 +17,7 @@ import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchBerthingLifecycleMap, type BerthingLifecycle } from '@/data/uc3/berthingState';
 import {
   fetchBerthingReportsPage,
+  openBerthingSourcePdf,
   BERTHING_TERMINALS,
   BERTHING_STATUSES,
   type BerthingReportFilters,
@@ -84,6 +85,28 @@ const COLUMNS: {
   { key: 'berthed', label: 'Berthed', render: (r) => fmt(r.berthingTime) },
   { key: 'departed', label: 'Departed', render: (r) => fmt(r.departureTime) },
   { key: 'updated', label: 'Updated', sort: 'updated_at', render: (r) => fmt(r.updatedAt) },
+  {
+    key: 'source',
+    label: 'Source PDF',
+    render: (r) =>
+      r.sourceFile ? (
+        <button
+          type="button"
+          onClick={() => {
+            void openBerthingSourcePdf(r.sourceFile!).catch((err: Error) => {
+              window.alert(err.message);
+            });
+          }}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            color: tokens.accent, fontSize: 12, textDecoration: 'underline',
+          }}
+          title="Open the original berthing-report PDF"
+        >
+          {r.sourceFile.length > 28 ? `${r.sourceFile.slice(0, 26)}…` : r.sourceFile}
+        </button>
+      ) : '—',
+  },
 ];
 
 /** epoch ms → IST string, or '—' when unknown (0). */

@@ -68,6 +68,17 @@ npm run dev          # http://localhost:5173
 
 That's it. The whole UI + KPI engine runs offline against the mock adapter.
 
+### UC-1 demo cold-start (gateway + local Postgres) — UC1-001
+
+One command for a presenter laptop (Postgres 16 → `jnpa_v3_local`, gateway `:8000`,
+this dashboard `:5173`, login `admin`/`adminadmin`). Requires Docker Desktop and a sibling
+`jnpa-uc3-poc` checkout with `make venv` already run. See [docs/UC1_COLD_START.md](docs/UC1_COLD_START.md).
+
+```bash
+./scripts/uc1-cold-start.sh
+./scripts/uc1-cold-stop.sh          # teardown
+```
+
 ### Other scripts
 
 ```bash
