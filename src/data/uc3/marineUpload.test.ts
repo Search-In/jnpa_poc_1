@@ -9,6 +9,7 @@ import {
   fetchMarineUploads,
   fetchMarineUploadsPage,
   importMarineCsv,
+  overrideImportMarineCsv,
   mapUploadError,
   mapUploadFile,
   marineUploadsQuery,
@@ -377,5 +378,39 @@ describe('fetchMarineUploads / fetchMarineUpload', () => {
     const { file, errors } = await fetchMarineUpload(1);
     expect(file?.status).toBe('PARTIAL');
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe('override import', () => {
+  it('omits the override field on a NORMAL import — the body is unchanged', () => {
+    const fd = buildUploadForm(new File(['x'], 'a.xml'));
+    expect(fd.get('override')).toBeNull();
+  });
+
+  it('sends override=true only when asked', () => {
+    const fd = buildUploadForm(new File(['x'], 'a.xml'), true);
+    expect(fd.get('override')).toBe('true');
+  });
+
+  it('posts to the SAME endpoint as a normal import', async () => {
+    const calls: { url: string; body: FormData }[] = [];
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/auth/login')) {
+        return Promise.resolve({ ok: true, status: 200,
+          json: async () => ({ access_token: 'T', token_type: 'bearer' }) } as Response);
+      }
+      calls.push({ url: String(url), body: init?.body as FormData });
+      return Promise.resolve({ ok: true, status: 200,
+        json: async () => ({ file_id: 1, status: 'SUCCESS', imported: 0, updated: 1 }) } as Response);
+    }));
+
+    const f = new File(['x'], 'a.xml');
+    await importMarineCsv(f);
+    await overrideImportMarineCsv(f);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe(calls[1].url);              // same endpoint
+    expect(calls[0].body.get('override')).toBeNull();     // normal import
+    expect(calls[1].body.get('override')).toBe('true');   // override
   });
 });

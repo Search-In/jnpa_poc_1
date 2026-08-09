@@ -2,7 +2,7 @@
  * <PortCraftPage> — Overview / Fleet Register / Data Upload tab wiring.
  *
  * Verifies the UX contract of the screen: Overview is the default tab, all three
- * tabs are present in order, selection switches, and a guided-tour beat snaps back
+ * four tabs are present in order, selection switches, and a guided-tour beat snaps back
  * to Overview (the six `tab: 'craft'` steps in sim/scenarios.ts narrate the resource
  * board, which lives there).
  *
@@ -34,8 +34,14 @@ vi.mock('@esri/calcite-components-react', () => ({
 vi.mock('@/components/marine/PortCraftOverview', () => ({
   PortCraftOverview: () => <div>overview-pane</div>,
 }));
+vi.mock('@/components/marine/PortCraftOperationsTab', () => ({
+  PortCraftOperationsTab: () => <div>operations-pane</div>,
+}));
 vi.mock('@/components/marine/PortCraftFleetRegister', () => ({
   PortCraftFleetRegister: ({ registerKey }: { registerKey: number }) => <div>register-pane-{registerKey}</div>,
+}));
+vi.mock('@/components/marine/CraftAssignmentsTab', () => ({
+  CraftAssignmentsTab: () => <div>craft-assignments-pane</div>,
 }));
 vi.mock('@/components/marine/PortCraftDataUpload', () => ({
   PortCraftDataUpload: ({ onImported }: { onImported?: (r: unknown) => void }) => (
@@ -53,18 +59,26 @@ beforeEach(() => {
 });
 
 describe('PortCraftPage — tab structure', () => {
-  it('shows Overview, Fleet Register and Data Upload in that order', () => {
+  it('shows Overview, Active Marine Operations, Fleet Register, Craft Assignments and Data Upload in that order', () => {
     render(<PortCraftPage />);
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
-      'Overview', 'Fleet Register', 'Data Upload',
+      'Overview', 'Active Marine Operations', 'Fleet Register', 'Craft Assignments', 'Data Upload',
     ]);
   });
 
   it('opens on Overview by default', () => {
     render(<PortCraftPage />);
     expect(tab('Overview')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('Active Marine Operations')).toHaveAttribute('aria-selected', 'false');
     expect(tab('Fleet Register')).toHaveAttribute('aria-selected', 'false');
     expect(tab('Data Upload')).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('switches to Active Marine Operations', () => {
+    render(<PortCraftPage />);
+    fireEvent.click(tab('Active Marine Operations'));
+    expect(tab('Active Marine Operations')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('Overview')).toHaveAttribute('aria-selected', 'false');
   });
 
   it('switches to Fleet Register and back', () => {
@@ -87,6 +101,7 @@ describe('PortCraftPage — tab structure', () => {
     render(<PortCraftPage />);
     fireEvent.click(tab('Data Upload'));
     expect(screen.getByText('overview-pane')).toBeInTheDocument();
+    expect(screen.getByText('operations-pane')).toBeInTheDocument();
     expect(screen.getByText('register-pane-0')).toBeInTheDocument();
   });
 });

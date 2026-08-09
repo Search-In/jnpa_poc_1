@@ -19,6 +19,7 @@
  */
 
 import { env } from '../config';
+import { getDataSourceMode } from '../dataSourceMode';
 import { clearAuthToken, getAuthToken } from './token';
 
 /**
@@ -74,6 +75,8 @@ async function send(path: string, init: RequestInit | undefined, token: string):
       'content-type': 'application/json',
       ...(init?.headers || {}),
       authorization: `Bearer ${token}`,
+      // Data-source provenance filter (LIVE = JNPA-API rows, DEMO = pre-loaded).
+      'x-data-mode': getDataSourceMode(),
     },
   });
 }
@@ -118,7 +121,11 @@ async function sendForm(path: string, form: FormData, token: string): Promise<Re
   return fetch(uc3Url(path), {
     method: 'POST',
     body: form,
-    headers: { authorization: `Bearer ${token}` },
+    headers: {
+      authorization: `Bearer ${token}`,
+      // Data-source provenance filter (LIVE = JNPA-API rows, DEMO = pre-loaded).
+      'x-data-mode': getDataSourceMode(),
+    },
   });
 }
 

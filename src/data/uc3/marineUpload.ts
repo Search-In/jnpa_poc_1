@@ -206,9 +206,10 @@ export function parseUploadsPage(raw: unknown): MarineUploadFile[] {
 }
 
 /** Map the upload-detail envelope (ledger row + its errors). Pure. */
-export function parseUploadDetail(
-  raw: unknown,
-): { file: MarineUploadFile | null; errors: MarineUploadRowError[] } {
+export function parseUploadDetail(raw: unknown): {
+  file: MarineUploadFile | null;
+  errors: MarineUploadRowError[];
+} {
   const wire = raw as MarineUploadDetailWire | null;
   if (!wire) return { file: null, errors: [] };
   const errors = Array.isArray(wire.errors)
@@ -221,7 +222,7 @@ export function parseUploadDetail(
 export function marineUploadsQuery(
   filters: MarineUploadFilters = {},
   limit = MARINE_UPLOADS_PAGE_LIMIT,
-  offset = 0,
+  offset = 0
 ): string {
   const q = new URLSearchParams();
   if (filters.status) q.set('status', filters.status);
@@ -231,21 +232,16 @@ export function marineUploadsQuery(
   return `${MARINE_UPLOADS_PATH}?${q.toString()}`;
 }
 
-/** Options for the import multipart body (validate ignores these). */
-export interface MarineUploadOptions {
-  /**
-   * Re-process a file already in the ledger instead of returning
-   * SKIPPED_DUPLICATE. Gateway form field; default false.
-   */
-  override?: boolean;
-}
-
-/** Wrap a File in the multipart body the gateway expects. Pure. */
-export function buildUploadForm(file: File, options: MarineUploadOptions = {}): FormData {
+/**
+ * Wrap a File in the multipart body the gateway expects. Pure.
+ *
+ * `override` is appended ONLY when true, so a normal import posts exactly the body it
+ * always did — the gateway's own default is false.
+ */
+export function buildUploadForm(file: File, override = false): FormData {
   const fd = new FormData();
   fd.append(UPLOAD_FIELD, file);
-  // Only send when true — omitting keeps the default skip-duplicate behaviour.
-  if (options.override) fd.append('override', 'true');
+  if (override) fd.append('override', 'true');
   return fd;
 }
 
@@ -258,6 +254,14 @@ export async function validateMarineCsv(file: File): Promise<MarineValidateResul
   return postForm<MarineValidateResult>(MARINE_VALIDATE_PATH, buildUploadForm(file));
 }
 
+export interface MarineUploadOptions {
+  /**
+   * Re-process a file already in the ledger instead of returning
+   * SKIPPED_DUPLICATE. Gateway form field; default false.
+   */
+  override?: boolean;
+}
+
 /**
  * Import a Marine CSV. Idempotent: identical bytes resolve with
  * `status: 'SKIPPED_DUPLICATE'` and `duplicate_file: true`; a re-seen VCN
@@ -266,19 +270,34 @@ export async function validateMarineCsv(file: File): Promise<MarineValidateResul
  */
 export async function importMarineCsv(
   file: File,
-  options: MarineUploadOptions = {},
+  options: MarineUploadOptions = {}
 ): Promise<MarineImportResult> {
-  return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file, options));
+  return postForm<MarineImportResult>(
+    MARINE_UPLOAD_PATH,
+    buildUploadForm(file, options?.override ?? false)
+  );
+}
+
+/**
+ * Re-import a file the ledger has already seen, instead of getting SKIPPED_DUPLICATE.
+ *
+ * Development / audit affordance. It is NOT a delete: the gateway replays the same
+ * records through the same upsert path, so business rows refresh in place, the lifecycle
+ * projection re-runs, and the file keeps its original ledger id. Same endpoint, same
+ * response shape — only the `override` field differs.
+ */
+export async function overrideImportMarineCsv(file: File): Promise<MarineImportResult> {
+  return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file, true));
 }
 
 /** Fetch the import ledger, newest first. */
 export async function fetchMarineUploads(
   filters: MarineUploadFilters = {},
   limit = MARINE_UPLOADS_PAGE_LIMIT,
-  offset = 0,
+  offset = 0
 ): Promise<MarineUploadFile[]> {
   return parseUploadsPage(
-    await http<MarineUploadsPage>(marineUploadsQuery(filters, limit, offset)),
+    await http<MarineUploadsPage>(marineUploadsQuery(filters, limit, offset))
   );
 }
 
@@ -286,7 +305,7 @@ export async function fetchMarineUploads(
 export async function fetchMarineUploadsPage(
   filters: MarineUploadFilters = {},
   limit = MARINE_UPLOADS_PAGE_LIMIT,
-  offset = 0,
+  offset = 0
 ): Promise<{ items: MarineUploadFile[]; total: number; limit: number; offset: number }> {
   const page = await http<MarineUploadsPage>(marineUploadsQuery(filters, limit, offset));
   return {
@@ -299,7 +318,7 @@ export async function fetchMarineUploadsPage(
 
 /** Fetch one upload with its persisted row errors. */
 export async function fetchMarineUpload(
-  fileId: number,
+  fileId: number
 ): Promise<{ file: MarineUploadFile | null; errors: MarineUploadRowError[] }> {
   return parseUploadDetail(await http<MarineUploadDetailWire>(`${MARINE_UPLOADS_PATH}/${fileId}`));
 }
