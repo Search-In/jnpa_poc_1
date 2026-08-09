@@ -14,6 +14,7 @@ import {
   parsePlan,
   parseTides,
   parseVesselStates,
+  toBerthingPlanEntries,
 } from './marineDashboard';
 import { nearestTide } from '../Uc3Adapter';
 
@@ -71,6 +72,27 @@ describe('parsePlan', () => {
     expect(res.entries[1].kind).toBe('indicative');
     expect(res.entries[1].endEstimated).toBe(true);
     expect(res.anchor).toBeGreaterThan(res.windowStart);
+  });
+});
+
+describe('toBerthingPlanEntries', () => {
+  it('maps KIND / PROVENANCE / END_ESTIMATED for the Gantt', () => {
+    const res = parsePlan({
+      data_mode: 'CACHED', source: 's',
+      window: { start: '2026-07-20T00:00:00+05:30', end: '2026-07-25T00:00:00+05:30',
+                anchor: '2026-07-20T04:30:00+05:30' },
+      entries: [{
+        kind: 'confirmed', source: 'JNPA terminal berthing reports',
+        berth_code: 'CB05', vessel_name: 'MAERSK SELETAR',
+        start_ts: '2026-07-19T23:06:00Z', end_ts: '2026-07-20T18:29:00Z',
+        end_estimated: true, ref: 'berthing_record:39',
+      }],
+    });
+    const [e] = toBerthingPlanEntries(res);
+    expect(e.KIND).toBe('confirmed');
+    expect(e.BERTH_ID).toBe('CB05');
+    expect(e.END_ESTIMATED).toBe(true);
+    expect(e.PROVENANCE).toContain('JNPA terminal berthing reports');
   });
 });
 

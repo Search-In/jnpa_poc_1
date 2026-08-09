@@ -19,6 +19,12 @@ import { useMemo, useRef, useState } from 'react';
 import { CalciteSwitch } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { env } from '@/data/config';
+import {
+  fetchMarinePlan,
+  marineAsOfMs,
+  toBerthingPlanEntries,
+} from '@/data/uc3/marineDashboard';
 import { useSimStore } from '@/sim/simStore';
 import { plannedTransits, controllingDepthM, type PlannedTransit } from '@/sim/derive';
 import { computeUkc, tideAt } from '@/dukc/ukc';
@@ -36,6 +42,14 @@ import { PanelEmpty, PanelError, PanelLoading } from '../common/Panel';
 const H = 3_600_000;
 const HORIZON_H = 120; // 5 days
 const DAY_MS = 24 * H;
+
+/** Load the 5-day plan: UC-3 corpus when enabled, else the sim adapter. */
+function loadBerthPlan(): Promise<BerthingPlanEntry[]> {
+  if (env.uc3.enabled) {
+    return fetchMarinePlan(marineAsOfMs(), 5).then(toBerthingPlanEntries);
+  }
+  return getAdapter().getBerthPlan({ lastHours: HORIZON_H });
+}
 
 /** Status → block fill (tokens only). */
 function statusFill(status: BerthingPlanEntry['STATUS']): string {
@@ -84,7 +98,7 @@ export function BerthGantt5Day() {
 
   const berthsQ = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), [clockH, simVersion], 30_000);
   const planQ = useAdapterQuery<BerthingPlanEntry[]>(
-    () => getAdapter().getBerthPlan({ lastHours: 24 }),
+    () => loadBerthPlan(),
     [clockH],
     30_000
   );
@@ -468,8 +482,11 @@ export function BerthGantt5Day() {
                         <title>
                           {`${e.VESSEL_NAME} — ${e.STATUS}\n${istDateTime(start)} → ${istTime(end)}` +
                             (e.KIND
-                              ? `\n${e.KIND === 'confirmed' ? 'CONFIRMED' : 'INDICATIVE (twin-generated)'}` +
-                                `${e.PROVENANCE ? ` — ${e.PROVENANCE}` : ''}` +
+                              ? `\n${
+                                  e.KIND === 'confirmed'
+                                    ? 'CONFIRMED - JNPA terminal berthing reports'
+                                    : 'INDICATIVE (twin-generated)'
+                                }` +
                                 (e.END_ESTIMATED ? '\nend time estimated (source carried none)' : '')
                               : '') +
                             (moved ? '\n(simulated replan)' : '')}
@@ -526,13 +543,25 @@ export function BerthGantt5Day() {
             style={{
               width: 14,
               height: 10,
+              background: tokens.accentDim,
+              display: 'inline-block',
+              borderRadius: 2,
+            }}
+          />
+          CONFIRMED - JNPA terminal berthing reports
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span
+            style={{
+              width: 14,
+              height: 10,
               background: `repeating-linear-gradient(45deg, ${tokens.accentDim}, ${tokens.accentDim} 2px, ${tokens.panel} 2px, ${tokens.panel} 4px)`,
               display: 'inline-block',
               borderRadius: 2,
               border: `1px dashed ${tokens.accentDim}`,
             }}
           />
-          indicative (twin-generated) vs solid confirmed (JNPA report)
+          INDICATIVE (twin-generated)
         </span>
         <span style={{ opacity: 0.5 }}>│</span>
         <LegendSwatch color={windowFill('go')} label="DUKC go" border />

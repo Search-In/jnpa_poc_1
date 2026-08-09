@@ -201,6 +201,52 @@ export function parsePlan(raw: unknown): MarinePlanResult {
   };
 }
 
+const H = 3_600_000;
+
+/**
+ * Map marine-plan entries onto the Gantt's `BerthingPlanEntry` shape (UI-028).
+ * Kept here (not only in Uc3Adapter) so BerthGantt5Day can call the connector
+ * directly when VITE_UC3_ENABLED is on.
+ *
+ * Estimated stays longer than 48 h are clamped so what-if drag (which requires
+ * duration ≤ the 5-day horizon) keeps working even if an older API build
+ * returns an uncapped end.
+ */
+export function toBerthingPlanEntries(
+  res: MarinePlanResult,
+): import('@/types/domain').BerthingPlanEntry[] {
+  const MAX_EST_MS = 48 * H;
+  return res.entries.map((e, i) => {
+    const started = e.kind === 'confirmed' && e.startTs <= res.anchor;
+    let endTs = e.endTs || e.startTs + 24 * H;
+    if (e.endEstimated && endTs - e.startTs > MAX_EST_MS) {
+      endTs = e.startTs + MAX_EST_MS;
+    }
+    const ended = endTs > 0 && endTs <= res.anchor;
+    return {
+      PLAN_ID: e.ref || `plan-${i}`,
+      BERTH_ID: e.berthCode || e.berthRaw || 'UNASSIGNED',
+      MMSI: e.imoNo ? `IMO:${e.imoNo}` : `VIA:${e.viaNo || e.voyageNo || i}`,
+      VESSEL_NAME: e.vesselName || '(unnamed)',
+      PLANNED_START: e.startTs,
+      PLANNED_END: endTs,
+      ACTUAL_START: started ? e.startTs : null,
+      ACTUAL_END: started && ended ? endTs : null,
+      STATUS: ended ? 'completed' : started ? 'active' : 'scheduled',
+      KIND: e.kind,
+      END_ESTIMATED: e.endEstimated,
+      PROVENANCE: e.source,
+    };
+  });
+}
+
+/** Demo/sim pin for marine dashboard reads (`VITE_UC3_AS_OF`), if set. */
+export function marineAsOfMs(): number | undefined {
+  const pinned = (import.meta.env.VITE_UC3_AS_OF as string | undefined) ?? '';
+  const parsed = pinned ? Date.parse(pinned) : NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 // ------------------------------------------------------------------ KPIs
 /** A JNPA-PUBLISHED baseline figure attached to a KPI (jnport.gov.in Reports). */
 export interface MarineKpiBaseline {

@@ -62,6 +62,7 @@ import {
   fetchMarinePlan,
   fetchMarineVesselStates,
   fetchTides,
+  toBerthingPlanEntries,
   type MarineBerthState,
   type MarineBerthsResult,
   type MarineKpiBaseline,
@@ -366,24 +367,7 @@ export class Uc3Adapter implements DataAdapter {
       ?? (window?.from && window?.to ? (window.to - window.from) / H : 120);
     const days = Math.max(1, Math.min(Math.ceil(hours / 24), 14));
     const res = await fetchMarinePlan(this.at(), days);
-    return res.entries.map((e, i) => {
-      const started = e.kind === 'confirmed' && e.startTs <= res.anchor;
-      const ended = e.endTs > 0 && e.endTs <= res.anchor;
-      return {
-        PLAN_ID: e.ref || `plan-${i}`,
-        BERTH_ID: e.berthCode || e.berthRaw || 'UNASSIGNED',
-        MMSI: e.imoNo ? `IMO:${e.imoNo}` : `VIA:${e.viaNo || e.voyageNo || i}`,
-        VESSEL_NAME: e.vesselName || '(unnamed)',
-        PLANNED_START: e.startTs,
-        PLANNED_END: e.endTs || e.startTs + 24 * H,
-        ACTUAL_START: started ? e.startTs : null,
-        ACTUAL_END: started && ended ? e.endTs : null,
-        STATUS: ended ? 'completed' : started ? 'active' : 'scheduled',
-        KIND: e.kind,
-        END_ESTIMATED: e.endEstimated,
-        PROVENANCE: e.source,
-      };
-    });
+    return toBerthingPlanEntries(res);
   }
 
   // ---------------------------------------------------------------- KPIs
