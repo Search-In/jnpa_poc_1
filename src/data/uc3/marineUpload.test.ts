@@ -93,7 +93,7 @@ describe('buildUploadForm', () => {
   });
 
   it('appends override=true when re-processing a ledger hit', () => {
-    const fd = buildUploadForm(csvFile(), { override: true });
+    const fd = buildUploadForm(csvFile(), true);
     expect(fd.get('override')).toBe('true');
     expect([...fd.keys()]).toEqual([UPLOAD_FIELD, 'override']);
   });
@@ -297,7 +297,7 @@ describe('validateMarineCsv / importMarineCsv (multipart transport)', () => {
   });
 
   it('sends override=true in the multipart body when re-importing', async () => {
-    const spy = vi.fn((url: string) =>
+    const spy = vi.fn((url: string, _init?: RequestInit) =>
       String(url).endsWith('/auth/login')
         ? jsonResponse(loginBody)
         : jsonResponse({
