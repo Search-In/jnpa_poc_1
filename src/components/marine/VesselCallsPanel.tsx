@@ -25,7 +25,14 @@ export function VesselCallsPanel() {
         <MarineStatCards />
       </Panel>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(280px, 2fr)', gap: 12, alignItems: 'stretch' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 3fr) minmax(280px, 2fr)',
+          gap: 12,
+          alignItems: 'stretch',
+        }}
+      >
         <Panel title="Vessel calls" height={520}>
           <VesselCallsTable
             selectedCallId={selectedCallId}

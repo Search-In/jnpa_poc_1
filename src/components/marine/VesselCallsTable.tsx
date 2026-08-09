@@ -11,7 +11,12 @@
  */
 
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { CalciteButton, CalciteInput, CalciteCheckbox, CalciteLabel } from '@esri/calcite-components-react';
+import {
+  CalciteButton,
+  CalciteInput,
+  CalciteCheckbox,
+  CalciteLabel,
+} from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { useMarineStateVersion } from '@/data/uc3/marineStateBus';
 import { fetchVesselCallsPage, type VesselCallFilters } from '@/data/uc3/marineCalls';
@@ -55,18 +60,27 @@ const PAGE_SIZE = 50;
 
 /** Sortable columns → the backend `sort` key it maps to. */
 const COLUMNS: {
-  key: string; label: string; sort?: string; render: (c: VesselCall) => ReactNode;
+  key: string;
+  label: string;
+  sort?: string;
+  render: (c: VesselCall) => ReactNode;
 }[] = [
   // The badge marks the ROW and rides with its primary identifier. Computed in the view
   // model on read (see data/quality) — nothing is persisted and no request changes.
-  { key: 'vcn', label: 'VCN', sort: 'vcn',
+  {
+    key: 'vcn',
+    label: 'VCN',
+    sort: 'vcn',
     render: (c) => (
       <>
         {c.vcn || '—'}
-        <AnomalyBadge result={assessRecord(c, VESSEL_CALL_QUALITY)}
-                      dataset={VESSEL_CALL_QUALITY.dataset} />
+        <AnomalyBadge
+          result={assessRecord(c, VESSEL_CALL_QUALITY)}
+          dataset={VESSEL_CALL_QUALITY.dataset}
+        />
       </>
-    ) },
+    ),
+  },
   { key: 'vessel', label: 'Vessel', sort: 'vessel_name', render: (c) => c.vesselName || '—' },
   { key: 'via', label: 'VIA', sort: 'via_no', render: (c) => c.viaNo || '—' },
   { key: 'voyage', label: 'Voyage', render: (c) => c.voyageNo || '—' },
@@ -79,11 +93,15 @@ const COLUMNS: {
   // Operational state from the backend projection when it has one, else the stored parser
   // stage. Same precedence the detail pane uses, so the table and the timeline agree.
   // `sort` stays on the STORED column — that is what the gateway can order by.
-  { key: 'status', label: 'Status', sort: 'status',
+  {
+    key: 'status',
+    label: 'Status',
+    sort: 'status',
     render: (c) => {
       const v = c.lifecycle?.status || c.status;
       return v ? <StatusChip label={v} tone={lifecycleTone(v)} /> : '—';
-    } },
+    },
+  },
   { key: 'eta', label: 'ETA', sort: 'eta', render: (c) => fmt(c.eta) },
   // BERMAN's EDB — the expected berthing time. It was returned by the API and rendered
   // nowhere, so the berth-application step was invisible except as a status change.
@@ -115,7 +133,6 @@ export function VesselCallsTable({
   // Refetch whenever a manual pilot/craft action changes backend lifecycle state.
   const marineVersion = useMarineStateVersion();
 
-
   const filters: VesselCallFilters = {
     vessel: vessel.trim() || undefined,
     inPort: inPort || undefined,
@@ -125,7 +142,7 @@ export function VesselCallsTable({
 
   const q = useAdapterQuery(
     () => fetchVesselCallsPage(filters, PAGE_SIZE, offset),
-    [vessel, inPort, sort, direction, offset, marineVersion],
+    [vessel, inPort, sort, direction, offset, marineVersion]
   );
 
   const toggleSort = (col: (typeof COLUMNS)[number]) => {
@@ -157,7 +174,15 @@ export function VesselCallsTable({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Toolbar: search + in-port filter */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.space.md, paddingBottom: tokens.space.sm, flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: tokens.space.md,
+          paddingBottom: tokens.space.sm,
+          flexWrap: 'wrap',
+        }}
+      >
         <CalciteInput
           scale="s"
           clearable
@@ -179,15 +204,33 @@ export function VesselCallsTable({
           />
           In port only
         </CalciteLabel>
-        <ShowAnomalyToggle checked={showAnomalies} onChange={setShowAnomalies}
-                           hiddenCount={hiddenOnPage} />
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>
+        <ShowAnomalyToggle
+          checked={showAnomalies}
+          onChange={setShowAnomalies}
+          hiddenCount={hiddenOnPage}
+        />
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 12,
+            color: tokens.textMuted,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
           {from}–{to} of {total}
         </span>
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm }}>
+      <div
+        style={{
+          flex: 1,
+          overflow: 'auto',
+          minHeight: 0,
+          border: `1px solid ${tokens.border}`,
+          borderRadius: tokens.radius.sm,
+        }}
+      >
         {q.loading && !page ? (
           <PanelLoading label="Loading vessel calls…" />
         ) : q.error ? (
@@ -205,7 +248,13 @@ export function VesselCallsTable({
                     key={c.key}
                     style={{ ...TH, cursor: c.sort ? 'pointer' : 'default' }}
                     onClick={() => toggleSort(c)}
-                    aria-sort={c.sort && c.sort === sort ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    aria-sort={
+                      c.sort && c.sort === sort
+                        ? direction === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : 'none'
+                    }
                     title={c.sort ? 'Click to sort' : undefined}
                   >
                     {c.label}
@@ -230,7 +279,9 @@ export function VesselCallsTable({
                           ...TD,
                           fontWeight: col.key === 'vcn' ? 600 : undefined,
                           color: col.key === 'updated' ? tokens.textMuted : TD.color,
-                          fontVariantNumeric: ['eta', 'ata', 'atd', 'updated'].includes(col.key) ? 'tabular-nums' : undefined,
+                          fontVariantNumeric: ['eta', 'ata', 'atd', 'updated'].includes(col.key)
+                            ? 'tabular-nums'
+                            : undefined,
                         }}
                       >
                         {col.render(c)}
@@ -245,11 +296,30 @@ export function VesselCallsTable({
       </div>
 
       {/* Pager */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.space.sm, paddingTop: tokens.space.sm }}>
-        <CalciteButton scale="s" appearance="outline" iconStart="chevron-left" disabled={offset === 0 || undefined} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: tokens.space.sm,
+          paddingTop: tokens.space.sm,
+        }}
+      >
+        <CalciteButton
+          scale="s"
+          appearance="outline"
+          iconStart="chevron-left"
+          disabled={offset === 0 || undefined}
+          onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+        >
           Prev
         </CalciteButton>
-        <CalciteButton scale="s" appearance="outline" iconEnd="chevron-right" disabled={to >= total || undefined} onClick={() => setOffset(offset + PAGE_SIZE)}>
+        <CalciteButton
+          scale="s"
+          appearance="outline"
+          iconEnd="chevron-right"
+          disabled={to >= total || undefined}
+          onClick={() => setOffset(offset + PAGE_SIZE)}
+        >
           Next
         </CalciteButton>
       </div>

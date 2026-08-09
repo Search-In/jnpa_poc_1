@@ -428,6 +428,12 @@ export interface ArrivalTimeRow {
   note: string;
 }
 
+export interface ArrivalAnomaly {
+  code: string;
+  days: number;
+  message: string;
+}
+
 export interface ArrivalTimesResult extends MarineEnvelope {
   callId: number;
   vcn: string;
@@ -438,6 +444,7 @@ export interface ArrivalTimesResult extends MarineEnvelope {
   ata: number;
   atc: number;
   atd: number;
+  anomalies: ArrivalAnomaly[];
 }
 
 export function parseArrivalTimes(raw: unknown): ArrivalTimesResult {
@@ -445,6 +452,8 @@ export function parseArrivalTimes(raw: unknown): ArrivalTimesResult {
   const rows = Array.isArray(r?.['arrival_times'])
     ? (r!['arrival_times'] as Record<string, unknown>[]) : [];
   const actuals = (r?.['actuals'] ?? null) as Record<string, unknown> | null;
+  const anomalies = Array.isArray(r?.['anomalies'])
+    ? (r!['anomalies'] as Record<string, unknown>[]) : [];
   return {
     ...mapEnvelope(r),
     callId: num(r?.['call_id']),
@@ -462,6 +471,11 @@ export function parseArrivalTimes(raw: unknown): ArrivalTimesResult {
       source: str(w['source']),
       derived: w['derived'] === true,
       note: str(w['note']),
+    })),
+    anomalies: anomalies.map((a) => ({
+      code: str(a['code']),
+      days: num(a['days']),
+      message: str(a['message']),
     })),
   };
 }

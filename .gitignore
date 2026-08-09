@@ -27,8 +27,7 @@ npm-debug.log*
 package-lock.json
 pnpm-lock.yaml
 
-docs/Bathymetry Data/
-docs/Berthing Report/
+data/
 
 # local DB dumps (never commit)
 backups/

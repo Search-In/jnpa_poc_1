@@ -162,12 +162,15 @@ describe('parseArrivalTimes', () => {
           derived: false, note: null },
       ],
       actuals: { ata: null, atc: null, atd: null },
+      anomalies: [{ code: 'eta_vs_anchorage_gap', days: 31, message: 'Planted anomaly' }],
     });
     expect(res.rows).toHaveLength(2);
     expect(res.rows[0].value).toBe(0);
     expect(res.rows[0].note).toContain('not present');
     expect(res.rows[1].value).toBeGreaterThan(0);
     expect(res.rows[1].source).toContain('CALINF');
+    expect(res.anomalies).toHaveLength(1);
+    expect(res.anomalies[0].days).toBe(31);
   });
 });
 
