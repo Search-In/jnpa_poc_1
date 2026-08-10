@@ -280,13 +280,29 @@ build. Test it with `npm run build && npx vite preview`, not `npm run dev`.
   it gives you the black of space, and with `starsEnabled` defaulting on you get
   a starfield. That is exactly how an earlier mobile-perf pass turned the
   walkthrough into night. Stars are explicitly off; this is a daytime port.
-- **Tile budget is where the mobile savings actually come from.** Three tile
-  services normally feed this scene — imagery, the label overlay `hybrid` adds
-  on top, and Terrain3D for the ground — and stereo requests from all three
-  twice. On a low-power device the basemap drops to `satellite` (one service; a
-  place label is unreadable through a cardboard lens anyway) and the ground goes
-  flat (Terrain3D gone; JNPA is tidal flats with ~0 m relief). Verified: 2 base
-  layers + 1 ground layer → **1 base layer + 0 ground layers**.
+- **Tile budget.** Three tile services normally feed this scene — imagery, the
+  label overlay `hybrid` adds on top, and Terrain3D for the ground — and stereo
+  requests from all three twice. On a low-power device the basemap drops to
+  `satellite` (one service; a place label is unreadable through a cardboard lens
+  anyway) and the ground goes flat (Terrain3D gone; JNPA is tidal flats with
+  ~0 m relief). Verified: 2 base layers + 1 ground layer → **1 base layer +
+  0 ground layers**.
+- **Scenery budget — the biggest single cost.** The yard is 60 blocks stacked
+  2–5 containers high: **210 glTF instances**, every one of them loaded and drawn
+  twice in stereo, once per view. That is what made a phone crawl, and because
+  each view resolves its own copies it is also why one eye finished before the
+  other. On a low-power device the yard is thinned to its bottom tier via
+  `definitionExpression: 'tier <= 0'` (**210 → 60, 71% fewer**; it still reads as
+  a container yard from any distance a viewer stands at) and the truck queues are
+  dropped. Nothing that answers WHICH/WHERE/HOW is touched — cranes, berths,
+  channel and hulls all stay.
+- **Render scale.** The SceneView is handed a container at 62% linear size and
+  CSS-scaled back up, so it rasterises **38% of the pixels** per eye. Measured on
+  a stereo eye box at devicePixelRatio 2: 934×970 device px instead of
+  1506×1566. Through a cardboard lens — already soft and magnified — the
+  difference is not visible. The lens mask lives on a wrapper OUTSIDE the scaled
+  subtree, or the transform would magnify the mask too and the eyes would stop
+  matching.
 - **The sun is fixed at 2026-06-16T06:30Z = 12:00 noon IST at JNPA** — midday,
   deliberately. If the scene ever looks like night, check `atmosphereEnabled`
   before you touch the date.
