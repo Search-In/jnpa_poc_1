@@ -162,9 +162,8 @@ export function PilotageTable() {
           clearable
           placeholder="Search vessel / VCN / VIA / IMO / pilot…"
           title={`Matches any of: ${searchHint()}`}
-          value={vessel}
           style={{ maxWidth: 240 }}
-          onCalciteInputChange={(e) => { setOffset(0); setVessel((e.target as unknown as { value: string }).value); }}
+          onCalciteInputInput={(e) => { setOffset(0); setVessel((e.target as unknown as { value: string }).value); }}
         />
         <ShowAnomalyToggle checked={showAnomalies} onChange={setShowAnomalies}
                            hiddenCount={hiddenCount} />
