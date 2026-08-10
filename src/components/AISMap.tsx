@@ -57,6 +57,7 @@ import { buildPortAssets2dLayer, setPortAssets2dVisible } from '@/map/portAssets
 import { initialBasemap, installBasemapFallback } from '@/map/basemapFallback';
 import { liveVesselLayer2d, renderLiveVessels2d } from '@/map/liveVesselLayer';
 import { useLiveVessels } from '@/map/useLiveVessels';
+import { SourceBadge } from '@/provenance/SourceBadge';
 
 // In live mode, centre on the configured AIS region (which has real coverage);
 // in mock mode, centre on Nhava Sheva. Driven by env so it switches to JNPA
@@ -78,12 +79,9 @@ const LEGEND_SPRITES = [
 ];
 
 /**
- * No `SOURCE` row: it printed the RAW enum ('mock' / 'live'), which is an
- * internal value, not a label — and a vessel's provenance is already carried by
- * the header DataModeChip, the per-panel SourceBadge, and the LIVE tag on real
- * hulls. This popup only ever opens on a simulated vessel anyway: while the live
- * AIS overlay is on, those graphics are removed from the map entirely, and real
- * AIS vessels use their own popup (liveVesselLayer.ts), titled "· live AIS".
+ * No raw SOURCE enum in the popup title — the label is humanised below.
+ * LIVE / DERIVED rings on the graphic already carry the honesty signal; the
+ * popup names the provenance so evaluators can read it without decoding enums.
  */
 const VESSEL_POPUP = {
   title: '{VESSEL_NAME} ({VESSEL_TYPE})',
@@ -97,6 +95,7 @@ const VESSEL_POPUP = {
         { fieldName: 'COG', label: 'COG (°)' },
         { fieldName: 'HEADING', label: 'Heading (°)' },
         { fieldName: 'BERTH_ID', label: 'Berth' },
+        { fieldName: 'SOURCE_LABEL', label: 'Source' },
       ],
     },
   ],
@@ -134,6 +133,26 @@ function liveRing() {
   };
 }
 
+/**
+ * Amber ring for corpus-derived positions (UC1-011): real ledger state, geometry
+ * synthesised lat/lon — never pass these off as AIS. Distinct from the LIVE green.
+ */
+function derivedRing() {
+  return {
+    type: 'simple-marker' as const,
+    style: 'circle' as const,
+    color: [0, 0, 0, 0],
+    size: 24,
+    outline: { color: tokens.warn, width: 2 },
+  };
+}
+
+function sourceLabel(source: Vessel['SOURCE']): string {
+  if (source === 'live') return 'LIVE · AIS fix';
+  if (source === 'derived') return 'DERIVED · geometry from berth/anchorage/channel';
+  return 'SIMULATED';
+}
+
 /** The realistic top-down vessel sprite, rotated to the vessel's heading. */
 function spriteSymbol(v: Vessel) {
   const sprite = spriteForVesselType(v.VESSEL_TYPE);
@@ -150,16 +169,20 @@ function spriteSymbol(v: Vessel) {
 }
 
 /**
- * A vessel renders as up to two stacked graphics: a status halo, the rotated
- * sprite, and (when anchored) an anchor glyph instead of a heading sprite.
+ * A vessel renders as up to three stacked graphics: provenance ring (LIVE or
+ * DERIVED), a status halo, and the rotated sprite (or anchor glyph).
  * Returns them as an array so the caller can add them all to the layer.
  */
 function vesselToGraphics(v: Vessel): Graphic[] {
   const geometry = new Point({ longitude: v.LON, latitude: v.LAT });
-  const attributes = { ...v };
-  // Real live-AIS vessels get a green "LIVE" ring drawn first (underneath).
+  const attributes = { ...v, SOURCE_LABEL: sourceLabel(v.SOURCE) };
+  // Provenance ring UNDER the status halo — every non-mock marker is labelled.
   const badge: Graphic[] =
-    v.SOURCE === 'live' ? [new Graphic({ geometry, attributes, symbol: liveRing() })] : [];
+    v.SOURCE === 'live'
+      ? [new Graphic({ geometry, attributes, symbol: liveRing() })]
+      : v.SOURCE === 'derived'
+        ? [new Graphic({ geometry, attributes, symbol: derivedRing() })]
+        : [];
   const halo = new Graphic({ geometry, attributes, symbol: haloSymbol(v.NAV_STATUS) });
 
   if (v.NAV_STATUS === 'anchored') {
@@ -559,6 +582,7 @@ export function AISMap() {
   // Counts for the legend footer.
   const hiddenUnknown = vessels.filter((v) => isUnknownType(v.VESSEL_TYPE)).length;
   const shownCount = showUnknown ? vessels.length : vessels.length - hiddenUnknown;
+  const derivedCount = vessels.filter((v) => v.SOURCE === 'derived').length;
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 320 }}>
@@ -593,31 +617,6 @@ export function AISMap() {
         </div>
       )}
 
-      {/* Coverage stand-in banner — only when the live region isn't JNPA. */}
-      {/* {env.dataMode === 'live' && env.liveRegion.isStandIn && (
-        <div
-          role="note"
-          style={{
-            position: 'absolute',
-            top: 8,
-            left: 8,
-            maxWidth: 320,
-            background: tokens.warn,
-            color: '#1a1a1a',
-            border: `1px solid ${tokens.border}`,
-            borderRadius: 4,
-            padding: '6px 10px',
-            fontSize: 11,
-            lineHeight: 1.35,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-          }}
-        >
-          <strong>Live AIS — {env.liveRegion.label}.</strong> Free public AIS has no
-          coverage over JNPA/Indian waters, so real-time vessels are shown here as a
-          coverage demo. Switch to JNPA geography once a Velocity/licensed feed is configured.
-        </div>
-      )} */}
-
       {/* Layer toggles + legend overlay. Offset down-left so it clears the
           map-mode control bar that floats at the map's top-right (see App.tsx). */}
       <div
@@ -636,6 +635,7 @@ export function AISMap() {
           zIndex: 4,
         }}
       >
+        <SourceBadge source="AIS" />
         <div style={{ fontWeight: 600, marginBottom: 4, color: tokens.text }}>Layers</div>
         {(
           [
@@ -682,6 +682,35 @@ export function AISMap() {
           ))}
         </div>
         <div style={{ borderTop: `1px solid ${tokens.border}`, marginTop: 6, paddingTop: 6 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: tokens.text }}>Provenance</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span
+              aria-hidden
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                border: `2px solid ${tokens.warn}`,
+                boxSizing: 'border-box',
+              }}
+            />
+            <span style={{ color: tokens.textMuted }}>DERIVED (geometry)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span
+              aria-hidden
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                border: '2px solid #22c55e',
+                boxSizing: 'border-box',
+              }}
+            />
+            <span style={{ color: tokens.textMuted }}>LIVE (AIS fix)</span>
+          </div>
+        </div>
+        <div style={{ borderTop: `1px solid ${tokens.border}`, marginTop: 6, paddingTop: 6 }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: tokens.text }}>Vessel type</div>
           {LEGEND_SPRITES.map(({ label, sprite }) => (
             <div
@@ -701,12 +730,13 @@ export function AISMap() {
         <div style={{ marginTop: 6, color: tokens.textMuted }}>
           {liveActive ? (
             <>
-              {liveVessels.length} live AIS vessels (simulated fleet hidden) · {istTime(Date.now())}{' '}
+              {liveVessels.length} live AIS vessels (derived fleet hidden) · {istTime(Date.now())}{' '}
               IST
             </>
           ) : (
             <>
               {shownCount} vessels
+              {derivedCount > 0 ? ` · ${derivedCount} DERIVED` : ''}
               {!showUnknown && hiddenUnknown > 0 ? ` · ${hiddenUnknown} unknown hidden` : ''} ·{' '}
               {istTime(Date.now())} IST
             </>

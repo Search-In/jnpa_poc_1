@@ -121,9 +121,20 @@ export function App() {
   useSimReactivity();
 
   // UC1-004: a corpus pin means REPLAY — banner + header clock share that era.
+  // UC1-011: corpus positions are geometry-derived (no AIS) — AIS rung = IMPUTED
+  // so the SourceBadge never claims LIVE while markers show DERIVED rings.
   useEffect(() => {
     if (env.uc3.asOfMs > 0) {
       useDataModeStore.getState().setMode('REPLAY');
+    }
+    if (env.uc3.enabled) {
+      useDataModeStore
+        .getState()
+        .setSourceState(
+          'AIS',
+          'IMPUTED',
+          'Corpus has no AIS — positions synthesised from berth/anchorage/channel geometry (SOURCE: derived)',
+        );
     }
   }, []);
 
@@ -303,7 +314,13 @@ export function App() {
           }
         >
           <CalcitePanel
-            heading={mapMode === '3d' ? 'JNPA Sea-Port · 3D' : 'Live AIS Map · JNPA approaches'}
+            heading={
+              mapMode === '3d'
+                ? 'JNPA Sea-Port · 3D'
+                : env.uc3.enabled
+                  ? 'Vessel Traffic Map · JNPA (derived positions)'
+                  : 'Live AIS Map · JNPA approaches'
+            }
           >
             <div style={{ height: 'calc(100vh - 120px)', position: 'relative' }}>
               {mapMode === '3d' ? (

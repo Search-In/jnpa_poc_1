@@ -122,6 +122,14 @@ export interface AppEnv {
     asOfIso: string;
     /** Parsed epoch ms for `asOfIso`, or 0 when unset/invalid. */
     asOfMs: number;
+    /**
+     * UC1-011 map/feed source when UC-3 is on.
+     *   true  → corpus vessel-states with SOURCE:'derived' (ResilientCorpusAdapter)
+     *   false → MockAdapter demo fleet (production-style table), while UC-3 stays
+     *           on for Live AIS auth + marine register screens
+     * Flip with `VITE_UC3_DERIVED_VESSELS=false` to match traffic-three's mock fleet.
+     */
+    derivedVessels: boolean;
   };
   /**
    * UC-1 Gen-2 model service (`ml/`, FastAPI). Owns TAT (LightGBM) + berth
@@ -282,6 +290,9 @@ export const env: AppEnv = {
       const n = Date.parse(raw);
       return Number.isFinite(n) ? n : 0;
     })(),
+    // Default on: UC1-011 corpus map. Set false to keep the mock fleet while
+    // UC-3 (Live AIS / marine APIs) stays enabled.
+    derivedVessels: str(import.meta.env.VITE_UC3_DERIVED_VESSELS, 'true') !== 'false',
   },
   ml: {
     // On by default so a running Gen-2 service works; panels degrade to an

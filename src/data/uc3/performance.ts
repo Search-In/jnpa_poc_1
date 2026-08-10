@@ -153,12 +153,23 @@ export function performanceKpiQuery(date?: string): string {
 /**
  * Fetch the headline KPIs.
  *
- * Rejects on a non-2xx, INCLUDING the gateway's 404 `no_daily_reports` — callers
- * surface that through the normal error state rather than having it silently look
- * like a day with zero throughput.
+ * Returns `null` when the corpus has no daily reports yet (HTTP 404
+ * `no_daily_reports`) so the Overview panel can render an empty state instead
+ * of a red "gateway error" banner. Other non-2xx still reject.
  */
-export async function fetchPerformanceKpi(date?: string): Promise<PerformanceKpi> {
-  return mapPerformanceKpi(await http(performanceKpiQuery(date)));
+export async function fetchPerformanceKpi(date?: string): Promise<PerformanceKpi | null> {
+  try {
+    return mapPerformanceKpi(await http(performanceKpiQuery(date)));
+  } catch (err) {
+    if (err instanceof Error && /→ HTTP 404\b/.test(err.message) && /no_daily_reports/.test(err.message)) {
+      return null;
+    }
+    // Older gateways omit the detail blob — still treat bare 404 as empty.
+    if (err instanceof Error && /→ HTTP 404\b/.test(err.message)) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 /* ── meta ─────────────────────────────────────────────────────────────────── */

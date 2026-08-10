@@ -1,5 +1,6 @@
 /**
- * Uc3Adapter — the corpus-backed `DataAdapter` (VITE_DATA_MODE=uc3).
+ * Uc3Adapter — the corpus-backed `DataAdapter` (selected when `VITE_UC3_ENABLED`
+ * and `VITE_DATA_MODE=mock`; there is no `uc3` data-mode value).
  *
  * Implements the full 13-method adapter contract against the UC-3 gateway's marine
  * APIs, so every operational screen (map, KPI wall, 5-day Gantt, DUKC, port craft,
@@ -133,6 +134,105 @@ function bearing(a: [number, number], b: [number, number]): number {
   return (deg + 360) % 360;
 }
 
+export type BerthGeomMap = Map<string, { geom: number[][]; centre: [number, number] }>;
+
+/**
+ * Pure position synthesis for corpus vessel-states (UC1-011).
+ * Real identity + ledger state; lat/lon from port geometry — never AIS.
+ * Always returns `SOURCE: 'derived'` so the map/feed can badge honesty.
+ */
+export function synthesiseDerivedVessel(
+  s: MarineVesselState,
+  berthGeom: BerthGeomMap,
+  asOf: number,
+): Vessel | null {
+  const id = s.imoNo || s.viaNo || s.vesselName;
+  if (!id) return null;
+  const centre = channelCentreline();
+  const jitter = hash01(id);
+  let pos: [number, number];
+  let sog = 0;
+  let nav: Vessel['NAV_STATUS'];
+  let cog = 0;
+
+  const berth = s.berthCode
+    ? berthGeom.get(s.berthCode.toUpperCase().replace(/[\s-]/g, '')) ?? berthGeom.get(s.berthCode)
+    : undefined;
+
+  switch (s.state) {
+    case 'alongside': {
+      nav = 'moored';
+      const quay = TERMINAL_TO_QUAY[s.terminal] ? TERMINAL_QUAYS[TERMINAL_TO_QUAY[s.terminal]] : undefined;
+      pos = berth?.centre ?? (quay
+        ? offsetMeters(quay.mid, quay.along, (jitter - 0.5) * quay.lengthM * 0.8)
+        : alongLine(centre, 0.95));
+      break;
+    }
+    case 'under_pilotage': {
+      nav = 'berthing';
+      sog = 6;
+      const target = berth?.centre ?? alongLine(centre, 0.9);
+      const t = 0.35 + jitter * 0.4;
+      pos = [
+        PILOT_STATION.lng + (target[0] - PILOT_STATION.lng) * t,
+        PILOT_STATION.lat + (target[1] - PILOT_STATION.lat) * t,
+      ];
+      cog = bearing([PILOT_STATION.lng, PILOT_STATION.lat], target);
+      break;
+    }
+    case 'at_anchorage': {
+      nav = 'anchored';
+      const ring = ANCHORAGES[jitter > 0.5 ? 0 : 1].ring;
+      const c = centroid(ring);
+      pos = [c[0] + (jitter - 0.5) * 0.012, c[1] + (hash01(id + 'y') - 0.5) * 0.008];
+      break;
+    }
+    case 'inbound':
+    case 'expected': {
+      nav = 'approaching';
+      sog = 10;
+      const eta = s.etb || s.eta;
+      const hoursOut = eta > asOf ? Math.min((eta - asOf) / H, 24) : 24;
+      // ≤1 h out ≈ the pilot ground (t≈0.55 of the centreline); 24 h out ≈ seaward end.
+      const t = Math.max(0.02, 0.55 - (hoursOut / 24) * 0.53);
+      pos = alongLine(centre, t);
+      const ahead = alongLine(centre, Math.min(t + 0.05, 1));
+      cog = bearing(pos, ahead);
+      break;
+    }
+    case 'departed': {
+      const atd = s.atd || 0;
+      if (!atd || asOf - atd > 12 * H) return null; // long gone — off the picture
+      nav = 'underway';
+      sog = 12;
+      const hoursGone = (asOf - atd) / H;
+      const t = Math.max(0.02, 0.5 - (hoursGone / 12) * 0.48);
+      pos = alongLine(centre, t);
+      const out = alongLine(centre, Math.max(t - 0.05, 0));
+      cog = bearing(pos, out);
+      break;
+    }
+    default:
+      return null;
+  }
+
+  return {
+    MMSI: s.imoNo ? `IMO:${s.imoNo}` : `VIA:${s.viaNo || id}`,
+    VESSEL_NAME: s.vesselName || `IMO ${s.imoNo}`,
+    VESSEL_TYPE: 'Container Ship',
+    NAV_STATUS: nav,
+    SOG: sog,
+    COG: cog,
+    HEADING: cog,
+    LAT: pos[1],
+    LON: pos[0],
+    ETA: s.etb || s.eta || null,
+    BERTH_ID: s.berthCode || null,
+    TIMESTAMP: asOf,
+    SOURCE: 'derived',
+  };
+}
+
 interface Cached<T> {
   at: number;
   value: Promise<T>;
@@ -243,97 +343,6 @@ export class Uc3Adapter implements DataAdapter {
   }
 
   // ---------------------------------------------------------------- vessels
-  private synthesiseVessel(
-    s: MarineVesselState,
-    berthGeom: Map<string, { geom: number[][]; centre: [number, number] }>,
-    asOf: number,
-  ): Vessel | null {
-    const id = s.imoNo || s.viaNo || s.vesselName;
-    if (!id) return null;
-    const centre = channelCentreline();
-    const jitter = hash01(id);
-    let pos: [number, number];
-    let sog = 0;
-    let nav: Vessel['NAV_STATUS'];
-    let cog = 0;
-
-    const berth = s.berthCode ? berthGeom.get(s.berthCode.toUpperCase().replace(/[\s-]/g, '')) ??
-      berthGeom.get(s.berthCode) : undefined;
-
-    switch (s.state) {
-      case 'alongside': {
-        nav = 'moored';
-        const quay = TERMINAL_TO_QUAY[s.terminal] ? TERMINAL_QUAYS[TERMINAL_TO_QUAY[s.terminal]] : undefined;
-        pos = berth?.centre ?? (quay
-          ? offsetMeters(quay.mid, quay.along, (jitter - 0.5) * quay.lengthM * 0.8)
-          : alongLine(centre, 0.95));
-        break;
-      }
-      case 'under_pilotage': {
-        nav = 'berthing';
-        sog = 6;
-        const target = berth?.centre ?? alongLine(centre, 0.9);
-        const t = 0.35 + jitter * 0.4;
-        pos = [
-          PILOT_STATION.lng + (target[0] - PILOT_STATION.lng) * t,
-          PILOT_STATION.lat + (target[1] - PILOT_STATION.lat) * t,
-        ];
-        cog = bearing([PILOT_STATION.lng, PILOT_STATION.lat], target);
-        break;
-      }
-      case 'at_anchorage': {
-        nav = 'anchored';
-        const ring = ANCHORAGES[jitter > 0.5 ? 0 : 1].ring;
-        const c = centroid(ring);
-        pos = [c[0] + (jitter - 0.5) * 0.012, c[1] + (hash01(id + 'y') - 0.5) * 0.008];
-        break;
-      }
-      case 'inbound':
-      case 'expected': {
-        nav = 'approaching';
-        sog = 10;
-        const eta = s.etb || s.eta;
-        const hoursOut = eta > asOf ? Math.min((eta - asOf) / H, 24) : 24;
-        // ≤1 h out ≈ the pilot ground (t≈0.55 of the centreline); 24 h out ≈ seaward end.
-        const t = Math.max(0.02, 0.55 - (hoursOut / 24) * 0.53);
-        pos = alongLine(centre, t);
-        const ahead = alongLine(centre, Math.min(t + 0.05, 1));
-        cog = bearing(pos, ahead);
-        break;
-      }
-      case 'departed': {
-        const atd = s.atd || 0;
-        if (!atd || asOf - atd > 12 * H) return null; // long gone — off the picture
-        nav = 'underway';
-        sog = 12;
-        const hoursGone = (asOf - atd) / H;
-        const t = Math.max(0.02, 0.5 - (hoursGone / 12) * 0.48);
-        pos = alongLine(centre, t);
-        const out = alongLine(centre, Math.max(t - 0.05, 0));
-        cog = bearing(pos, out);
-        break;
-      }
-      default:
-        return null;
-    }
-
-    return {
-      MMSI: s.imoNo ? `IMO:${s.imoNo}` : `VIA:${s.viaNo || id}`,
-      VESSEL_NAME: s.vesselName || `IMO ${s.imoNo}`,
-      VESSEL_TYPE: 'Container Ship',
-      NAV_STATUS: nav,
-      SOG: sog,
-      COG: cog,
-      HEADING: cog,
-      LAT: pos[1],
-      LON: pos[0],
-      ETA: s.etb || s.eta || null,
-      BERTH_ID: s.berthCode || null,
-      TIMESTAMP: asOf,
-      SOURCE: 'derived',
-    };
-  }
-
   subscribeVessels(onBatch: VesselListener, onState?: ConnectionListener): Unsubscribe {
     let alive = true;
     onState?.('connecting');
@@ -344,7 +353,7 @@ export class Uc3Adapter implements DataAdapter {
         const geom = this.berthGeometry(berths.items);
         const asOf = this.asOf || berths.asOf || Date.now();
         const vessels = states
-          .map((s) => this.synthesiseVessel(s, geom, asOf))
+          .map((s) => synthesiseDerivedVessel(s, geom, asOf))
           .filter((v): v is Vessel => v !== null);
         onState?.('connected');
         onBatch(vessels);

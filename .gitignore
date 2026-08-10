@@ -27,7 +27,9 @@ npm-debug.log*
 package-lock.json
 pnpm-lock.yaml
 
-data/
+# Bundled / local data assets at repo root — not src/data (TypeScript modules).
+/data/
+!src/data/
 
 # local DB dumps (never commit)
 backups/

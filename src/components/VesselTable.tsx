@@ -4,9 +4,9 @@
  * COG, heading, position, berth, ETA, last fix, source). Reads the same live
  * vessel set the map and feed use, so it stays consistent with them.
  *
- * Columns are click-to-sort; a summary bar reports total / live / simulated
- * counts so the mock-vs-real split is explicit (SOURCE='live' hulls are badged
- * LIVE, matching the map ring and the VesselFeed tag).
+ * Columns are click-to-sort; a summary bar reports total / live / derived /
+ * simulated counts so provenance is explicit (SOURCE badges match the map rings
+ * and VesselFeed tags).
  */
 
 import { useMemo, useState } from 'react';
@@ -142,6 +142,31 @@ function LiveTag() {
   );
 }
 
+function DerivedTag() {
+  return (
+    <span
+      title="Real ledger state; position synthesised from port geometry (no AIS)"
+      style={{
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        color: '#3b2a05',
+        background: tokens.warn,
+        borderRadius: 3,
+        padding: '1px 4px',
+      }}
+    >
+      DERIVED
+    </span>
+  );
+}
+
+function sourceCellLabel(source: Vessel['SOURCE']): string {
+  if (source === 'live') return 'Live AIS';
+  if (source === 'derived') return 'Derived';
+  return 'Simulated';
+}
+
 function StatusCell({ status }: { status: NavStatus }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -161,7 +186,9 @@ export function VesselTable() {
 
   const counts = useMemo(() => {
     const live = vessels.filter((v) => v.SOURCE === 'live').length;
-    return { total: vessels.length, live, mock: vessels.length - live };
+    const derived = vessels.filter((v) => v.SOURCE === 'derived').length;
+    const mock = vessels.length - live - derived;
+    return { total: vessels.length, live, derived, mock };
   }, [vessels]);
 
   const rows = useMemo(() => {
@@ -188,7 +215,7 @@ export function VesselTable() {
   };
 
   if (vessels.length === 0) {
-    return <PanelEmpty message="No vessels in the current AIS feed." />;
+    return <PanelEmpty message="No vessels in the current traffic picture." />;
   }
 
   const arrow = (key: SortKey) => (key === sortKey ? (asc ? ' ▲' : ' ▼') : '');
@@ -211,6 +238,10 @@ export function VesselTable() {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <LiveTag />
           <strong style={{ color: tokens.text }}>{counts.live}</strong> live
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <DerivedTag />
+          <strong style={{ color: tokens.text }}>{counts.derived}</strong> derived
         </span>
         <span>
           <strong style={{ color: tokens.text }}>{counts.mock}</strong> simulated
@@ -242,6 +273,7 @@ export function VesselTable() {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {v.VESSEL_NAME}
                     {v.SOURCE === 'live' && <LiveTag />}
+                    {v.SOURCE === 'derived' && <DerivedTag />}
                   </span>
                 </td>
                 <td style={{ ...TD, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>{v.MMSI}</td>
@@ -258,7 +290,7 @@ export function VesselTable() {
                 <td style={TD}>{v.BERTH_ID ?? '—'}</td>
                 <td style={TD}>{v.ETA ? istDateTime(v.ETA) : '—'}</td>
                 <td style={{ ...TD, color: tokens.textMuted }}>{istDateTime(v.TIMESTAMP)}</td>
-                <td style={TD}>{v.SOURCE === 'live' ? 'Live AIS' : 'Simulated'}</td>
+                <td style={TD}>{sourceCellLabel(v.SOURCE)}</td>
               </tr>
             ))}
           </tbody>

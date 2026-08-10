@@ -1,7 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createAdapter, createBaseAdapter } from './index';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { LiveOverlayAdapter } from './LiveOverlayAdapter';
-import { MockAdapter } from './MockAdapter';
 import { SimAdapter } from '@/sim/SimAdapter';
 import { SHIPPING_LINES } from './mock/fixtures';
 import type { DataAdapter } from './types';
@@ -12,6 +10,9 @@ import type { ShippingLine } from '@/types/domain';
  * SimAdapter, and hybrid additionally wraps MockAdapter in LiveOverlayAdapter.
  * These tests pin that the shipping-line read survives BOTH wrappers unchanged,
  * which is what makes it available in every mode.
+ *
+ * UC1-011: when `VITE_UC3_ENABLED`, the mock path selects Uc3Adapter (corpus
+ * derived positions). Tests that need a pure offline MockAdapter stub that off.
  */
 
 const LINE: ShippingLine = {
@@ -28,20 +29,94 @@ function stubBase(getShippingLines: () => Promise<ShippingLine[]>): DataAdapter 
   return { mode: 'mock', getShippingLines } as unknown as DataAdapter;
 }
 
+/** Constructor name — safe across `vi.resetModules()` (instanceof breaks on re-import). */
+function ctorName(v: unknown): string {
+  return (v as { constructor?: { name?: string } })?.constructor?.name ?? '';
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.resetModules();
+  vi.doUnmock('./config');
 });
 
+async function loadIndex() {
+  return import('./index');
+}
+
 describe('createBaseAdapter', () => {
-  it('selects the driver for each mode', () => {
-    expect(createBaseAdapter('mock')).toBeInstanceOf(MockAdapter);
-    expect(createBaseAdapter('hybrid')).toBeInstanceOf(LiveOverlayAdapter);
-    // 'live' builds ArcGISAdapter; asserted via mode rather than importing the
-    // ArcGIS SDK-heavy class into the test environment.
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('selects ResilientCorpusAdapter on the mock path when UC-3 + derived vessels (UC1-011)', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: true, derivedVessels: true },
+        },
+      };
+    });
+    const { createBaseAdapter } = await loadIndex();
+    expect(ctorName(createBaseAdapter('mock'))).toBe('ResilientCorpusAdapter');
+  });
+
+  it('keeps MockAdapter when UC-3 is on but derived vessels are off (production-style fleet)', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: true, derivedVessels: false },
+        },
+      };
+    });
+    const { createBaseAdapter } = await loadIndex();
+    expect(ctorName(createBaseAdapter('mock'))).toBe('MockAdapter');
+  });
+
+  it('falls back to MockAdapter when UC-3 is disabled', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: false },
+        },
+      };
+    });
+    const { createBaseAdapter } = await loadIndex();
+    expect(ctorName(createBaseAdapter('mock'))).toBe('MockAdapter');
+  });
+
+  it('selects overlay / live drivers for hybrid and live', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: false },
+        },
+      };
+    });
+    const { createBaseAdapter } = await loadIndex();
+    expect(ctorName(createBaseAdapter('hybrid'))).toBe('LiveOverlayAdapter');
     expect(createBaseAdapter('live').mode).toBe('live');
   });
 
-  it('reports mock mode for hybrid (the overlay is additive, not a mode)', () => {
+  it('reports mock mode for hybrid (the overlay is additive, not a mode)', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: false },
+        },
+      };
+    });
+    const { createBaseAdapter } = await loadIndex();
     expect(createBaseAdapter('hybrid').mode).toBe('mock');
   });
 });
@@ -52,7 +127,6 @@ describe('getShippingLines through the wrapper chain', () => {
     const lines = await new SimAdapter(stubBase(spy)).getShippingLines();
 
     expect(spy).toHaveBeenCalledTimes(1);
-    // Reference data has no simulated counterpart, so no applySim overlay runs.
     expect(lines).toEqual([LINE]);
   });
 
@@ -65,8 +139,6 @@ describe('getShippingLines through the wrapper chain', () => {
   });
 
   it('propagates a rejection rather than swallowing it', async () => {
-    // useAdapterQuery surfaces a rejected promise as `error`; a wrapper that
-    // swallowed it would leave the UI stuck on "loading".
     const boom = stubBase(async () => {
       throw new Error('[UC3] backend down');
     });
@@ -75,12 +147,25 @@ describe('getShippingLines through the wrapper chain', () => {
   });
 });
 
-describe('mock composition stays offline', () => {
+describe('mock composition stays offline when UC-3 is off', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
   it('createAdapter("mock") returns the fixture with no network call', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: false },
+        },
+      };
+    });
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
 
-    // The full app-wide chain: SimAdapter → MockAdapter.
+    const { createAdapter } = await loadIndex();
     const lines = await createAdapter('mock').getShippingLines();
 
     expect(lines).toEqual(SHIPPING_LINES);
@@ -88,10 +173,19 @@ describe('mock composition stays offline', () => {
   });
 
   it('createAdapter("hybrid") also serves the fixture offline', async () => {
+    vi.doMock('./config', async () => {
+      const actual = await vi.importActual<typeof import('./config')>('./config');
+      return {
+        env: {
+          ...actual.env,
+          uc3: { ...actual.env.uc3, enabled: false },
+        },
+      };
+    });
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
 
-    // SimAdapter → LiveOverlayAdapter → MockAdapter.
+    const { createAdapter } = await loadIndex();
     const lines = await createAdapter('hybrid').getShippingLines();
 
     expect(lines).toEqual(SHIPPING_LINES);

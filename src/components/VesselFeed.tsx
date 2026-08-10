@@ -74,6 +74,23 @@ function Row({ v }: { v: Vessel }) {
               LIVE
             </span>
           )}
+          {v.SOURCE === 'derived' && (
+            <span
+              title="Real ledger state; position synthesised from berth / anchorage / channel geometry (no AIS)"
+              style={{
+                flexShrink: 0,
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: 0.4,
+                color: '#3b2a05',
+                background: tokens.warn,
+                borderRadius: 3,
+                padding: '1px 4px',
+              }}
+            >
+              DERIVED
+            </span>
+          )}
         </div>
         <div style={{ fontSize: 10, color: tokens.textMuted }}>
           {v.MMSI} · {v.SOG.toFixed(1)} kn · {Math.round(v.COG)}°
@@ -97,7 +114,7 @@ export function VesselFeed() {
   const sorted = useMemo(() => sortVessels(vessels), [vessels]);
 
   if (sorted.length === 0) {
-    return <PanelEmpty message="No vessels in the current AIS feed." />;
+    return <PanelEmpty message="No vessels in the current traffic picture." />;
   }
 
   return (
