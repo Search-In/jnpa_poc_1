@@ -13,8 +13,11 @@ import { Fragment, useMemo, useState } from 'react';
 import { CalciteButton } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
+import { env } from '@/data/config';
+import { friendlyError } from '@/data/friendlyError';
+import { optimiseM5, type M5OptimiseResult } from '@/data/ml/m5Optimise';
 import { DEMO_JIT_INPUTS, recommendRta } from './jit';
-import { optimiseBerthPlan, type BerthRequest } from './optimiser';
+import type { BerthRequest } from './optimiser';
 import { vesselDims } from './constraints';
 import { occupancyCalendar, waitingTimeDistribution, terminalTat } from '@/kpi/analytics';
 import type { Berth, BerthingPlanEntry } from '@/types/domain';
@@ -37,7 +40,9 @@ export function AnalyticsPanel() {
   const berthsQ = useAdapterQuery<Berth[]>(() => getAdapter().getBerths(), [], 60_000);
   const planQ = useAdapterQuery<BerthingPlanEntry[]>(() => getAdapter().getBerthPlan({ lastHours: 120 }), [], 60_000);
 
-  const [proposal, setProposal] = useState<ReturnType<typeof optimiseBerthPlan> | null>(null);
+  const [proposal, setProposal] = useState<M5OptimiseResult | null>(null);
+  const [optBusy, setOptBusy] = useState(false);
+  const [optError, setOptError] = useState<string | null>(null);
 
   const berths = berthsQ.data;
   const plan = planQ.data;
@@ -71,7 +76,7 @@ export function AnalyticsPanel() {
   }, [plan]);
 
   const runOptimise = () => {
-    if (!berths || !plan) return;
+    if (!berths || !plan || !env.ml.enabled) return;
     const requests: BerthRequest[] = plan.map((p) => {
       const dims = vesselDims({ VESSEL_TYPE: 'Container Ship' });
       return {
@@ -85,7 +90,15 @@ export function AnalyticsPanel() {
         draftM: dims.draftM,
       };
     });
-    setProposal(optimiseBerthPlan(requests, berths));
+    setOptBusy(true);
+    setOptError(null);
+    optimiseM5(requests, berths, 'auto')
+      .then((r) => setProposal(r))
+      .catch((err) => {
+        setProposal(null);
+        setOptError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setOptBusy(false));
   };
 
   if ((berthsQ.loading && !berths) || (planQ.loading && !plan)) return <PanelLoading label="Loading analytics…" />;
@@ -197,17 +210,58 @@ export function AnalyticsPanel() {
       {/* Optional forward TAT forecast (feature model) — hidden until requested. */}
       <TatPredictionCard />
 
-      {/* Optimiser */}
+      {/* Optimiser — Gen-2 M5 (CP-SAT when ortools is installed; else greedy). */}
       <section>
-        <h4 style={{ margin: '0 0 6px', fontSize: 13 }}>Berth-plan optimiser <Sim /></h4>
-        <CalciteButton scale="s" iconStart="lightbulb" onClick={runOptimise}>Optimise (propose conflict-free plan)</CalciteButton>
+        <h4 style={{ margin: '0 0 6px', fontSize: 13 }}>
+          Berth-plan optimiser
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: tokens.accent,
+              border: `1px solid ${tokens.accent}`,
+              borderRadius: 3,
+              padding: '0 4px',
+              marginLeft: 6,
+              verticalAlign: 'middle',
+            }}
+          >
+            GEN-2
+          </span>
+        </h4>
+        <CalciteButton
+          scale="s"
+          iconStart="lightbulb"
+          disabled={!env.ml.enabled || optBusy}
+          onClick={runOptimise}
+        >
+          {optBusy ? 'Optimising…' : 'Optimise (Gen-2 M5)'}
+        </CalciteButton>
+        {!env.ml.enabled && (
+          <div style={{ marginTop: 6, fontSize: 11, color: tokens.textMuted }}>
+            AI/ML is off. Start the Gen-2 service on :8100 and set VITE_ML_ENABLED=true.
+          </div>
+        )}
+        {optError && (
+          <div style={{ marginTop: 8, fontSize: 12, color: tokens.bad }}>
+            <div style={{ fontWeight: 600 }}>{friendlyError(optError).title}</div>
+            <div style={{ fontSize: 11 }}>{friendlyError(optError).action}</div>
+            <details style={{ marginTop: 4, fontSize: 10, color: tokens.textMuted }}>
+              <summary>Technical details</summary>
+              <pre style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0' }}>{optError}</pre>
+            </details>
+          </div>
+        )}
         {proposal && (
           <div style={{ marginTop: 8, fontSize: 12, background: tokens.panelAlt, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm, padding: 10 }}>
             <div style={{ fontWeight: 600 }}>
-              Objective {proposal.cost} — waiting {proposal.breakdown.waitH}h · tide misses {proposal.breakdown.tideMisses} · shifts {proposal.breakdown.shifts}
+              {proposal.algorithm} · objective {proposal.cost} — waiting {proposal.breakdown.waitH}h · tide misses{' '}
+              {proposal.breakdown.tideMisses} · shifts {proposal.breakdown.shifts}
             </div>
             <div style={{ color: tokens.textMuted, marginTop: 2 }}>
-              {proposal.assignments.length} placed{proposal.unplaced.length ? `, ${proposal.unplaced.length} unplaceable` : ''}. Decision support — a planner accepts or edits.
+              {proposal.assignments.length} placed
+              {proposal.unplaced ? `, ${proposal.unplaced} unplaceable` : ''} · {proposal.solveMs.toFixed(0)} ms.
+              Decision support — a planner accepts or edits.
             </div>
           </div>
         )}

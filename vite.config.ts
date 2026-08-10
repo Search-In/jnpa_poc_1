@@ -155,6 +155,16 @@ export default defineConfig(({ mode }) => {
           // cert. Production terminates TLS at nginx, which never uses this file.
           secure: false,
         },
+        // UC-1 Gen-2 model service (LightGBM TAT / CP-SAT optimiser). Default
+        // port is 8100, NOT the service's own 8000 default: 8000 is already
+        // taken by the UC-3 gateway above. Start it with:
+        //   cd ml && JNPA_PORT=8100 .venv/bin/python run.py serve
+        '/ml-api': {
+          target: env.VITE_ML_API_URL || 'http://127.0.0.1:8100',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (p) => p.replace(/^\/ml-api/, ''),
+        },
         // LDB is handled by ldbDevProxy() plugin (WAF-safe header rewrite).
       },
     },
