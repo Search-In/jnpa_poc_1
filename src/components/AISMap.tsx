@@ -10,7 +10,7 @@
  *   • Vessel Tracks  — client-side FeatureLayer (feature collection) driven by
  *     the live vessel store; UniqueValueRenderer colours by NAV_STATUS.
  *   • Berth Overlay  — polygon GraphicsLayer from getBerths().
- *   • Weather Layer  — placeholder group (wired to the weather feed item later).
+ *   • Weather Layer  — Zoom Earth–style wind particles (Open-Meteo 10 m wind).
  *   • Channel/Bathymetry — UC-3 georeferenced soundings (real chart data).
  * Popups show MMSI / SOG / COG / ETA.
  */
@@ -39,6 +39,12 @@ import { useTideFieldStore } from '@/map/tideFieldStore';
 import { bathymetryLayer, bathymetryGraphics } from '@/map/bathymetryLayer';
 import { fetchBathymetryOverlaySoundings } from '@/data/uc3/bathymetry';
 import { applyGraphics } from '@/map/applyGraphics';
+import {
+  bindWindParticleLayer,
+  windParticleLayer,
+  type WindLayerController,
+} from '@/map/windParticleLayer';
+import { useWindFieldStore } from '@/map/windFieldStore';
 import type MediaLayer from '@arcgis/core/layers/MediaLayer';
 import { env } from '@/data/config';
 import { asset3dPosition } from '@/map/scene3d';
@@ -236,6 +242,8 @@ export function AISMap() {
   const berthLayerRef = useRef<GraphicsLayer | null>(null);
   const assetLayerRef = useRef<GraphicsLayer | null>(null);
   const tideLayerRef = useRef<MediaLayer | null>(null);
+  const windLayerRef = useRef<MediaLayer | null>(null);
+  const windCtrlRef = useRef<WindLayerController | null>(null);
   const bathymetryLayerRef = useRef<FeatureLayer | null>(null);
   const liveLayerRef = useRef<GraphicsLayer | null>(null);
   const selectionLayerRef = useRef<GraphicsLayer | null>(null);
@@ -254,6 +262,10 @@ export function AISMap() {
     weather: false,
     channel: false,
   });
+  // Weather Layer = wind particles (store-driven so 2D + 3D + legend lockstep).
+  const windVisible = useWindFieldStore((s) => s.visible);
+  const setWindVisible = useWindFieldStore((s) => s.setVisible);
+  const setWindSpeedMax = useWindFieldStore((s) => s.setSpeedMax);
   // Hide vessels with no/unknown AIS ship type (small craft, or static data not
   // yet received). On by default; operators can turn off the clutter.
   const [showUnknown, setShowUnknown] = useState(true);
@@ -332,7 +344,10 @@ export function AISMap() {
     const assetLayer = buildPortAssets2dLayer();
     // Tide & sea-state raster field (off by default; toggled from the legend).
     const tideLayer = tideFieldLayer();
-    // Bathymetry soundings from the local chart pack (Channel / Bathymetry checkbox).
+    // Zoom Earth–style wind particles (Weather Layer checkbox).
+    const windLayer = windParticleLayer();
+    const windCtrl = bindWindParticleLayer(windLayer);
+    // Bathymetry soundings from UC-3 (Channel / Bathymetry checkbox).
     const bathyLayer = bathymetryLayer();
     // Real AIS traffic — hidden until the overlay is toggled on, and drawn above
     // the simulated fleet (which is hidden while it is on).
@@ -344,10 +359,21 @@ export function AISMap() {
     berthLayerRef.current = berthLayer;
     assetLayerRef.current = assetLayer;
     tideLayerRef.current = tideLayer;
+    windLayerRef.current = windLayer;
+    windCtrlRef.current = windCtrl;
     bathymetryLayerRef.current = bathyLayer;
     liveLayerRef.current = liveLayer;
     selectionLayerRef.current = selectionLayer;
-    map.addMany([bathyLayer, berthLayer, assetLayer, tideLayer, vesselLayer, liveLayer, selectionLayer]);
+    map.addMany([
+      bathyLayer,
+      berthLayer,
+      assetLayer,
+      tideLayer,
+      windLayer,
+      vesselLayer,
+      liveLayer,
+      selectionLayer,
+    ]);
 
     view
       .when(() => {
@@ -376,6 +402,9 @@ export function AISMap() {
     }
 
     return () => {
+      windCtrlRef.current?.destroy();
+      windCtrlRef.current = null;
+      windLayerRef.current = null;
       viewRef.current = null;
       selectionLayerRef.current = null;
       liveLayerRef.current = null;
@@ -501,7 +530,31 @@ export function AISMap() {
     if (tideLayerRef.current) tideLayerRef.current.visible = tideVisible;
   }, [tideVisible, ready]);
 
-  const toggle = (k: LayerKey) => setVisible((v) => ({ ...v, [k]: !v[k] }));
+  // Wind particles — store-driven (same checkbox drives 2D + 3D + legend).
+  useEffect(() => {
+    const ctrl = windCtrlRef.current;
+    if (!ctrl || !ready) return;
+    ctrl.setVisible(windVisible);
+    if (windVisible) {
+      void ctrl.start().then(() => {
+        setWindSpeedMax(ctrl.speedMax());
+      });
+    }
+  }, [windVisible, ready, setWindSpeedMax]);
+
+  // Keep local Layers checkbox in sync with the shared wind store (e.g. if toggled
+  // from elsewhere later). Weather key is store-backed, not only local state.
+  useEffect(() => {
+    setVisible((v) => (v.weather === windVisible ? v : { ...v, weather: windVisible }));
+  }, [windVisible]);
+
+  const toggle = (k: LayerKey) => {
+    if (k === 'weather') {
+      setWindVisible(!windVisible);
+      return;
+    }
+    setVisible((v) => ({ ...v, [k]: !v[k] }));
+  };
 
   // Counts for the legend footer.
   const hiddenUnknown = vessels.filter((v) => isUnknownType(v.VESSEL_TYPE)).length;
@@ -589,13 +642,13 @@ export function AISMap() {
             ['vessels', 'Vessel Tracks'],
             ['assets', 'Port Assets'],
             ['berths', 'Berth Overlay'],
-            ['weather', 'Weather Layer'],
+            ['weather', 'Wind (particles)'],
             ['channel', 'Channel / Bathymetry'],
           ] as [LayerKey, string][]
         ).map(([key, label]) => (
           <CalciteLabel key={key} layout="inline" scale="s" style={{ marginBottom: 2 }}>
             <CalciteCheckbox
-              checked={visible[key] || undefined}
+              checked={(key === 'weather' ? windVisible : visible[key]) || undefined}
               onCalciteCheckboxChange={() => toggle(key)}
             />
             {label}

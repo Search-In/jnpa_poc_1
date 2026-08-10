@@ -8,6 +8,9 @@
  *
  * This app has no TanStack Query, so a change triggers a full reload — every
  * panel then refetches with the new header. Clearly labelled in the title.
+ *
+ * Simple rule: Data Upload always writes DEMO (MANUAL). LIVE is JNPA-API rows only.
+ * Switch to DEMO to see anything imported through the SPA upload panels.
  */
 import { useSyncExternalStore } from 'react';
 import { CalciteChip, CalciteSegmentedControl, CalciteSegmentedControlItem } from '@esri/calcite-components-react';
@@ -34,8 +37,8 @@ export function DataSourceToggle() {
       style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
       title={
         mode === 'LIVE'
-          ? 'Data source: LIVE — rows from the JNPA integration APIs. Switch to DEMO for the reliable pre-loaded data.'
-          : 'Data source: DEMO — the reliable pre-loaded data. Switch to LIVE for JNPA-API-sourced rows.'
+          ? 'LIVE — JNPA API corpus only. Data Upload always lands in DEMO — switch to DEMO to see charts you imported.'
+          : 'DEMO — pre-loaded + Data Upload corpus. This is where bathymetry charts and other SPA imports appear.'
       }
     >
       <CalciteSegmentedControl
@@ -53,7 +56,7 @@ export function DataSourceToggle() {
         </CalciteSegmentedControlItem>
       </CalciteSegmentedControl>
       <CalciteChip scale="s" kind={mode === 'LIVE' ? 'brand' : 'neutral'} aria-label={`Data source ${mode}`}>
-        {mode === 'LIVE' ? 'LIVE · JNPA API' : 'DEMO · pre-loaded'}
+        {mode === 'LIVE' ? 'LIVE · live data' : 'DEMO · demo data'}
       </CalciteChip>
     </span>
   );

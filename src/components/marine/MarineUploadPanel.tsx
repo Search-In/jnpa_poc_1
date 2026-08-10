@@ -21,11 +21,7 @@
  */
 
 import { useRef, useState, type ReactNode } from 'react';
-import {
-  CalciteButton,
-  CalciteLoader,
-  CalciteNotice,
-} from '@esri/calcite-components-react';
+import { CalciteButton, CalciteLoader, CalciteNotice } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { env } from '@/data/config';
 import { useRoleStore } from '@/auth/roleStore';
@@ -35,11 +31,13 @@ import {
   importMarineCsv,
   overrideImportMarineCsv,
   fetchMarineUploads,
+  fetchMarineUpload,
   MARINE_TEMPLATE_PATH,
   type MarineValidateResult,
   type MarineImportResult,
   type MarineParseError,
 } from '@/data/uc3/marineUpload';
+import type { MarineUploadRowError } from '@/types/domain';
 import { Panel, PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
 import { tokens } from '@/theme/tokens';
@@ -103,6 +101,39 @@ function ErrorList({ errors }: { errors: MarineParseError[] }) {
   );
 }
 
+/** Collapse identical ledger messages (a chart can store 15k+ of the same fault). */
+function groupLedgerErrors(errors: MarineUploadRowError[]): { message: string; count: number }[] {
+  const map = new Map<string, number>();
+  for (const e of errors) {
+    const msg = (e.errorMessage || '').trim() || '(no message)';
+    map.set(msg, (map.get(msg) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .map(([message, count]) => ({ message, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function LedgerErrorList({ errors }: { errors: MarineUploadRowError[] }) {
+  if (errors.length === 0) return null;
+  const groups = groupLedgerErrors(errors);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: tokens.textMuted, marginBottom: 4 }}>
+        Ledger errors ({errors.length}
+        {groups.length < errors.length ? ` · ${groups.length} distinct` : ''})
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: tokens.text }}>
+        {groups.slice(0, 20).map((g) => (
+          <li key={g.message}>
+            {g.count > 1 ? `${g.count}× — ` : ''}
+            {g.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function UploadHistory({ refreshKey }: { refreshKey: number }) {
   const q = useAdapterQuery(() => fetchMarineUploads({}, 25, 0), [refreshKey]);
 
@@ -117,15 +148,29 @@ function UploadHistory({ refreshKey }: { refreshKey: number }) {
     borderBottom: `1px solid ${tokens.border}`,
     whiteSpace: 'nowrap',
   };
-  const TH: React.CSSProperties = { ...TD, textAlign: 'left', color: tokens.textMuted, fontWeight: 700, background: tokens.panelAlt };
+  const TH: React.CSSProperties = {
+    ...TD,
+    textAlign: 'left',
+    color: tokens.textMuted,
+    fontWeight: 700,
+    background: tokens.panelAlt,
+  };
 
   return (
-    <div style={{ overflow: 'auto', border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm }}>
+    <div
+      style={{
+        overflow: 'auto',
+        border: `1px solid ${tokens.border}`,
+        borderRadius: tokens.radius.sm,
+      }}
+    >
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             {['File', 'Status', 'Rows', 'OK', 'Failed', 'Dup', 'When'].map((h) => (
-              <th key={h} style={TH}>{h}</th>
+              <th key={h} style={TH}>
+                {h}
+              </th>
             ))}
           </tr>
         </thead>
@@ -134,11 +179,21 @@ function UploadHistory({ refreshKey }: { refreshKey: number }) {
             <tr key={f.id}>
               <td style={{ ...TD, fontWeight: 600 }}>{f.filename || '—'}</td>
               <td style={{ ...TD, color: statusTone(f.status), fontWeight: 700 }}>{f.status}</td>
-              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{f.totalRows}</td>
-              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{f.successRows}</td>
-              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{f.failedRows}</td>
-              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{f.duplicateRows}</td>
-              <td style={{ ...TD, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>{fmt(f.createdAt)}</td>
+              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {f.totalRows}
+              </td>
+              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {f.successRows}
+              </td>
+              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {f.failedRows}
+              </td>
+              <td style={{ ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {f.duplicateRows}
+              </td>
+              <td style={{ ...TD, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>
+                {fmt(f.createdAt)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -161,6 +216,9 @@ export function MarineUploadPanel({
   const [file, setFile] = useState<File | null>(null);
   const [validation, setValidation] = useState<MarineValidateResult | null>(null);
   const [result, setResult] = useState<MarineImportResult | null>(null);
+  /** Row errors from GET /uploads/{id} — import response often omits repo faults. */
+  const [ledgerErrors, setLedgerErrors] = useState<MarineUploadRowError[]>([]);
+  const [ledgerDetail, setLedgerDetail] = useState<string | null>(null);
   const [busy, setBusy] = useState<'validate' | 'import' | 'override' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -169,6 +227,8 @@ export function MarineUploadPanel({
     setFile(f);
     setValidation(null);
     setResult(null);
+    setLedgerErrors([]);
+    setLedgerDetail(null);
     setErr(null);
   };
 
@@ -198,17 +258,38 @@ export function MarineUploadPanel({
     if (!file) return;
     setBusy(override ? 'override' : 'import');
     setErr(null);
+    setLedgerErrors([]);
+    setLedgerDetail(null);
     try {
       const r = override ? await overrideImportMarineCsv(file) : await importMarineCsv(file);
       setResult(r);
       setRefreshKey((k) => k + 1); // refresh history
       onImported?.(r); // let a sibling view (e.g. SeaChannelTable) refresh
+
+      // Persist-path failures write errors to the ledger only — the import body
+      // usually has `warnings`, not `errors`. Pull detail so the operator sees why.
+      const needsDetail =
+        r.file_id != null &&
+        (r.status === 'FAILED' || r.status === 'PARTIAL' || r.status === 'REJECTED') &&
+        !(r.errors && r.errors.length > 0);
+      if (needsDetail) {
+        try {
+          const detail = await fetchMarineUpload(r.file_id!);
+          setLedgerErrors(detail.errors);
+          setLedgerDetail(detail.file?.errorDetail || null);
+        } catch {
+          // Non-fatal — history still refreshed; detail is best-effort.
+        }
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   };
+
+  const isDuplicateSkip =
+    result?.status === 'SKIPPED_DUPLICATE' || result?.duplicate_file === true;
 
   const templateHref = `${env.uc3.apiBase}${MARINE_TEMPLATE_PATH}`;
 
@@ -223,7 +304,14 @@ export function MarineUploadPanel({
 
         <fieldset
           disabled={!editable || undefined}
-          style={{ border: 'none', padding: 0, margin: editable ? 0 : '8px 0 0', display: 'flex', flexDirection: 'column', gap: 10 }}
+          style={{
+            border: 'none',
+            padding: 0,
+            margin: editable ? 0 : '8px 0 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
         >
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
@@ -233,10 +321,17 @@ export function MarineUploadPanel({
               style={{ display: 'none' }}
               onChange={(e) => pick(e.target.files?.[0] ?? null)}
             />
-            <CalciteButton scale="s" iconStart="upload" disabled={!editable || undefined} onClick={() => fileRef.current?.click()}>
+            <CalciteButton
+              scale="s"
+              iconStart="upload"
+              disabled={!editable || undefined}
+              onClick={() => fileRef.current?.click()}
+            >
               Choose file
             </CalciteButton>
-            <span style={{ fontSize: 12, color: tokens.textMuted }}>{file ? file.name : 'No file chosen'}</span>
+            <span style={{ fontSize: 12, color: tokens.textMuted }}>
+              {file ? file.name : 'No file chosen'}
+            </span>
             {showTemplate && (
               <a
                 href={templateHref}
@@ -249,10 +344,19 @@ export function MarineUploadPanel({
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <CalciteButton scale="s" appearance="outline" disabled={!editable || !file || busy != null || undefined} onClick={onValidate}>
+            <CalciteButton
+              scale="s"
+              appearance="outline"
+              disabled={!editable || !file || busy != null || undefined}
+              onClick={onValidate}
+            >
               Validate
             </CalciteButton>
-            <CalciteButton scale="s" disabled={!editable || !file || busy != null || undefined} onClick={() => runImport(false)}>
+            <CalciteButton
+              scale="s"
+              disabled={!editable || !file || busy != null || undefined}
+              onClick={() => runImport(false)}
+            >
               Import
             </CalciteButton>
             {/* Development / audit affordance: re-process a file the ledger already has.
@@ -271,24 +375,40 @@ export function MarineUploadPanel({
             {busy && (
               <CalciteLoader
                 inline
-                label={busy === 'validate' ? 'Validating…'
-                  : busy === 'override' ? 'Re-processing…' : 'Importing…'}
+                label={
+                  busy === 'validate'
+                    ? 'Validating…'
+                    : busy === 'override'
+                      ? 'Re-processing…'
+                      : 'Importing…'
+                }
               />
             )}
           </div>
 
-          <div style={{ fontSize: 11, color: tokens.textMuted }}>
-            {helpText}
-          </div>
+          <div style={{ fontSize: 11, color: tokens.textMuted }}>{helpText}</div>
         </fieldset>
 
-        {err && <div style={{ marginTop: 8 }}><PanelError message={err} /></div>}
+        {err && (
+          <div style={{ marginTop: 8 }}>
+            <PanelError message={err} />
+          </div>
+        )}
 
         {/* Validate (dry-run) outcome */}
         {validation && (
-          <div style={{ marginTop: 10, padding: 10, background: tokens.panelAlt, borderRadius: tokens.radius.sm, borderLeft: `3px solid ${statusTone(validation.status)}` }}>
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              background: tokens.panelAlt,
+              borderRadius: tokens.radius.sm,
+              borderLeft: `3px solid ${statusTone(validation.status)}`,
+            }}
+          >
             <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(validation.status) }}>
-              {validation.status} — {validation.summary.valid} valid / {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
+              {validation.status} — {validation.summary.valid} valid /{' '}
+              {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
             </div>
             <ErrorList errors={validation.errors} />
           </div>
@@ -296,12 +416,49 @@ export function MarineUploadPanel({
 
         {/* Import outcome */}
         {result && (
-          <div style={{ marginTop: 10, padding: 10, background: tokens.panelAlt, borderRadius: tokens.radius.sm, borderLeft: `3px solid ${statusTone(result.status)}` }}>
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              background: tokens.panelAlt,
+              borderRadius: tokens.radius.sm,
+              borderLeft: `3px solid ${statusTone(result.status)}`,
+            }}
+          >
             <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(result.status) }}>
               {result.status}
-              {result.duplicate_file ? ' — identical file already imported' : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
+              {result.duplicate_file
+                ? ' — identical file already imported'
+                : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
             </div>
+            {ledgerDetail && (
+              <div style={{ marginTop: 6, fontSize: 12, color: tokens.text }}>{ledgerDetail}</div>
+            )}
             {result.errors && <ErrorList errors={result.errors} />}
+            <LedgerErrorList errors={ledgerErrors} />
+            {isDuplicateSkip && editable && file && (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  disabled={busy != null || undefined}
+                  onClick={() => runImport(true)}
+                >
+                  Re-import anyway
+                </CalciteButton>
+                <span style={{ fontSize: 11, color: tokens.textMuted }}>
+                  Re-processes this file (override). Upserts rows; does not delete history.
+                </span>
+              </div>
+            )}
           </div>
         )}
       </Panel>

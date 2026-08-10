@@ -114,6 +114,25 @@ export interface AppEnv {
      * full "/api/auth/login" — that would resolve to "/api/api/…".
      */
     apiBase: string;
+    /**
+     * Demo / sim pin (`VITE_UC3_AS_OF`). When set, every UC-3 marine board and the
+     * header clock use this instant instead of the browser wall clock (UI-001:
+     * single authoritative clock). Empty → live "now".
+     */
+    asOfIso: string;
+    /** Parsed epoch ms for `asOfIso`, or 0 when unset/invalid. */
+    asOfMs: number;
+  };
+  /**
+   * UC-1 Gen-2 model service (`ml/`, FastAPI). Owns TAT (LightGBM) + berth
+   * optimiser (CP-SAT). Runs on :8100 locally — :8000 is already the UC-3
+   * gateway. Browser calls stay same-origin via `/ml-api` (Vite/nginx proxy).
+   */
+  ml: {
+    enabled: boolean;
+    apiBase: string;
+    maxFleet: number;
+    timeoutMs: number;
   };
   /**
    * NLDS Logistics Data Bank container tracking — same guest searate auth as
@@ -258,6 +277,21 @@ export const env: AppEnv = {
     // user signing in (src/auth/session.ts → POST {apiBase}/auth/login). Vite
     // inlines VITE_* at build time, so a credential configured here would be
     // compiled into the shipped bundle and readable by anyone with devtools.
+    asOfIso: str(import.meta.env.VITE_UC3_AS_OF),
+    asOfMs: (() => {
+      const raw = str(import.meta.env.VITE_UC3_AS_OF);
+      if (!raw) return 0;
+      const n = Date.parse(raw);
+      return Number.isFinite(n) ? n : 0;
+    })(),
+  },
+  ml: {
+    // On by default so a running Gen-2 service works; panels degrade to an
+    // explicit "unreachable" notice when it is down. VITE_ML_ENABLED=false hides it.
+    enabled: str(import.meta.env.VITE_ML_ENABLED, 'true') !== 'false',
+    apiBase: str(import.meta.env.VITE_ML_API_BASE, '/ml-api'),
+    maxFleet: Math.max(1, Math.min(80, num(import.meta.env.VITE_ML_MAX_FLEET, 80))),
+    timeoutMs: Math.max(5_000, num(import.meta.env.VITE_ML_TIMEOUT_MS, 30_000)),
   },
   liveAis: {
     enabled: str(import.meta.env.VITE_LIVE_AIS_ENABLED, 'true') !== 'false',

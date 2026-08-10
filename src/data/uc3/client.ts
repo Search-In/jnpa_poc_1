@@ -73,10 +73,12 @@ async function send(path: string, init: RequestInit | undefined, token: string):
     ...init,
     headers: {
       'content-type': 'application/json',
+      // Data-source provenance filter (LIVE = JNPA-API rows, DEMO = pre-loaded).
+      // Callers may override via init.headers (e.g. bathymetry charts are always
+      // MANUAL uploads — pin DEMO so LIVE toggle does not hide them).
+      'x-data-mode': getDataSourceMode(),
       ...(init?.headers || {}),
       authorization: `Bearer ${token}`,
-      // Data-source provenance filter (LIVE = JNPA-API rows, DEMO = pre-loaded).
-      'x-data-mode': getDataSourceMode(),
     },
   });
 }

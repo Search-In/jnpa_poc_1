@@ -1,0 +1,928 @@
+{
+  "schema": "uc1-webapp-predictions/1.0.0",
+  "adapter": {
+    "moduleId": "UC1-ADAPTER",
+    "version": "uc1-adapter-v1.0.0",
+    "scope": "FLEET",
+    "models_requested": [
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5",
+      "m6",
+      "m7",
+      "m8"
+    ],
+    "max_fleet": 80,
+    "note": "M4, M5 and M7 are fleet-level models: their numbers describe the whole arrival set in this request, not one hull."
+  },
+  "dashboard": {
+    "schema": "uc1-dashboard/1.0.0",
+    "run": {
+      "generated_at_utc": "2026-08-04T16:19:22Z",
+      "input_file": "live-ais-feed",
+      "vessels": 3,
+      "models_run": [
+        "UC1-M1",
+        "UC1-M2",
+        "UC1-M3",
+        "UC1-M4",
+        "UC1-M5",
+        "UC1-M6",
+        "UC1-M7",
+        "UC1-M8"
+      ],
+      "models_failed": [],
+      "wait_model": "optimiser",
+      "tide_policy": "harmonic",
+      "full_detail_file": "",
+      "source": "LIVE_AIS_ADAPTER",
+      "vessels_requested": 3,
+      "vessels_dropped": 0
+    },
+    "model_questions": {
+      "m1_under_keel_clearance": "Can she safely transit the channel?",
+      "m2_tidal_window": "When is there enough water, and for how long?",
+      "m3_turnaround_time": "When does she berth, finish and leave?",
+      "m4_eta_confidence": "How certain is the arrival time?",
+      "m5_berth_plan": "Which berth, and starting when?",
+      "m6_jit_arrival": "What does arriving just in time save?",
+      "m7_port_craft": "Are pilots, tugs and mooring gangs available?",
+      "m8_risk_chain": "What do today's disruptions do to the plan?"
+    },
+    "glossary": {
+      "call_id": "Our id for this vessel call (one row of the input sheet). Not a port system id.",
+      "imo": "IMO number: the vessel's permanent hull id, unchanged across renames and reflagging.",
+      "voyage": "The carrier's voyage number for this specific trip.",
+      "ata_ist": "Actual Time of Arrival at the anchorage/pilot station, Indian Standard Time.",
+      "draft_m": "How deep the loaded hull sits below the waterline, in metres. Drives every depth check.",
+      "loa_m": "Length Overall. A berth shorter than this cannot take the vessel.",
+      "teu_total": "Containers to move this call, in twenty-foot equivalent units. The main driver of TAT.",
+      "tide_m": "Height of tide above chart datum at arrival. Adds directly to available water depth.",
+      "channel_depth_m": "Charted depth of the approach channel before tide, siltation and dredging.",
+      "anchorage_queue": "Vessels already waiting at anchorage when this one arrived.",
+      "berth_occupancy_pct": "How full the terminal's berths were at arrival, percent.",
+      "net_ukc_m": "Under-keel clearance after squat and the 1.0 m safety margin. This is the go/no-go number.",
+      "squat_m": "Extra draft a moving hull gains from its own bow wave. Grows with the square of speed.",
+      "binding_reach": "The channel section with the least clearance. It, not the shallowest section, sets the verdict.",
+      "min_tide_for_safe_m": "Tide height at which this transit would become SAFE. Below it, wait for water.",
+      "max_safe_speed_kn": "Fastest speed that still leaves a safe clearance, because slowing down cuts squat.",
+      "matches_sheet": "Whether our verdict agrees with the DUKC_Status the sheet already recorded. A scoring check, never an input.",
+      "required_tide_m": "Tide this vessel needs before the binding reach is passable.",
+      "usable_hours": "Hours in the next 120 h during which the vessel could transit.",
+      "availability_pct": "usable_hours as a share of the scan horizon.",
+      "longest_window_h": "The single longest uninterrupted transit opportunity.",
+      "max_wait_h": "Worst gap between windows -- the longest the vessel could be held waiting for tide.",
+      "next_window_start_ist": "Start of the next usable window.",
+      "dredging_gain_h": "Extra usable hours a +0.5 m dredge would buy. The investment case, in hours.",
+      "tat_hours": "Turnaround time: arrival to departure, in hours. The headline prediction (p50).",
+      "tat_p10_hours": "Optimistic end of the 80% band -- 10% of calls finish faster than this.",
+      "tat_p90_hours": "Pessimistic end of the 80% band -- 90% of calls finish within it. Plan against this one.",
+      "etb_ist": "Estimated Time of Berthing = arrival + waiting time.",
+      "etd_ist": "Estimated Time of Departure = arrival + tat_hours.",
+      "wait_hours": "Predicted wait between arrival and getting alongside.",
+      "berth_stay_hours": "Time actually alongside working cargo = tat_hours - wait_hours.",
+      "confidence": "HIGH/MEDIUM/LOW, from how wide the p10-p90 band came out.",
+      "engine": "Which predictor produced the number: lightgbm, sklearn or the additive fallback.",
+      "top_drivers": "The three input factors contributing most to this TAT, with their hours and share.",
+      "eta_p50_ist": "Most likely arrival time from the current AIS fix.",
+      "eta_p10_ist": "Earliest plausible arrival (10th percentile).",
+      "eta_p90_ist": "Latest plausible arrival (90th percentile).",
+      "eta_band_hours": "Width of the p10-p90 arrival window. Wider means less certain.",
+      "sigma_hours": "Standard deviation of the arrival estimate. Grows with forecast horizon and stale AIS.",
+      "assigned_berth": "Berth the optimiser allocated, which may differ from the one requested.",
+      "berth_changed": "True when the optimiser moved the vessel off its requested berth.",
+      "misses_tidal_window": "True when the assigned start falls outside every usable tidal window.",
+      "algorithm": "Solver that produced this assignment: cpsat (exact) or greedy (fallback).",
+      "reason": "One sentence on why the optimiser chose this berth and start time.",
+      "recommended_speed_kn": "Speed to arrive just in time instead of early. Lower speed, less fuel.",
+      "required_speed_kn": "Speed needed to hit the target arrival exactly. Above the vessel's cap it is not achievable.",
+      "rta_ist": "Requested Time of Arrival -- when the port actually wants the vessel, not when she can get there.",
+      "fuel_saved_t": "Tonnes of bunker fuel saved by slow-steaming to the RTA instead of arriving early and waiting.",
+      "co2_saved_t": "Tonnes of CO2 avoided, at 3.114 t CO2 per tonne of fuel.",
+      "anchorage_hours_saved": "Hours of anchorage waiting removed by arriving just in time.",
+      "achievable": "False when the vessel cannot reach the RTA even at full speed -- there is no saving to take.",
+      "movement": "The berthing or unberthing manoeuvre this craft assignment serves.",
+      "pilots_tugs_mooring": "Craft assigned to the movement: pilot / tug / mooring-gang ids.",
+      "shortfall": "Craft the movement needed but could not be given. Empty means fully resourced.",
+      "response_gap_min": "Minutes by which the nearest craft is late for the movement start.",
+      "resourced": "True when every required craft was assigned on time.",
+      "system_confidence": "0-1 score for how much of the plan survives today's disruptions. 1.0 is undisturbed.",
+      "alert_level": "NORMAL / WARNING / CRITICAL, from system_confidence and which rules fired.",
+      "tat_delay_h": "Extra turnaround hours the causal chain attributes to the current disruptions.",
+      "root_causes": "The exogenous conditions contributing most to the confidence drop, with their share.",
+      "disruptions": "The conditions fed into the chain for this vessel, in plain words.",
+      "flags": "Caveats attached to the row. TIDE_SYNTHETIC = tide was modelled, not measured. WAIT_IS_LOWER_BOUND = the wait was computed against this file only, so it under-states a real queue. QUEUE_DERIVED = anchorage queue was inferred from occupancy, not observed.",
+      "data_quality": "Where each estimated input came from. MEASURED beats DERIVED beats SYNTHETIC."
+    },
+    "vessels": [
+      {
+        "call_id": "C-0001",
+        "vessel": "MSC ANNA",
+        "imo": "",
+        "voyage": "",
+        "terminal": "BMCT",
+        "input": {
+          "ata_ist": "2026-07-26 01:40:00+00:00",
+          "eta_ist": "2026-07-26 01:40:00+00:00",
+          "terminal": "BMCT",
+          "requested_berth": "BMCT-01",
+          "vessel_class": "ULCV",
+          "loa_m": 399.0,
+          "draft_m": 15.2,
+          "teu_total": 5400,
+          "teu_import": 3240,
+          "teu_export": 2160,
+          "cranes_available": 0,
+          "tide_m": 3.46,
+          "channel_depth_m": 15.0,
+          "weather": "Clear",
+          "wind_kn": 12.0,
+          "anchorage_queue": 2,
+          "berth_occupancy_pct": 68.0
+        },
+        "data_quality": {
+          "tide": "SYNTHETIC_HARMONIC_v1",
+          "channel_depth": "DEFAULT_15.0m",
+          "anchorage_queue": "DERIVED_FROM_OCCUPANCY",
+          "distance": "DEFAULT"
+        },
+        "flags": [
+          "TIDE_SYNTHETIC",
+          "QUEUE_DERIVED"
+        ],
+        "models": {
+          "m1_under_keel_clearance": {
+            "status": "SAFE",
+            "net_ukc_m": 1.61,
+            "squat_m": 0.65,
+            "binding_reach": "CH-INNER",
+            "min_tide_for_safe_m": 2.85,
+            "max_safe_speed_kn": 10.0,
+            "matches_sheet": null,
+            "recommendation": "Transit status SAFE; controlling net UKC 1.61 m at CH-INNER. GO: net UKC 1.61 m is at or above the 1.00 m safety margin."
+          },
+          "m2_tidal_window": {
+            "required_tide_m": 2.85,
+            "windows": 11,
+            "usable_hours": 49.8,
+            "availability_pct": 41.5,
+            "longest_window_h": 5.5,
+            "max_wait_h": 7.5,
+            "next_window_start_ist": "2026-07-26 07:10",
+            "dredging_gain_h": 12.0
+          },
+          "m3_turnaround_time": {
+            "tat_hours": 60.1,
+            "tat_p10_hours": 57.5,
+            "tat_p90_hours": 62.7,
+            "etb_ist": "2026-07-26 07:10",
+            "etd_ist": "2026-07-28 19:16",
+            "wait_hours": 0.0,
+            "berth_stay_hours": 60.1,
+            "confidence": "HIGH",
+            "engine": "additive",
+            "top_drivers": [
+              {
+                "factor": "parcel_teu",
+                "hours": 21.6,
+                "share_pct": 82.8
+              },
+              {
+                "factor": "draft_over_ref",
+                "hours": 3.3,
+                "share_pct": 12.6
+              },
+              {
+                "factor": "anchorage_queue",
+                "hours": 1.2,
+                "share_pct": 4.6
+              }
+            ]
+          },
+          "m4_eta_confidence": {
+            "eta_p50_ist": "2026-07-26 07:10",
+            "eta_p10_ist": "2026-07-26 05:17",
+            "eta_p90_ist": "2026-07-26 09:02",
+            "eta_band_hours": 3.8,
+            "sigma_hours": 1.47,
+            "confidence": "HIGH"
+          },
+          "m5_berth_plan": {
+            "assigned_berth": "BMCT-01",
+            "requested_berth": "BMCT-01",
+            "berth_changed": false,
+            "start_ist": "2026-07-26 07:10",
+            "wait_hours": 0.0,
+            "misses_tidal_window": false,
+            "algorithm": "greedy",
+            "reason": "C-0001 MSC ANNA: assigned as requested to BMCT-01 (LOA 399/400 m, draft 15.20/16.50 m). Start in tidal window TW-02. wait 0.00 h (0.00) = 0.00."
+          },
+          "m6_jit_arrival": {
+            "rta_ist": "2026-07-26 07:10",
+            "recommended_speed_kn": 16.0,
+            "required_speed_kn": 16.0,
+            "achievable": true,
+            "fuel_saved_t": 0.0,
+            "co2_saved_t": 0.0,
+            "anchorage_hours_saved": 0.0,
+            "recommendation": "Slow-steam 16.0 -> 16.0 kn. RTA 2026-07-26T01:40:00Z (driver BERTH_READY). Eliminates 0.00 h of anchorage wait, saves 0.00 t bunker (USD 0 SIMULATED) and 0.00 t CO2."
+          },
+          "m7_port_craft": {
+            "movement": "BERTHING",
+            "start_ist": "2026-07-26 07:10",
+            "pilots_tugs_mooring": [
+              "PL-01",
+              "TG-05, TG-09, TG-10",
+              "ML-01"
+            ],
+            "shortfall": [],
+            "response_gap_min": 0.0,
+            "resourced": true
+          },
+          "m8_risk_chain": {
+            "system_confidence": 1.0,
+            "alert_level": "NORMAL",
+            "tat_delay_h": 0.0,
+            "root_causes": [
+              "TIDE_HEIGHT_M 87%",
+              "ARRIVAL_DEMAND_N 13%"
+            ],
+            "disruptions": "tide 3.46 m, 2 arrivals/24 h"
+          }
+        },
+        "mmsi": "419000501",
+        "source": "live",
+        "mapping": {
+          "adapter_version": "uc1-adapter-v1.0.0",
+          "mmsi": "419000501",
+          "vessel": "MSC ANNA",
+          "degraded": true,
+          "derived": [
+            {
+              "model_input": "LOA_m",
+              "value": 399.0,
+              "source": "AIS.LENGTH",
+              "raw": "399.0",
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Draft_m",
+              "value": 15.2,
+              "source": "AIS.DRAUGHT",
+              "raw": "15.2",
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Total_TEU",
+              "value": 5400,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS carries no cargo; assumed 30% of the 18,000 TEU ULCV nominal capacity implied by LOA 399 m",
+              "observed": false
+            },
+            {
+              "model_input": "Import_TEU/Export_TEU",
+              "value": "3240/2160",
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "split at the JNPA import share 60%",
+              "observed": false
+            },
+            {
+              "model_input": "ATA",
+              "value": "2026-07-26T01:40:00Z",
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "nav status 'approaching' means she has not arrived; used the AIS-reported ETA as the arrival being planned against",
+              "observed": false
+            },
+            {
+              "model_input": "Requested_Berth",
+              "value": "BMCT-01",
+              "source": "AIS.BERTH_ID",
+              "raw": "BMCT-01",
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Terminal",
+              "value": "BMCT",
+              "source": "derived from berth prefix",
+              "raw": "BMCT-01",
+              "rule": "BERTH_PREFIX_TO_TERMINAL",
+              "observed": true
+            },
+            {
+              "model_input": "Cargo_Type",
+              "value": "Container",
+              "source": "AIS.VESSEL_TYPE",
+              "raw": "Container Ship",
+              "rule": "contains 'CONTAINER'",
+              "observed": true
+            },
+            {
+              "model_input": "Speed_kn",
+              "value": 11.4,
+              "source": "AIS.SOG",
+              "raw": "11.4",
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Wind_Speed_kn",
+              "value": 12.0,
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Berth_Occupancy_%",
+              "value": 68.0,
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Weather",
+              "value": "Clear",
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            }
+          ],
+          "assumptions": [
+            "Total_TEU=5400 -- AIS carries no cargo; assumed 30% of the 18,000 TEU ULCV nominal capacity implied by LOA 399 m",
+            "Import_TEU/Export_TEU=3240/2160 -- split at the JNPA import share 60%",
+            "ATA=2026-07-26T01:40:00Z -- nav status 'approaching' means she has not arrived; used the AIS-reported ETA as the arrival being planned against"
+          ],
+          "warnings": [
+            "no measured tide supplied; the loader's synthetic harmonic curve is used and reported as TIDE_SYNTHETIC"
+          ],
+          "inputs_observed": 9,
+          "inputs_assumed": 3
+        },
+        "degraded": true
+      },
+      {
+        "call_id": "C-0002",
+        "vessel": "MAERSK KOTKA",
+        "imo": "",
+        "voyage": "",
+        "terminal": "",
+        "input": {
+          "ata_ist": "2026-07-25 17:20:00+00:00",
+          "eta_ist": null,
+          "terminal": "",
+          "requested_berth": "",
+          "vessel_class": "POST_PANAMAX",
+          "loa_m": 294.0,
+          "draft_m": 13.5,
+          "teu_total": 1800,
+          "teu_import": 1080,
+          "teu_export": 720,
+          "cranes_available": 0,
+          "tide_m": 0.6,
+          "channel_depth_m": 15.0,
+          "weather": "Clear",
+          "wind_kn": 12.0,
+          "anchorage_queue": 2,
+          "berth_occupancy_pct": 68.0
+        },
+        "data_quality": {
+          "tide": "SYNTHETIC_HARMONIC_v1",
+          "channel_depth": "DEFAULT_15.0m",
+          "anchorage_queue": "DERIVED_FROM_OCCUPANCY",
+          "distance": "DEFAULT"
+        },
+        "flags": [
+          "BERTH_SHIFT",
+          "TIDE_SYNTHETIC",
+          "QUEUE_DERIVED"
+        ],
+        "models": {
+          "m1_under_keel_clearance": {
+            "status": "MARGINAL",
+            "net_ukc_m": 0.87,
+            "squat_m": 0.23,
+            "binding_reach": "CH-INNER",
+            "min_tide_for_safe_m": 0.73,
+            "max_safe_speed_kn": 4.02,
+            "matches_sheet": null,
+            "recommendation": "Transit status MARGINAL; controlling net UKC 0.87 m at CH-INNER. CAUTION: net UKC 0.87 m is inside the marginal band (0.60-1.00 m). Reduce speed to 4.0 kn or await tide 0.73 m (+0.13 m on the current 0.60 m)."
+          },
+          "m2_tidal_window": {
+            "required_tide_m": 0.73,
+            "windows": 5,
+            "usable_hours": 112.2,
+            "availability_pct": 93.5,
+            "longest_window_h": 23.2,
+            "max_wait_h": 1.8,
+            "next_window_start_ist": "2026-07-25 23:35",
+            "dredging_gain_h": 7.8
+          },
+          "m3_turnaround_time": {
+            "tat_hours": 43.1,
+            "tat_p10_hours": 40.6,
+            "tat_p90_hours": 45.7,
+            "etb_ist": "2026-07-26 02:20",
+            "etd_ist": "2026-07-27 17:59",
+            "wait_hours": 3.5,
+            "berth_stay_hours": 39.6,
+            "confidence": "HIGH",
+            "engine": "additive",
+            "top_drivers": [
+              {
+                "factor": "parcel_teu",
+                "hours": 7.2,
+                "share_pct": 78.7
+              },
+              {
+                "factor": "anchorage_queue",
+                "hours": 1.2,
+                "share_pct": 13.1
+              },
+              {
+                "factor": "draft_over_ref",
+                "hours": 0.75,
+                "share_pct": 8.2
+              }
+            ]
+          },
+          "m4_eta_confidence": {
+            "eta_p50_ist": "2026-07-25 22:50",
+            "eta_p10_ist": "2026-07-25 20:57",
+            "eta_p90_ist": "2026-07-26 00:42",
+            "eta_band_hours": 3.8,
+            "sigma_hours": 1.47,
+            "confidence": "HIGH"
+          },
+          "m5_berth_plan": {
+            "assigned_berth": "APMT-01",
+            "requested_berth": "",
+            "berth_changed": true,
+            "start_ist": "2026-07-26 02:20",
+            "wait_hours": 3.5,
+            "misses_tidal_window": false,
+            "algorithm": "greedy",
+            "reason": "C-0002 MAERSK KOTKA: requested berth  is not in the roster; assigned APMT-01 (LOA 294/360 m, draft 13.50/15.50 m). Start in tidal window TW-02. wait 3.50 h (3.50) + berth shift (0.50) = 4.00."
+          },
+          "m6_jit_arrival": {
+            "rta_ist": "2026-07-25 22:50",
+            "recommended_speed_kn": 16.0,
+            "required_speed_kn": 16.0,
+            "achievable": true,
+            "fuel_saved_t": 0.0,
+            "co2_saved_t": 0.0,
+            "anchorage_hours_saved": 0.0,
+            "recommendation": "Slow-steam 16.0 -> 16.0 kn. RTA 2026-07-25T17:20:00Z (driver BERTH_READY). Eliminates 0.00 h of anchorage wait, saves 0.00 t bunker (USD 0 SIMULATED) and 0.00 t CO2."
+          },
+          "m7_port_craft": {
+            "movement": "BERTHING",
+            "start_ist": "2026-07-25 22:50",
+            "pilots_tugs_mooring": [
+              "PL-01",
+              "TG-05, TG-09",
+              "ML-01"
+            ],
+            "shortfall": [],
+            "response_gap_min": 0.0,
+            "resourced": true
+          },
+          "m8_risk_chain": {
+            "system_confidence": 0.2,
+            "alert_level": "CRITICAL",
+            "tat_delay_h": 1.1,
+            "root_causes": [
+              "TIDE_HEIGHT_M 99%",
+              "ARRIVAL_DEMAND_N 1%"
+            ],
+            "disruptions": "tide 0.60 m, 0 arrivals/24 h"
+          }
+        },
+        "mmsi": "419000502",
+        "source": "mock",
+        "mapping": {
+          "adapter_version": "uc1-adapter-v1.0.0",
+          "mmsi": "419000502",
+          "vessel": "MAERSK KOTKA",
+          "degraded": true,
+          "derived": [
+            {
+              "model_input": "LOA_m",
+              "value": 294.0,
+              "source": "AIS.LENGTH",
+              "raw": "294.0",
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Draft_m",
+              "value": 13.5,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS sent no draught; estimated from LOA 294 m (POST_PANAMAX band). Every UKC figure below rests on this estimate",
+              "observed": false
+            },
+            {
+              "model_input": "Total_TEU",
+              "value": 1800,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS carries no cargo; assumed 30% of the 6,000 TEU POST_PANAMAX nominal capacity implied by LOA 294 m",
+              "observed": false
+            },
+            {
+              "model_input": "Import_TEU/Export_TEU",
+              "value": "1080/720",
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "split at the JNPA import share 60%",
+              "observed": false
+            },
+            {
+              "model_input": "ATA",
+              "value": "2026-07-25T17:20:00Z",
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "nav status 'anchored' means she is already here; used the last AIS fix time as the arrival",
+              "observed": false
+            },
+            {
+              "model_input": "Cargo_Type",
+              "value": "Container",
+              "source": "AIS.VESSEL_TYPE",
+              "raw": "Container Ship",
+              "rule": "contains 'CONTAINER'",
+              "observed": true
+            },
+            {
+              "model_input": "Speed_kn",
+              "value": 6.0,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS SOG is 0.2 kn (stopped or manoeuvring); a zero-speed squat would overstate clearance, so the 6 kn transit floor is used",
+              "observed": false
+            },
+            {
+              "model_input": "Wind_Speed_kn",
+              "value": 12.0,
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Berth_Occupancy_%",
+              "value": 68.0,
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Weather",
+              "value": "Clear",
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            }
+          ],
+          "assumptions": [
+            "Draft_m=13.5 -- AIS sent no draught; estimated from LOA 294 m (POST_PANAMAX band). Every UKC figure below rests on this estimate",
+            "Total_TEU=1800 -- AIS carries no cargo; assumed 30% of the 6,000 TEU POST_PANAMAX nominal capacity implied by LOA 294 m",
+            "Import_TEU/Export_TEU=1080/720 -- split at the JNPA import share 60%",
+            "ATA=2026-07-25T17:20:00Z -- nav status 'anchored' means she is already here; used the last AIS fix time as the arrival",
+            "Speed_kn=6.0 -- AIS SOG is 0.2 kn (stopped or manoeuvring); a zero-speed squat would overstate clearance, so the 6 kn transit floor is used"
+          ],
+          "warnings": [
+            "no terminal known for this vessel; M5 plans her against the whole JNPA roster rather than one terminal's berths",
+            "no measured tide supplied; the loader's synthetic harmonic curve is used and reported as TIDE_SYNTHETIC"
+          ],
+          "inputs_observed": 5,
+          "inputs_assumed": 5
+        },
+        "degraded": true
+      },
+      {
+        "call_id": "C-0003",
+        "vessel": "SSL BRAHMAPUTRA",
+        "imo": "",
+        "voyage": "",
+        "terminal": "NSICT",
+        "input": {
+          "ata_ist": "2026-07-25 17:20:00+00:00",
+          "eta_ist": null,
+          "terminal": "NSICT",
+          "requested_berth": "CB-04",
+          "vessel_class": "PANAMAX",
+          "loa_m": 260.0,
+          "draft_m": 13.5,
+          "teu_total": 1800,
+          "teu_import": 1080,
+          "teu_export": 720,
+          "cranes_available": 0,
+          "tide_m": 0.6,
+          "channel_depth_m": 15.0,
+          "weather": "Clear",
+          "wind_kn": 12.0,
+          "anchorage_queue": 2,
+          "berth_occupancy_pct": 68.0
+        },
+        "data_quality": {
+          "tide": "SYNTHETIC_HARMONIC_v1",
+          "channel_depth": "DEFAULT_15.0m",
+          "anchorage_queue": "DERIVED_FROM_OCCUPANCY",
+          "distance": "DEFAULT"
+        },
+        "flags": [
+          "TIDE_SYNTHETIC",
+          "QUEUE_DERIVED"
+        ],
+        "models": {
+          "m1_under_keel_clearance": {
+            "status": "MARGINAL",
+            "net_ukc_m": 0.87,
+            "squat_m": 0.23,
+            "binding_reach": "CH-INNER",
+            "min_tide_for_safe_m": 0.73,
+            "max_safe_speed_kn": 4.02,
+            "matches_sheet": null,
+            "recommendation": "Transit status MARGINAL; controlling net UKC 0.87 m at CH-INNER. CAUTION: net UKC 0.87 m is inside the marginal band (0.60-1.00 m). Reduce speed to 4.0 kn or await tide 0.73 m (+0.13 m on the current 0.60 m)."
+          },
+          "m2_tidal_window": {
+            "required_tide_m": 0.73,
+            "windows": 5,
+            "usable_hours": 112.2,
+            "availability_pct": 93.5,
+            "longest_window_h": 23.2,
+            "max_wait_h": 1.8,
+            "next_window_start_ist": "2026-07-25 23:35",
+            "dredging_gain_h": 7.8
+          },
+          "m3_turnaround_time": {
+            "tat_hours": 43.1,
+            "tat_p10_hours": 40.6,
+            "tat_p90_hours": 45.7,
+            "etb_ist": "2026-07-26 02:20",
+            "etd_ist": "2026-07-27 17:59",
+            "wait_hours": 3.5,
+            "berth_stay_hours": 39.6,
+            "confidence": "HIGH",
+            "engine": "additive",
+            "top_drivers": [
+              {
+                "factor": "parcel_teu",
+                "hours": 7.2,
+                "share_pct": 78.7
+              },
+              {
+                "factor": "anchorage_queue",
+                "hours": 1.2,
+                "share_pct": 13.1
+              },
+              {
+                "factor": "draft_over_ref",
+                "hours": 0.75,
+                "share_pct": 8.2
+              }
+            ]
+          },
+          "m4_eta_confidence": {
+            "eta_p50_ist": "2026-07-25 22:50",
+            "eta_p10_ist": "2026-07-25 20:57",
+            "eta_p90_ist": "2026-07-26 00:42",
+            "eta_band_hours": 3.8,
+            "sigma_hours": 1.47,
+            "confidence": "HIGH"
+          },
+          "m5_berth_plan": {
+            "assigned_berth": "CB-04",
+            "requested_berth": "CB-04",
+            "berth_changed": false,
+            "start_ist": "2026-07-26 02:20",
+            "wait_hours": 3.5,
+            "misses_tidal_window": false,
+            "algorithm": "greedy",
+            "reason": "C-0003 SSL BRAHMAPUTRA: assigned as requested to CB-04 (LOA 260/300 m, draft 13.50/14.50 m). Start in tidal window TW-02. wait 3.50 h (3.50) = 3.50."
+          },
+          "m6_jit_arrival": {
+            "rta_ist": "2026-07-25 22:50",
+            "recommended_speed_kn": 16.0,
+            "required_speed_kn": 16.0,
+            "achievable": true,
+            "fuel_saved_t": 0.0,
+            "co2_saved_t": 0.0,
+            "anchorage_hours_saved": 0.0,
+            "recommendation": "Slow-steam 16.0 -> 16.0 kn. RTA 2026-07-25T17:20:00Z (driver BERTH_READY). Eliminates 0.00 h of anchorage wait, saves 0.00 t bunker (USD 0 SIMULATED) and 0.00 t CO2."
+          },
+          "m7_port_craft": {
+            "movement": "BERTHING",
+            "start_ist": "2026-07-25 22:50",
+            "pilots_tugs_mooring": [
+              "PL-02",
+              "TG-10, TG-01",
+              "SL-01"
+            ],
+            "shortfall": [],
+            "response_gap_min": 0.0,
+            "resourced": true
+          },
+          "m8_risk_chain": {
+            "system_confidence": 0.2,
+            "alert_level": "CRITICAL",
+            "tat_delay_h": 1.1,
+            "root_causes": [
+              "TIDE_HEIGHT_M 99%",
+              "ARRIVAL_DEMAND_N 1%"
+            ],
+            "disruptions": "tide 0.60 m, 1 arrivals/24 h"
+          }
+        },
+        "mmsi": "419000503",
+        "source": "mock",
+        "mapping": {
+          "adapter_version": "uc1-adapter-v1.0.0",
+          "mmsi": "419000503",
+          "vessel": "SSL BRAHMAPUTRA",
+          "degraded": true,
+          "derived": [
+            {
+              "model_input": "LOA_m",
+              "value": 260.0,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "the AIS position feed carries no length; assumed the JNPA fleet median (260.0 m). Send LOA_M to replace this estimate",
+              "observed": false
+            },
+            {
+              "model_input": "Draft_m",
+              "value": 13.5,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS sent no draught; estimated from LOA 260 m (POST_PANAMAX band). Every UKC figure below rests on this estimate",
+              "observed": false
+            },
+            {
+              "model_input": "Total_TEU",
+              "value": 1800,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS carries no cargo; assumed 30% of the 6,000 TEU POST_PANAMAX nominal capacity implied by LOA 260 m",
+              "observed": false
+            },
+            {
+              "model_input": "Import_TEU/Export_TEU",
+              "value": "1080/720",
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "split at the JNPA import share 60%",
+              "observed": false
+            },
+            {
+              "model_input": "ATA",
+              "value": "2026-07-25T17:20:00Z",
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "nav status 'moored' means she is already here; used the last AIS fix time as the arrival",
+              "observed": false
+            },
+            {
+              "model_input": "Requested_Berth",
+              "value": "CB-04",
+              "source": "AIS.BERTH_ID",
+              "raw": "CB-04",
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Terminal",
+              "value": "NSICT",
+              "source": "derived from berth prefix",
+              "raw": "CB-04",
+              "rule": "BERTH_PREFIX_TO_TERMINAL",
+              "observed": true
+            },
+            {
+              "model_input": "Cargo_Type",
+              "value": "Container",
+              "source": "AIS.VESSEL_TYPE",
+              "raw": "Cargo",
+              "rule": "contains 'CARGO'",
+              "observed": true
+            },
+            {
+              "model_input": "Speed_kn",
+              "value": 6.0,
+              "source": "ASSUMED",
+              "raw": null,
+              "rule": "AIS SOG is 0 kn (stopped or manoeuvring); a zero-speed squat would overstate clearance, so the 6 kn transit floor is used",
+              "observed": false
+            },
+            {
+              "model_input": "Wind_Speed_kn",
+              "value": 12.0,
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Berth_Occupancy_%",
+              "value": 68.0,
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            },
+            {
+              "model_input": "Weather",
+              "value": "Clear",
+              "source": "context",
+              "raw": null,
+              "rule": "direct",
+              "observed": true
+            }
+          ],
+          "assumptions": [
+            "LOA_m=260.0 -- the AIS position feed carries no length; assumed the JNPA fleet median (260.0 m). Send LOA_M to replace this estimate",
+            "Draft_m=13.5 -- AIS sent no draught; estimated from LOA 260 m (POST_PANAMAX band). Every UKC figure below rests on this estimate",
+            "Total_TEU=1800 -- AIS carries no cargo; assumed 30% of the 6,000 TEU POST_PANAMAX nominal capacity implied by LOA 260 m",
+            "Import_TEU/Export_TEU=1080/720 -- split at the JNPA import share 60%",
+            "ATA=2026-07-25T17:20:00Z -- nav status 'moored' means she is already here; used the last AIS fix time as the arrival",
+            "Speed_kn=6.0 -- AIS SOG is 0 kn (stopped or manoeuvring); a zero-speed squat would overstate clearance, so the 6 kn transit floor is used"
+          ],
+          "warnings": [
+            "no measured tide supplied; the loader's synthetic harmonic curve is used and reported as TIDE_SYNTHETIC"
+          ],
+          "inputs_observed": 6,
+          "inputs_assumed": 6
+        },
+        "degraded": true
+      }
+    ],
+    "port_summary": {
+      "berth_utilisation": {
+        "occupancy_pct": 50.6,
+        "berths": 21,
+        "occupancy_source": "JNPA_DSR_SECTION_H/dsr_berth_stays.csv",
+        "occupancy_records": 363,
+        "median_wait_h": null
+      },
+      "berth_plan": {
+        "requests": 3,
+        "assigned": 3,
+        "total_wait_hours": 7.0,
+        "berth_changes": 1,
+        "tide_misses": 0,
+        "solver": "greedy"
+      },
+      "jit_savings": {
+        "fuel_saved_t": 0.0,
+        "co2_saved_t": 0.0,
+        "bunker_saved_usd": 0.0,
+        "anchorage_hours_saved": 0.0,
+        "figures_are": "SIMULATED"
+      },
+      "port_craft": {
+        "status": "FEASIBLE",
+        "movements": 3,
+        "roster_size": 18,
+        "conflicts": 0,
+        "utilisation_pct": {
+          "PILOT": 15.0,
+          "TUG": 14.3,
+          "MOORING": 20.0
+        }
+      },
+      "risk": {
+        "lowest_confidence": 0.2,
+        "any_critical": true,
+        "alert_levels": [
+          "CRITICAL",
+          "NORMAL"
+        ]
+      },
+      "transit_safety": {
+        "safe": 1,
+        "marginal": 2,
+        "no_go": 0,
+        "agreement_with_sheet_pct": null
+      },
+      "turnaround": {
+        "mean_tat_hours": 48.8,
+        "engine": "additive",
+        "model_mode": "TRAINED_ARTIFACT",
+        "holdout_mae_hours": 2.39,
+        "holdout_coverage_pct": 74.6
+      }
+    }
+  }
+}

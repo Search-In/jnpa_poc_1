@@ -1,0 +1,39 @@
+# =============================================================================
+# JNPA UC-I model service — the RUNTIME subset
+# =============================================================================
+#
+# What the container serving /ml-api actually needs. `requirements.txt` is the
+# full development set (it also carries the CP-SAT solver, the PDF extractor and
+# the test suite); installing all of it would roughly triple the image for
+# capability the HTTP surface does not use.
+#
+# What is deliberately NOT here, and what the service does instead:
+#
+#   lightgbm    UC1-M3 falls back down its engine chain to the transparent
+#               additive model and reports the reason in `engine_trace`. The
+#               fallback is a supported path, not a failure — the additive model
+#               is measured at MAE 2.39 h against LightGBM's 2.49 h. Add it back
+#               (plus libgomp1 in the image) when the learned band is wanted.
+#   ortools     UC1-M5 returns the greedy berth plan and says `solver: greedy`.
+#               CP-SAT beat it by 41% on the demo scenario, so add it for a
+#               production planner; the greedy plan is feasible by construction
+#               and instant, which is what a live panel needs.
+#   pdfplumber  Only dsr_extract.py reads the DSR corpus, and the extracted
+#               berth stays travel as data/reference/dsr_berth_stays.csv.
+#
+# The eight model modules themselves import NOTHING outside the standard
+# library, so everything below exists for the HTTP layer and the loader.
+# -----------------------------------------------------------------------------
+
+fastapi>=0.115
+pydantic>=2.7
+uvicorn[standard]>=0.30
+
+# jnpa_input.py has a stdlib .xlsx reader, but openpyxl is the preferred path
+# and is cheap; keeping it means an uploaded workbook reads identically in the
+# container and on a developer's machine.
+openpyxl>=3.1
+
+# UC1-M3's second engine (sklearn GBR/RF). Optional in the same sense as
+# lightgbm — drop this line and M3 serves the additive model, badged.
+scikit-learn>=1.3

@@ -1,0 +1,274 @@
+{
+  "artifact_schema": "jnpa-tat-artifact/1.0.0",
+  "model_id": "UC1-M3",
+  "model_name": "JNPA UC-1 Turnaround Time (TAT) predictor",
+  "model_version": "m3-additive-v1.2.0",
+  "module_version": "m3-tat-v1.0.0",
+  "trained_by": "train-tat-v1.0.0",
+  "created_at_utc": "2026-08-01T14:09:36.541768+00:00",
+  "python": "3.12.10",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "artifact_file": "uc1_m3_tat_lightgbm_v1.2.0.pkl",
+  "artifact_sha256": "27038b98ef02ffba6206bfdedaa0cc7498678307a0fb21ea586263cdb3ceb4c7",
+  "engine": {
+    "selected": "lightgbm",
+    "requested": "auto",
+    "priority_chain": [
+      "lightgbm",
+      "sklearn_gbr",
+      "sklearn_rf",
+      "additive"
+    ],
+    "trace": [
+      {
+        "engine": "lightgbm",
+        "available": true,
+        "selected": true,
+        "reason": "constructed, fitted and smoke-tested",
+        "elapsed_ms": 1703.0529000003298
+      },
+      {
+        "engine": "sklearn_gbr",
+        "available": true,
+        "selected": false,
+        "reason": "not attempted \u00e2\u20ac\u201d an earlier engine succeeded",
+        "elapsed_ms": 0.0
+      },
+      {
+        "engine": "sklearn_rf",
+        "available": true,
+        "selected": false,
+        "reason": "not attempted \u00e2\u20ac\u201d an earlier engine succeeded",
+        "elapsed_ms": 0.0
+      },
+      {
+        "engine": "additive",
+        "available": true,
+        "selected": false,
+        "reason": "not attempted \u00e2\u20ac\u201d an earlier engine succeeded",
+        "elapsed_ms": 0.0
+      }
+    ]
+  },
+  "training_data": {
+    "source": "SYNTHETIC_CALIBRATED_v1",
+    "days": 365,
+    "seed": 20260807,
+    "n_calls_total": 4016,
+    "n_train": 3190,
+    "n_test": 804,
+    "n_purged": 22,
+    "dsr_berth_stay_anchor_available": true,
+    "note": "TAT labels are synthetic and calibrated to JNPA's published 1.83 d mean TAT. The corpus in this repository contains no column yielding a true ATA, so an end-to-end TAT cannot be measured from it. Real berth-stay data from dsr_extract.py anchors the berth-stay component when the CSV is present."
+  },
+  "split": {
+    "method": "chronological_holdout_with_purge",
+    "split_time_utc": "2026-10-20T03:46:53.019589+00:00",
+    "embargo_hours": 24.0,
+    "train_span": [
+      "2026-01-01T00:36:36.518486+00:00",
+      "2026-10-17T23:54:35.475136+00:00"
+    ],
+    "test_span": [
+      "2026-10-20T03:46:53.019589+00:00",
+      "2026-12-31T20:36:32.775544+00:00"
+    ],
+    "ordering_assert_passed": true,
+    "note": "Chronological with purge + embargo. No shuffled split, no K-fold."
+  },
+  "leakage_audit": {
+    "feature_columns": [
+      "parcel_teu",
+      "draft_m",
+      "terminal_max_draft_m",
+      "draft_vs_terminal_max_m",
+      "weather_severity",
+      "severe_weather_flag",
+      "rain_mm_hr",
+      "wind_kn",
+      "net_channel_depth_delta_m",
+      "pilots_down",
+      "tugs_down",
+      "anchorage_queue_count",
+      "extra_arrivals_24h",
+      "incident_severity",
+      "berth_window_extension_h",
+      "calls_prev_24h"
+    ],
+    "n_features": 16,
+    "banned_fields": [
+      "actual_cranes_used",
+      "actual_gang_hours",
+      "actual_moves_completed",
+      "ata_utc",
+      "atb_utc",
+      "atd_utc",
+      "berth_stay_hours",
+      "crane_hours_used",
+      "departure_draft_m",
+      "sailed",
+      "tat_hours"
+    ],
+    "intersection": [],
+    "passed": true,
+    "enforced_at_import": true,
+    "split_method": "chronological_holdout_with_purge",
+    "forbidden_apis": [
+      "sklearn.model_selection.train_test_split(shuffle=True)",
+      "KFold"
+    ],
+    "note": "atb_utc is deliberately in BANNED_FIELDS: it is the chronological split key, never a predictor. Imputation medians come from TRAIN only."
+  },
+  "features": {
+    "columns": [
+      "parcel_teu",
+      "draft_m",
+      "terminal_max_draft_m",
+      "draft_vs_terminal_max_m",
+      "weather_severity",
+      "severe_weather_flag",
+      "rain_mm_hr",
+      "wind_kn",
+      "net_channel_depth_delta_m",
+      "pilots_down",
+      "tugs_down",
+      "anchorage_queue_count",
+      "extra_arrivals_24h",
+      "incident_severity",
+      "berth_window_extension_h",
+      "calls_prev_24h"
+    ],
+    "count": 16,
+    "banned_from_features": [
+      "actual_cranes_used",
+      "actual_gang_hours",
+      "actual_moves_completed",
+      "ata_utc",
+      "atb_utc",
+      "atd_utc",
+      "berth_stay_hours",
+      "crane_hours_used",
+      "departure_draft_m",
+      "sailed",
+      "tat_hours"
+    ]
+  },
+  "metrics_holdout": {
+    "n_test": 804,
+    "mae_hours": 2.489586189526652,
+    "rmse_hours": 3.1213463355537607,
+    "mape_pct": 5.903970475506293,
+    "forecast_accuracy_pct": 94.0960295244937,
+    "pinball_p10": 0.5764832292937739,
+    "pinball_p50": 1.244793094763326,
+    "pinball_p90": 0.6141132531063871,
+    "coverage_80_pct": 85.69651741293532,
+    "mean_band_width_hours": 9.40098566077594,
+    "mape_rows_dropped": 0,
+    "engine": "lightgbm",
+    "model_version": "m3-additive-v1.2.0"
+  },
+  "calibration": {
+    "source": "JNPA public performance reference (assumptions register)",
+    "n_calls": 4016,
+    "n_days": 365,
+    "checks": [
+      {
+        "anchor": "mean TAT (days)",
+        "target": 1.83,
+        "tolerance": 0.05,
+        "achieved": 1.8498,
+        "achieved_hours": 44.4,
+        "passed": true
+      },
+      {
+        "anchor": "mean berth stay (days)",
+        "target": 0.97,
+        "tolerance": 0.05,
+        "achieved": 0.9841,
+        "achieved_hours": 23.62,
+        "passed": true
+      },
+      {
+        "anchor": "calls per day",
+        "target": "10-12",
+        "tolerance": null,
+        "achieved": 11.0,
+        "achieved_hours": null,
+        "passed": true
+      }
+    ],
+    "status": "PASS"
+  },
+  "quality_gates": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "mae_within_limit",
+        "passed": true,
+        "detail": "MAE 2.49 h <= 8.0 h"
+      },
+      {
+        "name": "accuracy_above_floor",
+        "passed": true,
+        "detail": "accuracy 94.10% >= 80.0%"
+      },
+      {
+        "name": "coverage_not_too_low",
+        "passed": true,
+        "detail": "coverage 85.7% >= 60.0%"
+      },
+      {
+        "name": "coverage_not_too_wide",
+        "passed": true,
+        "detail": "coverage 85.7% <= 95.0% (a band that covers everything is uninformative)"
+      },
+      {
+        "name": "band_is_usable",
+        "passed": true,
+        "detail": "mean band width 9.40 h <= 48 h"
+      }
+    ]
+  },
+  "backends_at_train_time": {
+    "lightgbm": {
+      "available": true,
+      "error": null
+    },
+    "sklearn": {
+      "available": true,
+      "error": null
+    },
+    "fastapi": {
+      "available": true,
+      "error": null
+    }
+  },
+  "coefficients": {
+    "base_hours": 34.0,
+    "hours_per_teu": 0.004,
+    "draft_ref_m": 13.0,
+    "hours_per_m_draft_over_ref": 1.5,
+    "hours_severe_weather": 5.0,
+    "hours_per_m_channel_depth_loss": 4.0,
+    "hours_per_mm_rain": 0.22,
+    "wind_ref_kn": 20.0,
+    "hours_per_kn_wind_over_ref": 0.15,
+    "hours_per_pilot_down": 1.5,
+    "hours_per_tug_down": 1.0,
+    "hours_per_queued_vessel": 0.6,
+    "hours_per_extra_arrival": 0.8,
+    "hours_per_incident_severity_level": 2.5,
+    "hours_per_h_berth_window_extension": -0.5,
+    "min_tat_hours": 12.0,
+    "sigma_base_hours": 2.0,
+    "sigma_per_stressor_hours": 0.3,
+    "z_p80": 1.28,
+    "version": "m3-additive-v1.2.0"
+  },
+  "elapsed_s": 7.72,
+  "usage": {
+    "predict_cli": "python predict.py --input <file.xlsx> --artifact uc1_m3_tat_lightgbm_v1.2.0.pkl",
+    "load_python": "from train_tat_model import load_artifact; art = load_artifact('<path.pkl>'); pred = art['predictor'].predict(features)"
+  }
+}

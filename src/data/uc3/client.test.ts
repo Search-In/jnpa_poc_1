@@ -178,4 +178,17 @@ describe('http (authenticated transport)', () => {
       env.uc3.enabled = prev;
     }
   });
+
+  it('allows a caller to pin X-Data-Mode (bathymetry charts are always DEMO)', async () => {
+    const spy = vi.fn((url: string, _init?: RequestInit) =>
+      isLogin(url) ? jsonResponse(loginBody('T1')) : jsonResponse({ items: [] }),
+    );
+    vi.stubGlobal('fetch', spy);
+
+    await http('/marine/bathymetry/surveys', { headers: { 'x-data-mode': 'DEMO' } });
+
+    const [, init] = spy.mock.calls[1];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers['x-data-mode']).toBe('DEMO');
+  });
 });

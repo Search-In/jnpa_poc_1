@@ -87,6 +87,16 @@ describe('buildUploadForm', () => {
     const keys = [...buildUploadForm(csvFile()).keys()];
     expect(keys).toEqual([UPLOAD_FIELD]);
   });
+
+  it('omits override by default so duplicates stay skipped', () => {
+    expect(buildUploadForm(csvFile()).has('override')).toBe(false);
+  });
+
+  it('appends override=true when re-processing a ledger hit', () => {
+    const fd = buildUploadForm(csvFile(), true);
+    expect(fd.get('override')).toBe('true');
+    expect([...fd.keys()]).toEqual([UPLOAD_FIELD, 'override']);
+  });
 });
 
 describe('mapUploadFile (wire → domain)', () => {
@@ -284,6 +294,29 @@ describe('validateMarineCsv / importMarineCsv (multipart transport)', () => {
     const res = await importMarineCsv(csvFile());
     expect(res.duplicate_file).toBe(true);
     expect(res.imported).toBe(0);
+  });
+
+  it('sends override=true in the multipart body when re-importing', async () => {
+    const spy = vi.fn((url: string, _init?: RequestInit) =>
+      String(url).endsWith('/auth/login')
+        ? jsonResponse(loginBody)
+        : jsonResponse({
+            file_id: 1,
+            status: 'SUCCESS',
+            imported: 3,
+            updated: 0,
+            skipped: 0,
+            invalid: 0,
+            duplicate_file: false,
+            summary: {},
+          }),
+    );
+    vi.stubGlobal('fetch', spy);
+
+    await importMarineCsv(csvFile(), { override: true });
+    const body = spy.mock.calls[1][1]?.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.get('override')).toBe('true');
   });
 
   it('rejects when the transport itself fails', async () => {
