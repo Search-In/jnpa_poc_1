@@ -200,7 +200,8 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const spy = stub(KPI_BODY);
     vi.stubGlobal('fetch', spy);
     const k = await fetchPerformanceKpi();
-    expect(k.metrics.totalTeus).toBe(18432.5);
+    expect(k).not.toBeNull();
+    expect(k!.metrics.totalTeus).toBe(18432.5);
     const [url, init] = spy.mock.calls[1];
     expect(url).toBe('/api/performance/kpi');
     expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
@@ -225,9 +226,9 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     expect(t[0].code).toBe('NSICT');
   });
 
-  it('surfaces the gateway 404 (no_daily_reports) as an error, not as an empty day', async () => {
+  it('treats gateway 404 (no_daily_reports) as empty, not a red error', async () => {
     vi.stubGlobal('fetch', stub({ detail: { error: 'no_daily_reports' } }, 404, 'Not Found'));
-    await expect(fetchPerformanceKpi()).rejects.toThrow(/HTTP 404/);
+    await expect(fetchPerformanceKpi()).resolves.toBeNull();
   });
 
   it('surfaces a 400 from an invalid period rather than swallowing it', async () => {
