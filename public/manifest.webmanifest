@@ -1,0 +1,41 @@
+{
+  "name": "JNPA · Vessel Traffic Management & Optimisation",
+  "short_name": "JNPA Twin",
+  "description": "Digital Twin PoC (UC-1) for Jawaharlal Nehru Port Authority — marine command centre, what-if scenarios and an immersive 3D/VR port walkthrough.",
+  "id": "/",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f4f5f6",
+  "theme_color": "#0079c1",
+  "categories": ["business", "productivity", "navigation"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Port walkthrough (3D / VR)",
+      "short_name": "Walkthrough",
+      "description": "Stand inside the port and watch a what-if scenario play out around you",
+      "url": "./#/vr"
+    },
+    {
+      "name": "Simulator control room",
+      "short_name": "Simulator",
+      "url": "./#/simulator"
+    }
+  ]
+}

@@ -10,19 +10,25 @@ import { defineCustomElements as defineCalcite } from '@esri/calcite-components/
 import { defineCustomElements as defineMapComponents } from '@arcgis/map-components/loader';
 
 import { tokens } from './theme/tokens';
+import { AuthGate } from './auth/AuthGate';
 import { App } from './App';
 import { SimulatorPage } from './sim/SimulatorPage';
+import { VrPage } from './vr/VrPage';
 import { useHashRoute } from './sim/useHashRoute';
 import './index.css';
 
 /**
  * Root — hash-routed shell. `#/simulator` renders the standalone Simulator
  * control room (its own tab, drives the dashboard via BroadcastChannel);
- * everything else renders the dashboard app.
+ * `#/vr` renders the immersive 3D/VR port walkthrough (also its own tab, and
+ * also a pure consumer of the shared sim state); everything else renders the
+ * dashboard app.
  */
 function Root() {
   const route = useHashRoute();
-  return route.startsWith('/simulator') ? <SimulatorPage /> : <App />;
+  if (route.startsWith('/simulator')) return <SimulatorPage />;
+  if (route.startsWith('/vr')) return <VrPage />;
+  return <App />;
 }
 
 /** Seed CSS custom properties from the token file so CSS has no colour literals. */
@@ -45,8 +51,29 @@ defineCalcite({ resourcesUrl: 'https://js.arcgis.com/calcite-components/3.3.3/as
 defineMapComponents({ resourcesUrl: 'https://js.arcgis.com/4.34/map-components/' });
 applyTheme();
 
+// AuthGate is the whole-app protection point. UC-1 has no route table to guard
+// (a two-branch hash router, then Calcite tabs inside one root), so the root is
+// the one choke point. With VITE_AUTH_ENABLED unset it is a pass-through and
+// the mount is exactly as it was.
+/**
+ * Register the service worker that makes the app installable (and therefore
+ * launchable fullscreen, which is what the cardboard view needs).
+ *
+ * PRODUCTION ONLY. In dev a worker caching the shell fights Vite's HMR and
+ * serves stale modules, which looks exactly like a broken build.
+ */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {
+      /* unsupported or blocked — the app works fine without it */
+    });
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Root />
+    <AuthGate>
+      <Root />
+    </AuthGate>
   </StrictMode>
 );

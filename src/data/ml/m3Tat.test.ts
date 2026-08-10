@@ -1,44 +1,36 @@
-import { describe, it, expect } from 'vitest';
-import {
-  DEMO_TAT_INPUT,
-  contributionsFromBreakdown,
-  mapM3PredictResponse,
-} from './m3Tat';
+import { describe, expect, it } from 'vitest';
+import { DEMO_TAT_INPUT, M3_PREDICT_PATH } from './m3Tat';
 
-describe('m3Tat', () => {
-  it('keeps the UC1-068 rehearsal pin at 4000 TEU / 15.0 m / lightgbm', () => {
+describe('M3 client contract', () => {
+  it('targets the documented endpoint suffix', () => {
+    expect(M3_PREDICT_PATH).toBe('/uc1/m3/predict');
+  });
+});
+
+describe('DEMO_TAT_INPUT', () => {
+  it('pins the evaluator curl: 4,000 TEU at 15.0 m on the learned engine', () => {
+    // The card prints these two numbers next to the result, and the UC1-068
+    // decision is that the screen and the terminal must agree. Changing them
+    // silently breaks that equivalence.
     expect(DEMO_TAT_INPUT.parcel_teu).toBe(4000);
     expect(DEMO_TAT_INPUT.draft_m).toBe(15.0);
     expect(DEMO_TAT_INPUT.engine).toBe('lightgbm');
   });
 
-  it('maps P10/P50/P90 and artifact provenance from the wire payload', () => {
-    const mapped = mapM3PredictResponse({
-      p10_hours: 38.1,
-      p50_hours: 42.5,
-      p90_hours: 49.2,
-      sigma_hours: 3.4,
-      engine: 'lightgbm',
-      model_version: 'm3-additive-v1.2.0',
-      artifact_sha256: '27038b98ef02ffba6206bfdedaa0cc7498678307a0fb21ea586263cdb3ceb4c7',
-      holdout_mae_hours: 2.489586189526652,
-      artifact_mode: 'TRAINED_ARTIFACT',
-      breakdown: {
-        contributions: [
-          { factor: 'parcel_teu', contribution_h: 16 },
-          { factor: 'queue', contribution_h: 4 },
-          { factor: 'noise', contribution_h: 0 },
-        ],
-      },
-    });
-    expect(mapped.p50_hours).toBe(42.5);
-    expect(mapped.artifact_sha256?.startsWith('27038b98')).toBe(true);
-    expect(mapped.holdout_mae_hours).toBeCloseTo(2.49, 2);
-    expect(mapped.contributions.map((c) => c.factor)).toEqual(['parcel_teu', 'queue']);
+  it('stays inside the service field bounds', () => {
+    const i = DEMO_TAT_INPUT;
+    expect(i.parcel_teu).toBeGreaterThanOrEqual(0);
+    expect(i.parcel_teu).toBeLessThanOrEqual(30000);
+    expect(i.draft_m).toBeGreaterThan(0);
+    expect(i.draft_m).toBeLessThanOrEqual(25);
   });
 
-  it('ignores empty contribution lists', () => {
-    expect(contributionsFromBreakdown(null)).toEqual([]);
-    expect(contributionsFromBreakdown({})).toEqual([]);
+  it('submits no outcome field — the leakage firewall', () => {
+    // The request schema is itself part of the firewall: every field must be
+    // knowable at the ETB decision, so nothing may name a realised outcome.
+    const banned = /(^|_)(tat|actual|atd|outcome|duration)($|_)/i;
+    for (const key of Object.keys(DEMO_TAT_INPUT)) {
+      expect(banned.test(key), `${key} looks like an outcome`).toBe(false);
+    }
   });
 });

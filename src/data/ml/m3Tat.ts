@@ -1,122 +1,128 @@
 /**
- * UC1-M3 TAT — Gen-2 LightGBM service (`POST /uc1/m3/predict`).
+ * UC-1 Gen-2 · M3 — vessel turnaround-time (TAT) forecast.
  *
- * UC1-068: the Analytics TAT card must show the SAME P50 the evaluator gets from
- * curl against the submitted pack. Demo pin: 4,000 TEU / draft 15.0 m /
- * engine=lightgbm → LightGBM v1.2.0 (SHA-256 27038b98…).
+ * A thin, typed client over the model service's `POST /uc1/m3/predict`
+ * (ml/src/uc1_models/uc1_m3_tat_predict.py). The Python pack returns a
+ * P10/P50/P90 band plus a per-factor additive explanation; this module maps that
+ * wire shape onto the small view model <TatPredictionCard> renders and does
+ * NOTHING else — the computation lives in the service on :8100, never in the
+ * browser (UC1-068 decision (a)). All transport, timeout and error wording is
+ * handled by `mlHttp` (src/data/ml/client.ts), same as the Predictions surface.
  */
 
 import { mlHttp } from './client';
 
-export const M3_PREDICT_PATH = '/uc1/m3/predict';
+/** The learned engines the service can score with. `additive` is the transparent
+ *  surrogate; `lightgbm` matches the submitted artifact used in the demo. */
+export type M3Engine = 'auto' | 'lightgbm' | 'sklearn_gbr' | 'sklearn_rf' | 'additive';
 
-/** Ticket / WS2 rehearsal inputs — keep in sync with the curl crib. */
-export const DEMO_TAT_INPUT = {
-  parcel_teu: 4000,
-  draft_m: 15.0,
-  terminal_max_draft_m: 16.5,
-  engine: 'lightgbm' as const,
-  call_id: 'C-DEMO-UC1-068',
-  vessel_name: 'DEMO 4000 TEU',
-  terminal: 'BMCT',
-  berth_id: 'BMCT-01',
-};
-
-export interface M3PredictRequest {
+/**
+ * Pre-berthing feature vector — mirrors the service's `TATPredictRequest`. Every
+ * field is knowable at the ETB decision (the leakage firewall); there is
+ * deliberately no way to submit an outcome. Only `parcel_teu` / `draft_m` /
+ * `engine` are commonly set; every other field is optional and falls back to the
+ * service's own field default when omitted.
+ */
+export interface M3PredictInput {
   parcel_teu: number;
   draft_m: number;
-  terminal_max_draft_m?: number;
-  engine?: 'auto' | 'lightgbm' | 'sklearn_gbr' | 'sklearn_rf' | 'additive';
+  engine?: M3Engine;
   call_id?: string;
+  vessel_id?: string;
   vessel_name?: string;
   terminal?: string;
   berth_id?: string;
+  terminal_max_draft_m?: number;
   weather_severity?: number;
   severe_weather_flag?: number;
   rain_mm_hr?: number;
   wind_kn?: number;
-  anchorage_queue_count?: number;
+  net_channel_depth_delta_m?: number;
   pilots_down?: number;
   tugs_down?: number;
+  anchorage_queue_count?: number;
+  extra_arrivals_24h?: number;
+  incident_severity?: number;
+  berth_window_extension_h?: number;
+  calls_prev_24h?: number;
 }
 
+/** One factor's additive contribution, flattened for the UI. */
 export interface M3Contribution {
   factor: string;
   hours: number;
 }
 
+/** View model consumed by <TatPredictionCard>. */
 export interface M3PredictResult {
   p10_hours: number;
   p50_hours: number;
   p90_hours: number;
   sigma_hours: number;
   engine: string;
-  model_version: string;
-  artifact_sha256: string | null;
-  holdout_mae_hours: number | null;
-  artifact_mode: string | null;
+  model_version?: string;
+  /** Holdout MAE from the artifact's provenance, when the service ships it. */
+  holdout_mae_hours?: number | null;
+  /** SHA-256 of the loaded model artifact, when the service ships it. */
+  artifact_sha256?: string;
+  /** Per-factor additive attribution, largest absolute driver first. */
   contributions: M3Contribution[];
 }
 
-/** Pull top drivers from the service breakdown. Pure. */
-export function contributionsFromBreakdown(breakdown: unknown): M3Contribution[] {
-  if (!breakdown || typeof breakdown !== 'object') return [];
-  const b = breakdown as Record<string, unknown>;
-  const raw =
-    (Array.isArray(b.contributions) && b.contributions) ||
-    (Array.isArray(b.top_drivers) && b.top_drivers) ||
-    (Array.isArray(b.factors) && b.factors) ||
-    [];
-  const out: M3Contribution[] = [];
-  for (const row of raw) {
-    if (!row || typeof row !== 'object') continue;
-    const r = row as Record<string, unknown>;
-    const factor = String(r.factor ?? r.name ?? r.feature ?? '');
-    const hours = Number(r.hours ?? r.contribution_h ?? r.value ?? NaN);
-    if (!factor || !Number.isFinite(hours) || hours <= 0) continue;
-    out.push({ factor, hours });
-  }
-  return out.sort((a, b) => b.hours - a.hours);
-}
+/**
+ * The evaluator's canonical demo case: 4,000 TEU, 15.0 m draft, LightGBM — the
+ * same inputs as the reference `curl POST /uc1/m3/predict`, so the P50 on screen
+ * matches the terminal.
+ */
+export const DEMO_TAT_INPUT: M3PredictInput = {
+  parcel_teu: 4000,
+  draft_m: 15.0,
+  engine: 'lightgbm',
+};
 
-/** Map wire JSON → domain. Pure. */
-export function mapM3PredictResponse(raw: Record<string, unknown>): M3PredictResult {
-  const p50 = Number(raw.p50_hours);
-  if (!Number.isFinite(p50)) {
-    throw new Error('[ML] /uc1/m3/predict — response missing p50_hours');
-  }
-  return {
-    p10_hours: Number(raw.p10_hours),
-    p50_hours: p50,
-    p90_hours: Number(raw.p90_hours),
-    sigma_hours: Number(raw.sigma_hours ?? 0),
-    engine: String(raw.engine ?? ''),
-    model_version: String(raw.model_version ?? ''),
-    artifact_sha256:
-      typeof raw.artifact_sha256 === 'string' && raw.artifact_sha256
-        ? raw.artifact_sha256
-        : null,
-    holdout_mae_hours:
-      typeof raw.holdout_mae_hours === 'number' && Number.isFinite(raw.holdout_mae_hours)
-        ? raw.holdout_mae_hours
-        : null,
-    artifact_mode: typeof raw.artifact_mode === 'string' ? raw.artifact_mode : null,
-    contributions: contributionsFromBreakdown(raw.breakdown),
+/** Suffix relative to `env.ml.apiBase` (default '/ml-api'). */
+export const M3_PREDICT_PATH = '/uc1/m3/predict';
+
+/** The subset of the `POST /uc1/m3/predict` response this module reads. */
+export interface M3Wire {
+  p10_hours: number;
+  p50_hours: number;
+  p90_hours: number;
+  sigma_hours: number;
+  engine: string;
+  model_version?: string;
+  holdout_mae_hours?: number | null;
+  artifact_sha256?: string;
+  breakdown?: {
+    contributions?: Array<{ factor: string; contribution_h: number }>;
   };
 }
 
-/** Score one call on the Gen-2 M3 service. */
-export async function predictM3Tat(
-  input: M3PredictRequest = DEMO_TAT_INPUT,
-): Promise<M3PredictResult> {
-  const body = {
-    ...DEMO_TAT_INPUT,
-    ...input,
-    engine: input.engine ?? 'lightgbm',
-  };
-  const raw = await mlHttp<Record<string, unknown>>(M3_PREDICT_PATH, {
+/**
+ * Score one call. Throws (via `mlHttp`) when the service is disabled,
+ * unreachable, slow or answers non-2xx — the card renders those with
+ * `friendlyError`.
+ */
+export async function predictM3Tat(input: M3PredictInput): Promise<M3PredictResult> {
+  const wire = await mlHttp<M3Wire>(M3_PREDICT_PATH, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(input),
   });
-  return mapM3PredictResponse(raw);
+
+  const contributions: M3Contribution[] = (wire.breakdown?.contributions ?? [])
+    .map((c) => ({ factor: c.factor, hours: c.contribution_h }))
+    // The card shows the top few; order by the size of the effect, not its sign.
+    .sort((a, b) => Math.abs(b.hours) - Math.abs(a.hours));
+
+  return {
+    p10_hours: wire.p10_hours,
+    p50_hours: wire.p50_hours,
+    p90_hours: wire.p90_hours,
+    sigma_hours: wire.sigma_hours,
+    engine: wire.engine,
+    model_version: wire.model_version,
+    holdout_mae_hours: wire.holdout_mae_hours,
+    artifact_sha256: wire.artifact_sha256,
+    contributions,
+  };
 }

@@ -23,8 +23,10 @@ interface ImportMetaEnv {
   // UC-3 shared backend (see src/data/config.ts → env.uc3).
   readonly VITE_UC3_ENABLED?: string;
   readonly VITE_UC3_API_BASE?: string;
-  readonly VITE_UC3_USERNAME?: string;
-  readonly VITE_UC3_PASSWORD?: string;
+  // Sign-in gate, same variable and semantics as UC-3's console. Unset = no
+  // login step (the credential-free mock/demo build). There are deliberately no
+  // username/password variables: Vite inlines VITE_* into the shipped bundle.
+  readonly VITE_AUTH_ENABLED?: string;
   /** Demo pin ISO (e.g. 2026-06-09T08:30:00+05:30). Authoritative twin clock. */
   readonly VITE_UC3_AS_OF?: string;
   // UC-1 Gen-2 model service (see src/data/config.ts → env.ml). Serves on :8100.

@@ -292,6 +292,16 @@ export function App() {
                 >
                   Simulator
                 </CalciteButton>
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  kind="brand"
+                  iconStart="viewshed"
+                  title="Stand inside the port and watch the active what-if scenario play out around you, in 3D or stereo VR"
+                  onClick={() => window.open('#/vr', '_blank')}
+                >
+                  Walkthrough
+                </CalciteButton>
                 <DataModeChip />
               </>
             }

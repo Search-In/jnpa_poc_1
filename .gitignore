@@ -27,9 +27,12 @@ npm-debug.log*
 package-lock.json
 pnpm-lock.yaml
 
-# Bundled / local data assets at repo root — not src/data (TypeScript modules).
+# Leading slash is load-bearing: a bare `data/` matches a directory named `data`
+# at ANY depth, which silently swallowed the whole `src/data/` tree. Files added
+# before the rule stayed tracked, so the breakage only ever hit NEW files — which
+# is how `src/data/ml/m3Tat.ts` and `m5Optimise.ts` came to be imported by
+# committed components without ever being committed themselves.
 /data/
-!src/data/
 
 # local DB dumps (never commit)
 backups/

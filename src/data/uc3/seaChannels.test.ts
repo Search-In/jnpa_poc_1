@@ -80,7 +80,7 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const rows = await fetchSeaChannels({ name: 'JNPA' });
     expect(rows).toHaveLength(1);
     expect(rows[0].geometry?.type).toBe('Polygon');
-    expect(spy.mock.calls[1][0]).toBe('/api/marine/sea-channels?name=JNPA&limit=200&offset=0');
+    expect(spy.mock.calls[0][0]).toBe('/api/marine/sea-channels?name=JNPA&limit=200&offset=0');
   });
 
   it('fetchSeaChannelGeojson returns a FeatureCollection', async () => {

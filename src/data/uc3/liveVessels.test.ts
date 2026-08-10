@@ -128,10 +128,10 @@ describe('fetchLiveVessels', () => {
     expect(vessels).toHaveLength(1);
     const call = fetchMock.mock.calls.find(([u]) => String(u).includes(LIVE_VESSELS_PATH))!;
     expect(String(call[0])).toBe(`/api${LIVE_VESSELS_PATH}`);
-    expect(call[1]?.headers).toMatchObject({ authorization: 'Bearer T1' });
+    expect(call[1]?.headers).toMatchObject({ authorization: 'Bearer test.jwt.token' });
   });
 
-  it('re-mints the token and retries EXACTLY ONCE on a 401', async () => {
+  it('re-reads the session and retries EXACTLY ONCE on a 401', async () => {
     let liveCalls = 0;
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes('/auth/login')) return jsonResponse(loginBody);
@@ -142,8 +142,9 @@ describe('fetchLiveVessels', () => {
 
     await expect(fetchLiveVessels()).resolves.toHaveLength(1);
     expect(liveCalls).toBe(2);
-    // Two logins: the initial one, then the re-mint after the 401.
-    expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/auth/login'))).toHaveLength(2);
+    // No logins at all: the retry re-reads the signed-in session rather than
+    // re-authenticating. A data request never puts a credential on the wire.
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/auth/login'))).toHaveLength(0);
   });
 
   it('surfaces a 502 marinetraffic_fetch_failed', async () => {

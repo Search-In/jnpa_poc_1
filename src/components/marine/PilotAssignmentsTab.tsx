@@ -86,6 +86,14 @@ export function PilotAssignmentsTab() {
   const rows = useMemo(() => assignments.data?.items ?? [], [assignments.data]);
   const live = rows.filter((a) => a.active);
   const superseded = rows.filter((a) => !a.active);
+  // The search box narrows the ledger below too (not only the assign picker), so an
+  // operator can find a specific vessel's assignment. Same identity matcher and fields
+  // used elsewhere; an empty query matches everything, so the unfiltered view is
+  // unchanged. Display-only — `live`/`superseded` still drive the picker and the counts.
+  const matchesQuery = (a: ManualPilotAssignment) =>
+    matchesIdentity(vesselQ, [a.vesselName, a.viaNo, a.vcn, a.pilotName, a.pilotCode]);
+  const shownLive = live.filter(matchesQuery);
+  const shownSuperseded = superseded.filter(matchesQuery);
 
   /** Calls with IMPORTED pilotage — the backend will refuse these, so never offer them. */
   const importedCallIds = useMemo(
@@ -187,8 +195,8 @@ export function PilotAssignmentsTab() {
       }}>
         <CalciteInput
           scale="s" clearable placeholder="Find vessel / VCN / VIA / IMO…"
-          value={vesselQ} style={{ maxWidth: 220 }}
-          onCalciteInputChange={(e) => setVesselQ((e.target as unknown as { value: string }).value)}
+          style={{ maxWidth: 220 }}
+          onCalciteInputInput={(e) => setVesselQ((e.target as unknown as { value: string }).value)}
         />
         <select
           value={callId} onChange={(e) => setCallId(e.target.value)}
@@ -238,7 +246,7 @@ export function PilotAssignmentsTab() {
               </tr>
             </thead>
             <tbody>
-              {[...live, ...superseded].map((a: ManualPilotAssignment) => (
+              {[...shownLive, ...shownSuperseded].map((a: ManualPilotAssignment) => (
                 <tr key={a.id} style={{ opacity: a.active ? 1 : 0.55 }}>
                   <td style={{ ...TD, fontWeight: 600 }}>{a.vesselName || '—'}</td>
                   <td style={TD}>{a.viaNo || '—'}</td>
