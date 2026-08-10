@@ -146,9 +146,19 @@ describe('rejected credentials (no login storm)', () => {
 
   it('names the missing env vars when no credential is configured', async () => {
     stubFetch(() => jsonResponse({ detail: 'invalid credentials' }, 401, 'Unauthorized'));
-    // env.uc3.username/password are unset in tests — the same shape as a .env
-    // that never filled them in.
-    await expect(getAuthToken()).rejects.toThrow(/VITE_UC3_USERNAME/);
+    // Force the empty-credential shape even when the developer .env has values
+    // (Vite loads .env into env.uc3 for local runs).
+    const { env } = await import('../config');
+    const prevUser = env.uc3.username;
+    const prevPass = env.uc3.password;
+    env.uc3.username = '';
+    env.uc3.password = '';
+    try {
+      await expect(getAuthToken()).rejects.toThrow(/VITE_UC3_USERNAME/);
+    } finally {
+      env.uc3.username = prevUser;
+      env.uc3.password = prevPass;
+    }
   });
 
   it('backs off a TRANSIENT failure too — a dead gateway is not retried per call', async () => {

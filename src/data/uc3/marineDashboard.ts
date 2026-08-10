@@ -26,6 +26,7 @@
  */
 
 import { http } from './client';
+import { env } from '../config';
 
 // ------------------------------------------------------------------ paths
 export const MARINE_BERTHS_PATH = '/marine/berths';
@@ -199,6 +200,50 @@ export function parsePlan(raw: unknown): MarinePlanResult {
         viaNo: str(w['via_no']),
       })),
   };
+}
+
+const H = 3_600_000;
+
+/**
+ * Map marine-plan entries onto the Gantt's `BerthingPlanEntry` shape (UI-028).
+ * Kept here (not only in Uc3Adapter) so BerthGantt5Day can call the connector
+ * directly when VITE_UC3_ENABLED is on.
+ *
+ * Estimated stays longer than 48 h are clamped so what-if drag (which requires
+ * duration ≤ the 5-day horizon) keeps working even if an older API build
+ * returns an uncapped end.
+ */
+export function toBerthingPlanEntries(
+  res: MarinePlanResult,
+): import('@/types/domain').BerthingPlanEntry[] {
+  const MAX_EST_MS = 48 * H;
+  return res.entries.map((e, i) => {
+    const started = e.kind === 'confirmed' && e.startTs <= res.anchor;
+    let endTs = e.endTs || e.startTs + 24 * H;
+    if (e.endEstimated && endTs - e.startTs > MAX_EST_MS) {
+      endTs = e.startTs + MAX_EST_MS;
+    }
+    const ended = endTs > 0 && endTs <= res.anchor;
+    return {
+      PLAN_ID: e.ref || `plan-${i}`,
+      BERTH_ID: e.berthCode || e.berthRaw || 'UNASSIGNED',
+      MMSI: e.imoNo ? `IMO:${e.imoNo}` : `VIA:${e.viaNo || e.voyageNo || i}`,
+      VESSEL_NAME: e.vesselName || '(unnamed)',
+      PLANNED_START: e.startTs,
+      PLANNED_END: endTs,
+      ACTUAL_START: started ? e.startTs : null,
+      ACTUAL_END: started && ended ? endTs : null,
+      STATUS: ended ? 'completed' : started ? 'active' : 'scheduled',
+      KIND: e.kind,
+      END_ESTIMATED: e.endEstimated,
+      PROVENANCE: e.source,
+    };
+  });
+}
+
+/** Demo/sim pin for marine dashboard reads (`VITE_UC3_AS_OF`), if set. */
+export function marineAsOfMs(): number | undefined {
+  return env.uc3.asOfMs > 0 ? env.uc3.asOfMs : undefined;
 }
 
 // ------------------------------------------------------------------ KPIs
@@ -428,6 +473,12 @@ export interface ArrivalTimeRow {
   note: string;
 }
 
+export interface ArrivalAnomaly {
+  code: string;
+  days: number;
+  message: string;
+}
+
 export interface ArrivalTimesResult extends MarineEnvelope {
   callId: number;
   vcn: string;
@@ -438,6 +489,7 @@ export interface ArrivalTimesResult extends MarineEnvelope {
   ata: number;
   atc: number;
   atd: number;
+  anomalies: ArrivalAnomaly[];
 }
 
 export function parseArrivalTimes(raw: unknown): ArrivalTimesResult {
@@ -445,6 +497,8 @@ export function parseArrivalTimes(raw: unknown): ArrivalTimesResult {
   const rows = Array.isArray(r?.['arrival_times'])
     ? (r!['arrival_times'] as Record<string, unknown>[]) : [];
   const actuals = (r?.['actuals'] ?? null) as Record<string, unknown> | null;
+  const anomalies = Array.isArray(r?.['anomalies'])
+    ? (r!['anomalies'] as Record<string, unknown>[]) : [];
   return {
     ...mapEnvelope(r),
     callId: num(r?.['call_id']),
@@ -462,6 +516,11 @@ export function parseArrivalTimes(raw: unknown): ArrivalTimesResult {
       source: str(w['source']),
       derived: w['derived'] === true,
       note: str(w['note']),
+    })),
+    anomalies: anomalies.map((a) => ({
+      code: str(a['code']),
+      days: num(a['days']),
+      message: str(a['message']),
     })),
   };
 }

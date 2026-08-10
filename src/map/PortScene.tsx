@@ -49,6 +49,12 @@ import { getAdapter } from '@/data';
 import { tideFieldLayer, updateTideField } from './tideFieldLayer';
 import { useTideFieldStore } from './tideFieldStore';
 import { bathymetryLayer, bathymetryGraphics } from './bathymetryLayer';
+import {
+  bindWindParticleLayer,
+  windParticleLayer,
+  type WindLayerController,
+} from './windParticleLayer';
+import { useWindFieldStore } from './windFieldStore';
 import type MediaLayer from '@arcgis/core/layers/MediaLayer';
 import type { Vessel, Berth } from '@/types/domain';
 
@@ -128,6 +134,8 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
     /** Berthed hero ships + harbour tug — decorative hulls, hidden while live AIS is on. */
     const dummyVesselLayersRef = useRef<FeatureLayer[]>([]);
     const tideFieldRef = useRef<MediaLayer | null>(null);
+    const windFieldRef = useRef<MediaLayer | null>(null);
+    const windCtrlRef = useRef<WindLayerController | null>(null);
     /** Id of the asset the popup is currently anchored to (for popup actions). */
     const lastSelectedRef = useRef<string | null>(null);
     const propsRef = useRef(props);
@@ -151,6 +159,8 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
     const fieldVar = useTideFieldStore((s) => s.variable);
     const setFieldRange = useTideFieldStore((s) => s.setRange);
     const tideVisible = useTideFieldStore((s) => s.visible);
+    const windVisible = useWindFieldStore((s) => s.visible);
+    const setWindSpeedMax = useWindFieldStore((s) => s.setSpeedMax);
 
     // Real AIS traffic from the shared gateway. Polls only while the operator has
     // the overlay on; see the render effect below for the layer swap.
@@ -305,6 +315,11 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
       // Seeded empty; the tide data effect renders + refreshes the heatmap.
       const tide = tideFieldLayer();
       tideFieldRef.current = tide;
+      // Zoom Earth–style wind particles (shared Weather / Wind toggle with 2D).
+      const wind = windParticleLayer();
+      const windCtrl = bindWindParticleLayer(wind);
+      windFieldRef.current = wind;
+      windCtrlRef.current = windCtrl;
       // Real glTF port infrastructure (cranes, yard stacks, gates, trucks, tug,
       // berthed ships) placed from positions.json — vendored from UC-2 so UC-1
       // renders on the same surveyed JNPA geography with the same 3D assets.
@@ -331,6 +346,7 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
         ...assets,
         pilot,
         tide,
+        wind,
         layers.vessels,
         layers.vesselStatus,
         live,
@@ -482,6 +498,9 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
         clickHandle.remove();
         moveHandle.remove();
         actionHandle.remove();
+        windCtrlRef.current?.destroy();
+        windCtrlRef.current = null;
+        windFieldRef.current = null;
         view.destroy();
         viewRef.current = null;
         layersRef.current = null;
@@ -592,6 +611,18 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
     useEffect(() => {
       if (tideFieldRef.current) tideFieldRef.current.visible = tideVisible;
     }, [tideVisible]);
+
+    // Wind particles — same store as AISMap Weather / Wind checkbox.
+    useEffect(() => {
+      const ctrl = windCtrlRef.current;
+      if (!ctrl) return;
+      ctrl.setVisible(windVisible);
+      if (windVisible) {
+        void ctrl.start().then(() => {
+          setWindSpeedMax(ctrl.speedMax());
+        });
+      }
+    }, [windVisible, setWindSpeedMax]);
 
     // ---- reframe / ring on highlight change ----
     useEffect(() => {

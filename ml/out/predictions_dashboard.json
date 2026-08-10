@@ -1,0 +1,302 @@
+{
+  "schema": "uc1-dashboard/1.0.0",
+  "run": {
+    "generated_at_utc": "2026-08-02T05:14:15.316317+00:00",
+    "input_file": "Vessel_Training_Input_Sample.xlsx",
+    "vessels": 3,
+    "models_run": [
+      "UC1-M3"
+    ],
+    "models_failed": [],
+    "wait_model": "optimiser",
+    "tide_policy": null,
+    "full_detail_file": "out/predictions.json"
+  },
+  "model_questions": {
+    "m1_under_keel_clearance": "Can she safely transit the channel?",
+    "m2_tidal_window": "When is there enough water, and for how long?",
+    "m3_turnaround_time": "When does she berth, finish and leave?",
+    "m4_eta_confidence": "How certain is the arrival time?",
+    "m5_berth_plan": "Which berth, and starting when?",
+    "m6_jit_arrival": "What does arriving just in time save?",
+    "m7_port_craft": "Are pilots, tugs and mooring gangs available?",
+    "m8_risk_chain": "What do today's disruptions do to the plan?"
+  },
+  "glossary": {
+    "call_id": "Our id for this vessel call (one row of the input sheet). Not a port system id.",
+    "imo": "IMO number: the vessel's permanent hull id, unchanged across renames and reflagging.",
+    "voyage": "The carrier's voyage number for this specific trip.",
+    "ata_ist": "Actual Time of Arrival at the anchorage/pilot station, Indian Standard Time.",
+    "draft_m": "How deep the loaded hull sits below the waterline, in metres. Drives every depth check.",
+    "loa_m": "Length Overall. A berth shorter than this cannot take the vessel.",
+    "teu_total": "Containers to move this call, in twenty-foot equivalent units. The main driver of TAT.",
+    "tide_m": "Height of tide above chart datum at arrival. Adds directly to available water depth.",
+    "channel_depth_m": "Charted depth of the approach channel before tide, siltation and dredging.",
+    "anchorage_queue": "Vessels already waiting at anchorage when this one arrived.",
+    "berth_occupancy_pct": "How full the terminal's berths were at arrival, percent.",
+    "net_ukc_m": "Under-keel clearance after squat and the 1.0 m safety margin. This is the go/no-go number.",
+    "squat_m": "Extra draft a moving hull gains from its own bow wave. Grows with the square of speed.",
+    "binding_reach": "The channel section with the least clearance. It, not the shallowest section, sets the verdict.",
+    "min_tide_for_safe_m": "Tide height at which this transit would become SAFE. Below it, wait for water.",
+    "max_safe_speed_kn": "Fastest speed that still leaves a safe clearance, because slowing down cuts squat.",
+    "matches_sheet": "Whether our verdict agrees with the DUKC_Status the sheet already recorded. A scoring check, never an input.",
+    "required_tide_m": "Tide this vessel needs before the binding reach is passable.",
+    "usable_hours": "Hours in the next 120 h during which the vessel could transit.",
+    "availability_pct": "usable_hours as a share of the scan horizon.",
+    "longest_window_h": "The single longest uninterrupted transit opportunity.",
+    "max_wait_h": "Worst gap between windows -- the longest the vessel could be held waiting for tide.",
+    "next_window_start_ist": "Start of the next usable window.",
+    "dredging_gain_h": "Extra usable hours a +0.5 m dredge would buy. The investment case, in hours.",
+    "tat_hours": "Turnaround time: arrival to departure, in hours. The headline prediction (p50).",
+    "tat_p10_hours": "Optimistic end of the 80% band -- 10% of calls finish faster than this.",
+    "tat_p90_hours": "Pessimistic end of the 80% band -- 90% of calls finish within it. Plan against this one.",
+    "etb_ist": "Estimated Time of Berthing = arrival + waiting time.",
+    "etd_ist": "Estimated Time of Departure = arrival + tat_hours.",
+    "wait_hours": "Predicted wait between arrival and getting alongside.",
+    "berth_stay_hours": "Time actually alongside working cargo = tat_hours - wait_hours.",
+    "confidence": "HIGH/MEDIUM/LOW, from how wide the p10-p90 band came out.",
+    "engine": "Which predictor produced the number: lightgbm, sklearn or the additive fallback.",
+    "top_drivers": "The three input factors contributing most to this TAT, with their hours and share.",
+    "eta_p50_ist": "Most likely arrival time from the current AIS fix.",
+    "eta_p10_ist": "Earliest plausible arrival (10th percentile).",
+    "eta_p90_ist": "Latest plausible arrival (90th percentile).",
+    "eta_band_hours": "Width of the p10-p90 arrival window. Wider means less certain.",
+    "sigma_hours": "Standard deviation of the arrival estimate. Grows with forecast horizon and stale AIS.",
+    "assigned_berth": "Berth the optimiser allocated, which may differ from the one requested.",
+    "berth_changed": "True when the optimiser moved the vessel off its requested berth.",
+    "misses_tidal_window": "True when the assigned start falls outside every usable tidal window.",
+    "algorithm": "Solver that produced this assignment: cpsat (exact) or greedy (fallback).",
+    "reason": "One sentence on why the optimiser chose this berth and start time.",
+    "recommended_speed_kn": "Speed to arrive just in time instead of early. Lower speed, less fuel.",
+    "required_speed_kn": "Speed needed to hit the target arrival exactly. Above the vessel's cap it is not achievable.",
+    "rta_ist": "Requested Time of Arrival -- when the port actually wants the vessel, not when she can get there.",
+    "fuel_saved_t": "Tonnes of bunker fuel saved by slow-steaming to the RTA instead of arriving early and waiting.",
+    "co2_saved_t": "Tonnes of CO2 avoided, at 3.114 t CO2 per tonne of fuel.",
+    "anchorage_hours_saved": "Hours of anchorage waiting removed by arriving just in time.",
+    "achievable": "False when the vessel cannot reach the RTA even at full speed -- there is no saving to take.",
+    "movement": "The berthing or unberthing manoeuvre this craft assignment serves.",
+    "pilots_tugs_mooring": "Craft assigned to the movement: pilot / tug / mooring-gang ids.",
+    "shortfall": "Craft the movement needed but could not be given. Empty means fully resourced.",
+    "response_gap_min": "Minutes by which the nearest craft is late for the movement start.",
+    "resourced": "True when every required craft was assigned on time.",
+    "system_confidence": "0-1 score for how much of the plan survives today's disruptions. 1.0 is undisturbed.",
+    "alert_level": "NORMAL / WARNING / CRITICAL, from system_confidence and which rules fired.",
+    "tat_delay_h": "Extra turnaround hours the causal chain attributes to the current disruptions.",
+    "root_causes": "The exogenous conditions contributing most to the confidence drop, with their share.",
+    "disruptions": "The conditions fed into the chain for this vessel, in plain words.",
+    "flags": "Caveats attached to the row. TIDE_SYNTHETIC = tide was modelled, not measured. WAIT_IS_LOWER_BOUND = the wait was computed against this file only, so it under-states a real queue. QUEUE_DERIVED = anchorage queue was inferred from occupancy, not observed.",
+    "data_quality": "Where each estimated input came from. MEASURED beats DERIVED beats SYNTHETIC."
+  },
+  "vessels": [
+    {
+      "call_id": "C-0002",
+      "vessel": "HONG YONG CHANG SHENG",
+      "imo": "1103316",
+      "voyage": "10N",
+      "terminal": "NSICT",
+      "input": {
+        "ata_ist": "2026-07-29 07:45",
+        "eta_ist": "2026-07-29 06:00",
+        "terminal": "NSICT",
+        "requested_berth": "CB-04",
+        "vessel_class": "FEEDER",
+        "loa_m": 182.1,
+        "draft_m": 13.2,
+        "teu_total": 3600,
+        "teu_import": 2200,
+        "teu_export": 1400,
+        "cranes_available": 4,
+        "tide_m": 4.3,
+        "channel_depth_m": 15.4,
+        "weather": "Clear",
+        "wind_kn": 8.0,
+        "anchorage_queue": 2,
+        "berth_occupancy_pct": 68.0
+      },
+      "data_quality": {
+        "tide": "SYNTHETIC_HARMONIC_v1",
+        "channel_depth": "COLUMN_Channel_Depth_m",
+        "anchorage_queue": "DERIVED_FROM_OCCUPANCY",
+        "distance": "DEFAULT"
+      },
+      "flags": [
+        "WAIT_IS_LOWER_BOUND",
+        "TIDE_SYNTHETIC",
+        "QUEUE_DERIVED"
+      ],
+      "models": {
+        "m3_turnaround_time": {
+          "tat_hours": 43.5,
+          "tat_p10_hours": 38.1,
+          "tat_p90_hours": 46.6,
+          "etb_ist": "2026-07-29 07:45",
+          "etd_ist": "2026-07-31 03:16",
+          "wait_hours": 0.0,
+          "berth_stay_hours": 43.5,
+          "confidence": "MEDIUM",
+          "engine": "lightgbm",
+          "top_drivers": [
+            {
+              "factor": "parcel_teu",
+              "hours": 14.4,
+              "share_pct": 90.6
+            },
+            {
+              "factor": "anchorage_queue",
+              "hours": 1.2,
+              "share_pct": 7.5
+            },
+            {
+              "factor": "draft_over_ref",
+              "hours": 0.3,
+              "share_pct": 1.9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call_id": "C-0003",
+      "vessel": "KUO LUNG",
+      "imo": "9148544",
+      "voyage": "1001E",
+      "terminal": "BMCT",
+      "input": {
+        "ata_ist": "2026-07-15 01:20",
+        "eta_ist": "2026-07-15 01:00",
+        "terminal": "BMCT",
+        "requested_berth": "BMCT-05",
+        "vessel_class": "FEEDER",
+        "loa_m": 175.0,
+        "draft_m": 12.8,
+        "teu_total": 2700,
+        "teu_import": 1800,
+        "teu_export": 900,
+        "cranes_available": 3,
+        "tide_m": 1.26,
+        "channel_depth_m": 15.0,
+        "weather": "Light Rain",
+        "wind_kn": 15.0,
+        "anchorage_queue": 2,
+        "berth_occupancy_pct": 72.0
+      },
+      "data_quality": {
+        "tide": "SYNTHETIC_HARMONIC_v1",
+        "channel_depth": "COLUMN_Channel_Depth_m",
+        "anchorage_queue": "DERIVED_FROM_OCCUPANCY",
+        "distance": "DEFAULT"
+      },
+      "flags": [
+        "WAIT_IS_LOWER_BOUND",
+        "TIDE_SYNTHETIC",
+        "QUEUE_DERIVED"
+      ],
+      "models": {
+        "m3_turnaround_time": {
+          "tat_hours": 43.6,
+          "tat_p10_hours": 38.4,
+          "tat_p90_hours": 46.6,
+          "etb_ist": "2026-07-15 01:20",
+          "etd_ist": "2026-07-16 20:53",
+          "wait_hours": 0.0,
+          "berth_stay_hours": 43.6,
+          "confidence": "MEDIUM",
+          "engine": "lightgbm",
+          "top_drivers": [
+            {
+              "factor": "parcel_teu",
+              "hours": 10.8,
+              "share_pct": 86.8
+            },
+            {
+              "factor": "anchorage_queue",
+              "hours": 1.2,
+              "share_pct": 9.7
+            },
+            {
+              "factor": "rain",
+              "hours": 0.44,
+              "share_pct": 3.5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call_id": "C-0004",
+      "vessel": "TSS AMBER",
+      "imo": "9241918",
+      "voyage": "2626",
+      "terminal": "NSFT",
+      "input": {
+        "ata_ist": "2026-07-29 05:18",
+        "eta_ist": "2026-07-29 00:16",
+        "terminal": "NSFT",
+        "requested_berth": "CB-02",
+        "vessel_class": "FEEDER",
+        "loa_m": 207.9,
+        "draft_m": 14.1,
+        "teu_total": 4800,
+        "teu_import": 3100,
+        "teu_export": 1700,
+        "cranes_available": 5,
+        "tide_m": 3.26,
+        "channel_depth_m": 14.6,
+        "weather": "Moderate Rain",
+        "wind_kn": 22.0,
+        "anchorage_queue": 6,
+        "berth_occupancy_pct": 90.0
+      },
+      "data_quality": {
+        "tide": "SYNTHETIC_HARMONIC_v1",
+        "channel_depth": "COLUMN_Channel_Depth_m",
+        "anchorage_queue": "DERIVED_FROM_OCCUPANCY",
+        "distance": "DEFAULT"
+      },
+      "flags": [
+        "WAIT_IS_LOWER_BOUND",
+        "TIDE_SYNTHETIC",
+        "QUEUE_DERIVED"
+      ],
+      "models": {
+        "m3_turnaround_time": {
+          "tat_hours": 52.8,
+          "tat_p10_hours": 46.5,
+          "tat_p90_hours": 53.1,
+          "etb_ist": "2026-07-29 05:18",
+          "etd_ist": "2026-07-31 10:05",
+          "wait_hours": 0.0,
+          "berth_stay_hours": 52.8,
+          "confidence": "HIGH",
+          "engine": "lightgbm",
+          "top_drivers": [
+            {
+              "factor": "parcel_teu",
+              "hours": 19.2,
+              "share_pct": 51.7
+            },
+            {
+              "factor": "severe_weather",
+              "hours": 5.0,
+              "share_pct": 13.5
+            },
+            {
+              "factor": "anchorage_queue",
+              "hours": 3.6,
+              "share_pct": 9.7
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "port_summary": {
+    "turnaround": {
+      "mean_tat_hours": 46.6,
+      "engine": "lightgbm",
+      "model_mode": "TRAINED_ARTIFACT",
+      "holdout_mae_hours": 2.49,
+      "holdout_coverage_pct": 85.7
+    }
+  }
+}

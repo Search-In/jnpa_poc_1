@@ -12,6 +12,8 @@
  *   - a definition with no source in the ingested corpus renders its explanation,
  *     never a fabricated value;
  *   - a DERIVED value (first line ≈ alongside instant) is visibly badged;
+ *   - planted temporal anomalies (e.g. ~31-day ETA→anchorage gap on TSS AMBER)
+ *     are flagged in the panel, never smoothed away;
  *   - values come from `/api/marine/calls/{id}/arrival-times`, which assembles the
  *     ladder across the PCS messages, pilot cards and terminal berthing reports.
  */
@@ -39,6 +41,21 @@ export function ArrivalTimesPanel({ callId }: { callId: number | null }) {
         Six arrival-time definitions, each named to its source — a KPI that consumes an
         arrival time states which of these it uses.
       </div>
+      {data.anomalies.map((a) => (
+        <div
+          key={a.code}
+          style={{
+            padding: '8px 10px',
+            borderRadius: 6,
+            border: `1px solid ${tokens.warn}`,
+            background: '#fdf3e3',
+            color: tokens.text,
+            fontSize: 12,
+          }}
+        >
+          {a.message}
+        </div>
+      ))}
       {data.rows.map((row) => (
         <div
           key={row.key}
@@ -50,9 +67,10 @@ export function ArrivalTimesPanel({ callId }: { callId: number | null }) {
             borderRadius: 6,
             background: row.value > 0 ? tokens.panelAlt : 'transparent',
             border: `1px solid ${tokens.border}`,
+            opacity: row.value > 0 ? 1 : 0.72,
           }}
         >
-          <div style={{ fontWeight: 600 }}>
+          <div style={{ fontWeight: 600, color: row.value > 0 ? tokens.text : tokens.textMuted }}>
             {row.label}
             {row.derived && (
               <span
