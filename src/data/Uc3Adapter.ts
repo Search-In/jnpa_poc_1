@@ -49,11 +49,13 @@ import type {
   WhatIfResult,
   WhatIfScenario,
 } from './types';
+import { KPI_ANATOMY } from '@/config/kpiAnatomy';
 import { KPI_TARGETS } from '@/config/targets';
 import { env } from './config';
 import { computeWhatIf } from './MockAdapter';
 import { fetchShippingLines } from './uc3/shippingLines';
 import { fetchBerthingReportsPage } from './uc3/berthing';
+import { fetchMarineKpis as fetchOpsMarineKpis } from './uc3/marineKpis';
 import { fetchPortCraft } from './uc3/portCraft';
 import {
   fetchKpiBaselines,
@@ -380,54 +382,92 @@ export class Uc3Adapter implements DataAdapter {
   }
 
   // ---------------------------------------------------------------- KPIs
+  /**
+   * Build one UI-041 card. `value === null` is unmeasurable (dash + note) —
+   * never coerce to a fabricated zero.
+   */
   private kpiValue(
     key: keyof KpiBundle,
-    value: number,
+    value: number | null,
     trend: TrendPoint[],
     meta?: Partial<KpiValue>,
   ): KpiValue {
     const t = KPI_TARGETS[key];
-    const deltaPct = t.target !== 0 ? ((value - t.target) / t.target) * 100 : 0;
+    const a = KPI_ANATOMY[key];
+    const sampleN = meta?.sampleN ?? 0;
+    const note =
+      meta?.note ||
+      (value === null || sampleN === 0
+        ? `not measurable — n=0 for ${a.name}`
+        : undefined);
+    const unmeasurable = value === null || (sampleN === 0 && !!note);
+    const v =
+      !unmeasurable && value !== null && Number.isFinite(value)
+        ? Number(value.toFixed(2))
+        : 0;
+    const deltaPct =
+      unmeasurable || t.target === 0 ? 0 : ((v - t.target) / t.target) * 100;
+    const pub = a.publishedBaseline;
+    const baselineValue = meta?.baselineValue ?? pub?.value;
+    const baselinePeriod = meta?.baselinePeriod ?? pub?.period;
+    const vsBaselinePct =
+      meta?.vsBaselinePct ??
+      (baselineValue && !unmeasurable && baselineValue !== 0
+        ? Number((((v - baselineValue) / baselineValue) * 100).toFixed(1))
+        : undefined);
+
     return {
       key,
       label: t.label,
-      value: Number.isFinite(value) ? Number(value.toFixed(2)) : 0,
+      value: v,
       unit: t.unit,
       target: t.target,
       deltaPct: Number.isFinite(deltaPct) ? Number(deltaPct.toFixed(1)) : 0,
-      trend,
-      baselineSource: meta?.baselineSource,
-      definition: meta?.definition,
-      basis: meta?.basis,
-      note: meta?.note,
-      sampleN: meta?.sampleN,
-      baselineValue: meta?.baselineValue,
-      baselinePeriod: meta?.baselinePeriod,
-      vsBaselinePct: meta?.vsBaselinePct,
+      trend: unmeasurable ? [] : trend,
+      definition: meta?.definition ?? a.definition,
+      basis: meta?.basis ?? a.basis,
+      baselineSource: meta?.baselineSource || a.baselineSource,
+      note,
+      sampleN: unmeasurable ? 0 : sampleN,
+      baselineValue,
+      baselinePeriod,
+      vsBaselinePct: unmeasurable ? undefined : vsBaselinePct,
+      provenance: meta?.provenance ?? 'LIVE-CORPUS',
+      p50: meta?.p50,
+      p90: meta?.p90,
+      breakdown: meta?.breakdown,
     };
   }
 
   async getKPIs(): Promise<KpiBundle> {
-    const [kpis, berths, states, predictions, baselines] = await Promise.all([
+    const [kpis, berths, states, predictions, baselines, opsKpis] = await Promise.all([
       this.loadKpis(),
       this.loadBerths(),
       this.loadStates(),
       this.getPrediction().catch(() => [] as PredictionPoint[]),
       this.loadBaselines(),
+      fetchOpsMarineKpis().catch(() => null),
     ]);
     const occBaseline = baselines.get('BERTH_OCC') ?? null;
+    const tatBaseline = baselines.get('AVG_TAT') ?? null;
     const byKey = new Map(kpis.kpis.map((k) => [k.key, k]));
     const trend = (key: string): TrendPoint[] =>
       (byKey.get(key)?.series ?? []).map((p) => ({ ts: p.ts, value: p.value }));
-    const meta = (key: string) => {
+    const fromApi = (key: string): Partial<KpiValue> => {
       const k = byKey.get(key);
-      return k
-        ? { definition: k.definition, basis: k.basis, baselineSource: k.baselineSource,
-            note: k.note || undefined, sampleN: k.n,
-            baselineValue: k.baseline?.value ?? undefined,
-            baselinePeriod: k.baseline?.period || undefined,
-            vsBaselinePct: k.vsBaselinePct ?? undefined }
-        : undefined;
+      if (!k) return {};
+      return {
+        definition: k.definition || undefined,
+        basis: k.basis || undefined,
+        baselineSource: k.baselineSource || undefined,
+        note: k.note || undefined,
+        sampleN: k.n,
+        baselineValue: k.baseline?.value ?? undefined,
+        baselinePeriod: k.baseline?.period || undefined,
+        vsBaselinePct: k.vsBaselinePct ?? undefined,
+        p50: k.median,
+        provenance: 'LIVE-CORPUS',
+      };
     };
 
     // Prediction accuracy as a percentage: share of arrivals within ±4 h of the
@@ -436,53 +476,104 @@ export class Uc3Adapter implements DataAdapter {
     const withBoth = predictions.filter((p) => p.actualAta !== null);
     const within4h = withBoth.filter(
       (p) => Math.abs((p.actualAta as number) - p.predictedEta) <= 4 * H).length;
-    const accuracyPct = withBoth.length ? (within4h / withBoth.length) * 100 : 0;
+    const accuracyPct = withBoth.length ? (within4h / withBoth.length) * 100 : null;
     const mae = byKey.get('FORECAST_ACC');
 
     const occupiedPct = berths.items.length
-      ? (berths.occupied / berths.items.length) * 100 : 0;
+      ? (berths.occupied / berths.items.length) * 100
+      : null;
     const anchored = states.filter((s) => s.state === 'at_anchorage').length;
     const approaching = states.filter(
       (s) => s.state === 'inbound' || s.state === 'expected').length;
 
+    // Port Craft Optimization — mean of pilot + craft utilisation from the
+    // projection KPI board (/marine/state/kpis), not a fabricated register %.
+    const craftFleetN = opsKpis
+      ? opsKpis.pilot.known + opsKpis.craft.fleetTotal
+      : 0;
+    const craftUtil =
+      opsKpis && craftFleetN > 0
+        ? (opsKpis.pilot.utilisationPct + opsKpis.craft.utilisationPct) / 2
+        : null;
+
+    const avgTatRaw = byKey.get('AVG_TAT');
+    const avgTatMeta = fromApi('AVG_TAT');
+    if (tatBaseline?.value != null && avgTatMeta.baselineValue == null) {
+      avgTatMeta.baselineValue = tatBaseline.value;
+      avgTatMeta.baselinePeriod = tatBaseline.period || undefined;
+      avgTatMeta.baselineSource =
+        `jnport.gov.in Operating Performance Profile ${tatBaseline.value} h ` +
+        `pilot-to-pilot ${tatBaseline.period || ''} — ${tatBaseline.source}`.trim();
+    }
+
     return {
-      preBerthingDelay: this.kpiValue('preBerthingDelay',
-        byKey.get('PRE_BERTH_DELAY')?.value ?? 0,
-        trend('PRE_BERTH_DELAY'), meta('PRE_BERTH_DELAY')),
-      preSailingDelay: this.kpiValue('preSailingDelay',
-        byKey.get('PRE_SAIL_DELAY')?.value ?? 0,
-        trend('PRE_SAIL_DELAY'), meta('PRE_SAIL_DELAY')),
-      avgTat: this.kpiValue('avgTat',
-        byKey.get('AVG_TAT')?.value ?? 0, trend('AVG_TAT'), meta('AVG_TAT')),
-      jitPct: this.kpiValue('jitPct',
-        byKey.get('JIT_PCT')?.value ?? 0, trend('JIT_PCT'), meta('JIT_PCT')),
+      jitPct: this.kpiValue(
+        'jitPct',
+        byKey.get('JIT_PCT')?.value ?? null,
+        trend('JIT_PCT'),
+        fromApi('JIT_PCT'),
+      ),
+      preBerthingDelay: this.kpiValue(
+        'preBerthingDelay',
+        byKey.get('PRE_BERTH_DELAY')?.value ?? null,
+        trend('PRE_BERTH_DELAY'),
+        fromApi('PRE_BERTH_DELAY'),
+      ),
+      preSailingDelay: this.kpiValue(
+        'preSailingDelay',
+        byKey.get('PRE_SAIL_DELAY')?.value ?? null,
+        trend('PRE_SAIL_DELAY'),
+        fromApi('PRE_SAIL_DELAY'),
+      ),
+      avgTat: this.kpiValue(
+        'avgTat',
+        avgTatRaw?.value ?? null,
+        trend('AVG_TAT'),
+        avgTatMeta,
+      ),
+      portCraftOptimization: this.kpiValue('portCraftOptimization', craftUtil, [], {
+        sampleN: craftFleetN,
+        note:
+          craftFleetN === 0
+            ? 'not measurable — pilot/craft fleet empty at /marine/state/kpis'
+            : undefined,
+        basis: 'Marine Projection pilot + craft utilisation at the anchor instant',
+        provenance: 'LIVE-CORPUS',
+      }),
       forecastAccuracy: this.kpiValue('forecastAccuracy', accuracyPct, [], {
-        definition: 'Share of arrivals within ±4 h of the declared ETA',
-        basis: 'terminal berthing-report ETA vs ATA',
-        baselineSource: mae?.baselineSource,
-        note: mae?.value != null ? `ETA mean absolute error ${mae.value} h over n=${mae.n}` : undefined,
+        ...fromApi('FORECAST_ACC'),
+        note:
+          withBoth.length === 0
+            ? 'not measurable — no predicted-vs-actual ETA pairs in window'
+            : mae?.value != null
+              ? `ETA mean absolute error ${mae.value} h over n=${mae.n}`
+              : undefined,
         sampleN: withBoth.length,
+        provenance: 'LIVE-CORPUS',
       }),
       berthOccupancy: this.kpiValue('berthOccupancy', occupiedPct, [], {
-        definition: 'Occupied share of the container-terminal berths at the anchor instant',
-        basis: 'berth occupancy derived from the JNPA terminal berthing reports',
         sampleN: berths.items.length,
+        note:
+          berths.items.length === 0 ? 'not measurable — berth register empty' : undefined,
         baselineValue: occBaseline?.value ?? undefined,
         baselinePeriod: occBaseline?.period || undefined,
         baselineSource: occBaseline?.value != null
           ? `JNPA published baseline ${occBaseline.value}% (${occBaseline.period}) — ${occBaseline.source}`
           : undefined,
-        vsBaselinePct: occBaseline?.value
-          ? Number((((occupiedPct - occBaseline.value) / occBaseline.value) * 100).toFixed(1))
-          : undefined,
+        vsBaselinePct:
+          occBaseline?.value && occupiedPct != null
+            ? Number((((occupiedPct - occBaseline.value) / occBaseline.value) * 100).toFixed(1))
+            : undefined,
+        provenance: 'LIVE-CORPUS',
       }),
-      anchored: this.kpiValue('anchored', anchored, [], {
-        definition: 'Vessels at anchorage at the anchor instant (ledger-derived)',
-        sampleN: anchored,
-      }),
-      approaching: this.kpiValue('approaching', approaching, [], {
-        definition: 'Vessels inbound or expected within the horizon (ledger-derived)',
-        sampleN: approaching,
+      anchored: this.kpiValue('anchored', anchored + approaching, [], {
+        sampleN: states.length || anchored + approaching,
+        breakdown: `${anchored} anchored · ${approaching} approaching`,
+        note:
+          states.length === 0 && anchored + approaching === 0
+            ? 'not measurable — no ledger-derived vessel states at anchor'
+            : undefined,
+        provenance: 'LIVE-CORPUS',
       }),
     };
   }

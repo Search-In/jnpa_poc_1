@@ -1,21 +1,24 @@
 /**
  * Assembles the 8-card `KpiBundle` from raw domain data + persisted snapshots.
  * Keeps the per-formula maths in `formulas.ts`; this file only orchestrates and
- * attaches targets/trends so the UI gets ready-to-render `KpiValue` objects.
+ * attaches targets/trends/UI-041 anatomy so the UI gets ready-to-render cards.
  */
 
 import type { BerthingPlanEntry, KpiSnapshot, PredictionPoint, Vessel } from '@/types/domain';
 import type { KpiBundle, KpiKey, KpiValue, TrendPoint } from '@/types/kpi';
+import { KPI_ANATOMY, type KpiProvenance } from '@/config/kpiAnatomy';
 import { KPI_TARGETS } from '@/config/targets';
-import { deltaPct, round } from './helpers';
+import { deltaPct, hoursBetween, percentile, round } from './helpers';
 import {
   avgPreBerthingDelay,
   avgPreSailingDelay,
   avgVesselTAT,
   berthOccupancyPct,
+  craftPerformance,
   forecastAccuracyPct,
   justInTimePct,
   type BerthingEvent,
+  type CraftJob,
   type EtaPrediction,
   type JitArrival,
   type PortCall,
@@ -34,23 +37,73 @@ export interface KpiInputs {
   snapshots: KpiSnapshot[];
   /** Window for berth-occupancy + general "rolling" calcs (hours). */
   windowHours?: number;
+  /** Port-craft jobs for the Port Craft Optimization card. */
+  craftJobs?: CraftJob[];
+  /** Provenance chip for every card in this bundle (SIM demo vs LIVE-CORPUS). */
+  provenance?: KpiProvenance;
 }
 
 function trendOf(snapshots: KpiSnapshot[], pick: (s: KpiSnapshot) => number): TrendPoint[] {
   return snapshots.map((s) => ({ ts: s.TS, value: round(pick(s), 2) }));
 }
 
-function makeKpi(key: KpiKey, value: number, trend: TrendPoint[]): KpiValue {
+function anatomyMeta(
+  key: KpiKey,
+  sampleN: number,
+  extras?: Partial<KpiValue> & { unmeasurableNote?: string },
+): Partial<KpiValue> {
+  const a = KPI_ANATOMY[key];
+  const unmeasurable = sampleN === 0;
+  const pub = a.publishedBaseline;
+  const vsBaselinePct =
+    !unmeasurable &&
+    pub &&
+    extras?.value !== undefined &&
+    Number.isFinite(extras.value) &&
+    pub.value !== 0
+      ? deltaPct(extras.value as number, pub.value)
+      : extras?.vsBaselinePct;
+
+  return {
+    definition: a.definition,
+    basis: a.basis,
+    baselineSource: a.baselineSource,
+    sampleN,
+    baselineValue: pub?.value,
+    baselinePeriod: pub?.period,
+    vsBaselinePct,
+    note: unmeasurable
+      ? (extras?.unmeasurableNote ?? `not measurable — n=0 for ${a.name}`)
+      : extras?.note,
+    p50: extras?.p50,
+    p90: extras?.p90,
+    breakdown: extras?.breakdown,
+    provenance: extras?.provenance,
+  };
+}
+
+function makeKpi(
+  key: KpiKey,
+  value: number,
+  trend: TrendPoint[],
+  sampleN: number,
+  provenance: KpiProvenance,
+  extras?: Partial<KpiValue> & { unmeasurableNote?: string },
+): KpiValue {
   const t = KPI_TARGETS[key];
-  const v = round(value, t.unit === '' ? 0 : 1);
+  const unmeasurable = sampleN === 0;
+  const v = unmeasurable ? 0 : round(value, t.unit === '' || t.unit === 'vessels' ? 0 : 1);
+  const meta = anatomyMeta(key, sampleN, { ...extras, value: v, provenance });
   return {
     key,
     label: t.label,
     value: v,
     unit: t.unit,
     target: t.target,
-    deltaPct: deltaPct(v, t.target),
-    trend,
+    deltaPct: unmeasurable ? 0 : deltaPct(v, t.target),
+    trend: unmeasurable ? [] : trend,
+    ...meta,
+    provenance,
   };
 }
 
@@ -108,7 +161,7 @@ function toBerthIntervals(plan: BerthingPlanEntry[]): BerthInterval[] {
  */
 function revalue(card: KpiValue, value: number): KpiValue {
   const t = KPI_TARGETS[card.key as KpiKey];
-  const v = round(value, t.unit === '' ? 0 : 1);
+  const v = round(value, t.unit === '' || t.unit === 'vessels' ? 0 : 1);
   const n = card.trend.length;
   const trend =
     n === 0
@@ -117,9 +170,9 @@ function revalue(card: KpiValue, value: number): KpiValue {
           // weight 0 at the oldest point → 1 at the newest (linear ease-in).
           const w = n === 1 ? 1 : i / (n - 1);
           const blended = p.value * (1 - w) + v * w;
-          return { ts: p.ts, value: round(blended, t.unit === '' ? 0 : 1) };
+          return { ts: p.ts, value: round(blended, t.unit === '' || t.unit === 'vessels' ? 0 : 1) };
         });
-  return { ...card, value: v, deltaPct: deltaPct(v, t.target), trend };
+  return { ...card, value: v, deltaPct: deltaPct(v, t.target), trend, sampleN: card.sampleN || 1, note: undefined };
 }
 
 /**
@@ -155,46 +208,120 @@ export function buildKpiBundle(input: KpiInputs): KpiBundle {
   const windowHours = input.windowHours ?? 24;
   const windowEnd = input.now;
   const windowStart = input.now - windowHours * 3_600_000;
+  const provenance = input.provenance ?? 'SIM';
 
-  const anchored = input.vessels.filter((v) => v.NAV_STATUS === 'anchored').length;
-  const approaching = input.vessels.filter((v) => v.NAV_STATUS === 'approaching').length;
+  const berthingEvents = toBerthingEvents(input.plan);
+  const sailingEvents = toSailingEvents(input.plan);
+  const portCalls = toPortCalls(input.plan);
+  const completedCalls = portCalls.filter((c): c is { ata: number; atd: number } => c.atd !== null);
+  const tatHours = completedCalls.map((c) => hoursBetween(c.ata, c.atd));
+  const jitArrivals = toJitArrivals(input.plan);
+  const etaPreds = toEtaPredictions(input.predictions, input.now);
+  const etaWithActual = etaPreds.filter((p) => p.actualAta !== null);
+
+  const anchoredN = input.vessels.filter((v) => v.NAV_STATUS === 'anchored').length;
+  const approachingN = input.vessels.filter((v) => v.NAV_STATUS === 'approaching').length;
+
+  const craftJobs = input.craftJobs ?? [];
+  const craftStats = craftPerformance(craftJobs);
+  const craftUtil =
+    craftStats.length === 0
+      ? 0
+      : craftStats.reduce((s, c) => s + c.utilisationPct, 0) / craftStats.length;
+  const craftN = craftJobs.length;
+
+  const delaySamples = berthingEvents.map((e) =>
+    Math.max(0, hoursBetween(e.ata + 1.5 * 3_600_000, e.atb)),
+  );
+  const sailSamples = sailingEvents.map((e) =>
+    Math.max(0, hoursBetween(e.cargoComplete + 2 * 3_600_000, e.atd)),
+  );
 
   return {
+    jitPct: makeKpi(
+      'jitPct',
+      justInTimePct(jitArrivals),
+      trendOf(input.snapshots, (s) => s.JIT_PCT),
+      jitArrivals.length,
+      provenance,
+      { unmeasurableNote: 'not measurable — no berthing-plan arrivals with ATA in window' },
+    ),
     preBerthingDelay: makeKpi(
       'preBerthingDelay',
-      avgPreBerthingDelay(toBerthingEvents(input.plan)),
-      trendOf(input.snapshots, (s) => s.PRE_BERTH_DELAY)
+      avgPreBerthingDelay(berthingEvents),
+      trendOf(input.snapshots, (s) => s.PRE_BERTH_DELAY),
+      berthingEvents.length,
+      provenance,
+      {
+        p50: berthingEvents.length ? round(percentile(delaySamples, 50), 1) : null,
+        p90: berthingEvents.length ? round(percentile(delaySamples, 90), 1) : null,
+        unmeasurableNote: 'not measurable — no calls with ATA/ATB pairing in window',
+      },
     ),
     preSailingDelay: makeKpi(
       'preSailingDelay',
-      avgPreSailingDelay(toSailingEvents(input.plan)),
-      trendOf(input.snapshots, (s) => s.PRE_SAIL_DELAY)
+      avgPreSailingDelay(sailingEvents),
+      trendOf(input.snapshots, (s) => s.PRE_SAIL_DELAY),
+      sailingEvents.length,
+      provenance,
+      {
+        p50: sailingEvents.length ? round(percentile(sailSamples, 50), 1) : null,
+        p90: sailingEvents.length ? round(percentile(sailSamples, 90), 1) : null,
+        unmeasurableNote: 'not measurable — no calls with cargo-complete/ATD pairing',
+      },
     ),
     avgTat: makeKpi(
       'avgTat',
-      avgVesselTAT(toPortCalls(input.plan)),
-      trendOf(input.snapshots, (s) => s.AVG_TAT)
+      avgVesselTAT(portCalls),
+      trendOf(input.snapshots, (s) => s.AVG_TAT),
+      completedCalls.length,
+      provenance,
+      {
+        p50: completedCalls.length ? round(percentile(tatHours, 50), 1) : null,
+        p90: completedCalls.length ? round(percentile(tatHours, 90), 1) : null,
+        unmeasurableNote: 'not measurable — no completed calls with both ATA and ATD',
+      },
     ),
-    jitPct: makeKpi(
-      'jitPct',
-      justInTimePct(toJitArrivals(input.plan)),
-      trendOf(input.snapshots, (s) => s.JIT_PCT)
+    portCraftOptimization: makeKpi(
+      'portCraftOptimization',
+      craftUtil,
+      [],
+      craftN,
+      provenance,
+      {
+        unmeasurableNote: 'not measurable — port-craft register empty at anchor',
+      },
     ),
     forecastAccuracy: makeKpi(
       'forecastAccuracy',
-      forecastAccuracyPct(toEtaPredictions(input.predictions, input.now)),
-      trendOf(input.snapshots, (s) => s.FORECAST_ACC)
+      forecastAccuracyPct(etaPreds),
+      trendOf(input.snapshots, (s) => s.FORECAST_ACC),
+      etaWithActual.length,
+      provenance,
+      {
+        unmeasurableNote: 'not measurable — no predicted-vs-actual ETA pairs in window',
+      },
     ),
     berthOccupancy: makeKpi(
       'berthOccupancy',
       berthOccupancyPct(toBerthIntervals(input.plan), input.berthCount, windowStart, windowEnd),
-      trendOf(input.snapshots, (s) => s.BERTH_OCC)
+      trendOf(input.snapshots, (s) => s.BERTH_OCC),
+      input.berthCount,
+      provenance,
+      {
+        unmeasurableNote: 'not measurable — berth register empty',
+      },
     ),
-    anchored: makeKpi('anchored', anchored, trendOf(input.snapshots, (s) => s.ANCHORED)),
-    approaching: makeKpi(
-      'approaching',
-      approaching,
-      trendOf(input.snapshots, (s) => s.APPROACHING)
+    anchored: makeKpi(
+      'anchored',
+      anchoredN + approachingN,
+      trendOf(input.snapshots, (s) => s.ANCHORED + s.APPROACHING),
+      input.vessels.length,
+      provenance,
+      {
+        breakdown: `${anchoredN} anchored · ${approachingN} approaching`,
+        unmeasurableNote: 'not measurable — no vessels in the live set',
+      },
     ),
   };
 }

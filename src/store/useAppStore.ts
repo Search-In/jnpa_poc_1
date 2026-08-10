@@ -36,11 +36,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const adapter = getAdapter();
     const unsub = adapter.subscribeVessels(
       (vessels) => set({ vessels, lastUpdate: Date.now() }),
-      (connection) => set({ connection })
+      (connection) => {
+        set({ connection });
+        // UC1-042: refresh on connection events (connected / reconnecting recovery).
+        if (connection === 'connected') void get().refreshKpis();
+      },
     );
     void get().refreshKpis();
-    // Recompute KPIs periodically; mock + live both support repeated calls.
-    const timer = setInterval(() => void get().refreshKpis(), 15_000);
+    // UC1-042 / UI-041: KPI strip refresh cadence is 60 s (and on connection event).
+    const timer = setInterval(() => void get().refreshKpis(), 60_000);
     return () => {
       unsub();
       clearInterval(timer);

@@ -276,7 +276,8 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const spy = stub(KPI_BODY);
     vi.stubGlobal('fetch', spy);
     const k = await fetchPerformanceKpi();
-    expect(k.metrics.totalTeus).toBe(18432.5);
+    expect(k).not.toBeNull();
+    expect(k!.metrics.totalTeus).toBe(18432.5);
     const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/performance/kpi');
     expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');

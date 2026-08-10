@@ -1,9 +1,11 @@
 /**
  * KPI targets + display metadata. Single place to tune what "good" looks like.
- * No colour literals here — colours live in `src/theme/tokens.ts`.
+ * Labels are tender-exact (UC1-042). No colour literals here — colours live in
+ * `src/theme/tokens.ts`.
  */
 
 import type { KpiKey } from '@/types/kpi';
+import { KPI_ANATOMY } from './kpiAnatomy';
 
 export interface KpiTarget {
   label: string;
@@ -18,14 +20,44 @@ export interface KpiTarget {
 }
 
 export const KPI_TARGETS: Record<KpiKey, KpiTarget> = {
-  preBerthingDelay: { label: 'Pre-Berthing Delay', unit: 'h', target: 2, lowerIsBetter: true },
-  preSailingDelay: { label: 'Pre-Sailing Delay', unit: 'h', target: 2, lowerIsBetter: true },
-  avgTat: { label: 'Avg Vessel TAT', unit: 'h', target: 24, lowerIsBetter: true },
-  jitPct: { label: 'Just-In-Time', unit: '%', target: 80, lowerIsBetter: false },
-  forecastAccuracy: { label: 'Forecast Accuracy', unit: '%', target: 90, lowerIsBetter: false },
-  berthOccupancy: { label: 'Berth Occupancy', unit: '%', target: 75, lowerIsBetter: false },
-  anchored: { label: 'Anchored Vessels', unit: '', target: 5, lowerIsBetter: true },
-  approaching: { label: 'Approaching Vessels', unit: '', target: 8, lowerIsBetter: false },
+  jitPct: { label: KPI_ANATOMY.jitPct.name, unit: '%', target: 80, lowerIsBetter: false },
+  preBerthingDelay: {
+    label: KPI_ANATOMY.preBerthingDelay.name,
+    unit: 'h',
+    target: 2,
+    lowerIsBetter: true,
+  },
+  preSailingDelay: {
+    label: KPI_ANATOMY.preSailingDelay.name,
+    unit: 'h',
+    target: 2,
+    lowerIsBetter: true,
+  },
+  avgTat: { label: KPI_ANATOMY.avgTat.name, unit: 'h', target: 24, lowerIsBetter: true },
+  portCraftOptimization: {
+    label: KPI_ANATOMY.portCraftOptimization.name,
+    unit: '%',
+    target: 70,
+    lowerIsBetter: false,
+  },
+  forecastAccuracy: {
+    label: KPI_ANATOMY.forecastAccuracy.name,
+    unit: '%',
+    target: 90,
+    lowerIsBetter: false,
+  },
+  berthOccupancy: {
+    label: KPI_ANATOMY.berthOccupancy.name,
+    unit: '%',
+    target: 75,
+    lowerIsBetter: false,
+  },
+  anchored: {
+    label: KPI_ANATOMY.anchored.name,
+    unit: 'vessels',
+    target: 12,
+    lowerIsBetter: true,
+  },
 };
 
 /**

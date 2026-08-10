@@ -493,7 +493,7 @@ export function App() {
         {/* Center/right: KPI strip + tabbed operations panels. */}
         <CalcitePanel>
           <div style={{ padding: 12 }}>
-            <KpiStrip />
+            <KpiStrip onOpenDistribution={() => setActiveTab('analytics')} />
           </div>
           <CalciteTabs layout="inline" style={{ padding: 12 }}>
             <CalciteTabNav slot="title-group">

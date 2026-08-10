@@ -1,8 +1,8 @@
 /**
- * <KpiStrip> — the 8 headline KPI cards. Reads the computed KpiBundle from the
- * store (which sources it from the active DataAdapter). Each card shows value,
- * unit, target, a ▲/▼ delta coloured by whether the move is good, and a
- * sparkline of the recent trend.
+ * <KpiStrip> — the 8 headline KPI cards (UC1-042 / UI-041). Each card shows
+ * measured value + unit, tender-exact name, definition tooltip (arrival-time
+ * basis + n), p50/p90 distribution link, provenance chip (LIVE/SIM), and a
+ * baseline-source statement. Unmeasurable = dash + explanation.
  */
 
 import { CalciteNotice } from '@esri/calcite-components-react';
@@ -14,35 +14,65 @@ import { signedPct } from '@/util/format';
 import { useHighlightedKpis } from '@/whatif/useHighlight';
 import { Sparkline } from './common/Sparkline';
 
-/** Card display order (matches the reference layout). */
+/** Tender display order (UC1-042). */
 const ORDER: KpiKey[] = [
+  'jitPct',
   'preBerthingDelay',
   'preSailingDelay',
   'avgTat',
-  'jitPct',
+  'portCraftOptimization',
   'forecastAccuracy',
   'berthOccupancy',
   'anchored',
-  'approaching',
 ];
 
 function deltaColor(key: KpiKey, deltaPct: number): string {
   if (deltaPct === 0) return tokens.textMuted;
   const lowerIsBetter = KPI_TARGETS[key].lowerIsBetter;
-  // "good" = value moved in the favourable direction relative to target.
   const isGood = lowerIsBetter ? deltaPct < 0 : deltaPct > 0;
   return isGood ? tokens.good : tokens.bad;
 }
 
-function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }) {
+function ProvenanceChip({ mode }: { mode: NonNullable<KpiValue['provenance']> }) {
+  const color =
+    mode === 'SIM' ? tokens.mode.SIM : mode === 'LIVE' ? tokens.mode.LIVE : tokens.mode.REPLAY;
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        color,
+        border: `1px solid ${color}`,
+        borderRadius: 3,
+        padding: '0 4px',
+        lineHeight: '14px',
+        whiteSpace: 'nowrap',
+      }}
+      aria-label={`provenance ${mode}`}
+    >
+      {mode}
+    </span>
+  );
+}
+
+function Card({
+  kpi,
+  lit,
+  dim,
+  onOpenDistribution,
+}: {
+  kpi: KpiValue;
+  lit?: boolean;
+  dim?: boolean;
+  onOpenDistribution?: () => void;
+}) {
   const key = kpi.key as KpiKey;
   const color = deltaColor(key, kpi.deltaPct);
   const arrow = kpi.deltaPct > 0 ? '▲' : kpi.deltaPct < 0 ? '▼' : '–';
 
-  // Spec UI-041 card anatomy: definition + arrival-time basis + baseline source
-  // ride on the card (tooltip + footer) when the adapter supplies them. A KPI the
-  // corpus cannot measure (sampleN 0 + note) renders '—' and its explanation —
-  // never a fabricated zero.
+  // Spec UI-041: a KPI the corpus cannot measure (sampleN 0 + note) renders '—'
+  // and its explanation — never a fabricated zero / bare percentage.
   const unmeasurable = kpi.sampleN === 0 && !!kpi.note;
   const tooltip = [
     kpi.definition && `Definition: ${kpi.definition}`,
@@ -52,9 +82,16 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
       `Measured vs published baseline: ${signedPct(kpi.vsBaselinePct)}`,
     kpi.note && `Note: ${kpi.note}`,
     kpi.sampleN !== undefined && `n = ${kpi.sampleN}`,
+    kpi.p50 != null && `p50 = ${kpi.p50}${kpi.unit ? ` ${kpi.unit}` : ''}`,
+    kpi.p90 != null && `p90 = ${kpi.p90}${kpi.unit ? ` ${kpi.unit}` : ''}`,
   ]
     .filter(Boolean)
     .join('\n');
+
+  const distLabel =
+    kpi.p50 != null || kpi.p90 != null
+      ? `p50 ${kpi.p50 ?? '—'} · p90 ${kpi.p90 ?? '—'}`
+      : 'p50 / p90 distribution';
 
   return (
     <div
@@ -73,25 +110,50 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
       aria-label={`${kpi.label}${lit ? ' — spotlighted by the active scenario' : ''}`}
       title={tooltip || undefined}
     >
-      <div style={{ fontSize: 11, color: tokens.textMuted, minHeight: 26 }}>
-        {kpi.label}
-        {tooltip && (
-          <span aria-hidden style={{ marginLeft: 4, cursor: 'help', opacity: 0.7 }}>ⓘ</span>
-        )}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 6,
+          minHeight: 26,
+        }}
+      >
+        <div style={{ fontSize: 11, color: tokens.textMuted, lineHeight: 1.3 }}>
+          {kpi.label}
+          {tooltip && (
+            <span aria-hidden style={{ marginLeft: 4, cursor: 'help', opacity: 0.7 }}>
+              ⓘ
+            </span>
+          )}
+        </div>
+        {kpi.provenance && <ProvenanceChip mode={kpi.provenance} />}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 26, fontWeight: 700, color: tokens.text, lineHeight: 1 }}>
           {unmeasurable ? '—' : kpi.value}
         </span>
         {!unmeasurable && kpi.unit && (
           <span style={{ fontSize: 13, color: tokens.textMuted }}>{kpi.unit}</span>
         )}
+        {!unmeasurable && kpi.sampleN !== undefined && (
+          <span style={{ fontSize: 11, color: tokens.textMuted }}>(n={kpi.sampleN})</span>
+        )}
       </div>
+
+      {kpi.breakdown && !unmeasurable && (
+        <div style={{ fontSize: 10, color: tokens.textMuted, lineHeight: 1.3 }}>{kpi.breakdown}</div>
+      )}
+
       {unmeasurable ? (
         <div style={{ fontSize: 10, color: tokens.textMuted, lineHeight: 1.35 }}>{kpi.note}</div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span style={{ fontSize: 11, color, fontWeight: 600 }} aria-label={`delta vs target ${signedPct(kpi.deltaPct)}`}>
+          <span
+            style={{ fontSize: 11, color, fontWeight: 600 }}
+            aria-label={`delta vs target ${signedPct(kpi.deltaPct)}`}
+          >
             {arrow} {signedPct(kpi.deltaPct)}
           </span>
           <span style={{ fontSize: 10, color: tokens.textMuted }}>
@@ -100,13 +162,43 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
           </span>
         </div>
       )}
+
       {!unmeasurable && (
-        <Sparkline points={kpi.trend} color={color === tokens.textMuted ? tokens.accent : color} height={24} width={140} />
+        <button
+          type="button"
+          onClick={onOpenDistribution}
+          style={{
+            alignSelf: 'flex-start',
+            fontSize: 10,
+            color: tokens.accent,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: onOpenDistribution ? 'pointer' : 'help',
+            textDecoration: 'underline',
+            textUnderlineOffset: 2,
+          }}
+          title={
+            kpi.p50 != null || kpi.p90 != null
+              ? `Distribution: p50=${kpi.p50 ?? '—'} p90=${kpi.p90 ?? '—'} (n=${kpi.sampleN ?? '—'})`
+              : 'Open Analytics & JIT for waiting-time / TAT distribution'
+          }
+        >
+          {distLabel}
+        </button>
       )}
-      {/* Spec UI-041: the published-baseline line. When JNPA publishes a figure for
-          this KPI, show it with the measured-vs-published delta — the tender's
-          "improvement vs current baseline operations", against a REAL number. */}
-      {kpi.baselineValue !== undefined ? (
+
+      {!unmeasurable && (
+        <Sparkline
+          points={kpi.trend}
+          color={color === tokens.textMuted ? tokens.accent : color}
+          height={24}
+          width={140}
+        />
+      )}
+
+      {/* Spec UI-041 baseline-source — never a bare percentage alone. */}
+      {kpi.baselineValue !== undefined && !unmeasurable ? (
         <div style={{ fontSize: 9.5, color: tokens.textMuted, lineHeight: 1.35 }}>
           <span style={{ fontWeight: 700 }}>
             JNPA baseline {kpi.baselineValue}
@@ -123,7 +215,7 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
               {signedPct(kpi.vsBaselinePct)} vs baseline
             </span>
           )}
-          <div>jnport.gov.in ▸ Reports ▸ Operating Performance Profile</div>
+          <div>{kpi.baselineSource ?? 'jnport.gov.in ▸ Reports ▸ Operating Performance Profile'}</div>
         </div>
       ) : (
         kpi.baselineSource && (
@@ -136,11 +228,9 @@ function Card({ kpi, lit, dim }: { kpi: KpiValue; lit?: boolean; dim?: boolean }
   );
 }
 
-export function KpiStrip() {
+export function KpiStrip({ onOpenDistribution }: { onOpenDistribution?: () => void } = {}) {
   const kpis = useAppStore((s) => s.kpis);
   const kpiError = useAppStore((s) => s.kpiError);
-  // What-if spotlight: light the KPI cards the active scenario's causal chain
-  // names (e.g. M4 → JIT), keeping the KPI wall in sync with the reactive guide.
   const litKpis = useHighlightedKpis();
 
   if (kpiError) {
@@ -162,7 +252,13 @@ export function KpiStrip() {
     >
       {ORDER.map((key) =>
         kpis ? (
-          <Card key={key} kpi={kpis[key]} lit={litKpis.has(key)} dim={litKpis.size > 0 && !litKpis.has(key)} />
+          <Card
+            key={key}
+            kpi={kpis[key]}
+            lit={litKpis.has(key)}
+            dim={litKpis.size > 0 && !litKpis.has(key)}
+            onOpenDistribution={onOpenDistribution}
+          />
         ) : (
           <div
             key={key}
@@ -173,7 +269,7 @@ export function KpiStrip() {
             <div style={{ fontSize: 11, color: tokens.textMuted }}>{KPI_TARGETS[key].label}</div>
             <div style={{ fontSize: 13, color: tokens.textMuted, marginTop: 8 }}>…</div>
           </div>
-        )
+        ),
       )}
     </div>
   );

@@ -1,5 +1,7 @@
 /** KPI result types — the shape every KPI function returns. */
 
+import type { KpiProvenance } from '@/config/kpiAnatomy';
+
 /** A single point in a KPI trend series. */
 export interface TrendPoint {
   /** Time of the point (epoch ms). */
@@ -16,7 +18,7 @@ export interface TrendPoint {
 export interface KpiValue {
   /** Stable key, e.g. "preBerthingDelay". */
   key: string;
-  /** Display label. */
+  /** Display label (tender-exact name). */
   label: string;
   value: number;
   /** Unit suffix, e.g. "h", "%", "vessels". */
@@ -50,18 +52,30 @@ export interface KpiValue {
   baselineValue?: number;
   baselinePeriod?: string;
   vsBaselinePct?: number;
+  /** LIVE / LIVE-CORPUS / SIM provenance chip (UC1-042). */
+  provenance?: KpiProvenance;
+  /** Distribution percentiles when the underlying sample supports them. */
+  p50?: number | null;
+  p90?: number | null;
+  /** Extra line for dual-count cards (Anchored / Approaching). */
+  breakdown?: string;
 }
 
-/** All eight headline KPIs, keyed for the KPI strip. */
+/**
+ * All eight tender headline KPIs (UC1-042): JIT, Pre-Berthing Delay,
+ * Pre-Sailing Delay, Average Vessel TAT, Port Craft Optimization,
+ * Accuracy of Prediction, Berth Occupancy, Anchored/Approaching.
+ */
 export interface KpiBundle {
+  jitPct: KpiValue;
   preBerthingDelay: KpiValue;
   preSailingDelay: KpiValue;
   avgTat: KpiValue;
-  jitPct: KpiValue;
+  portCraftOptimization: KpiValue;
   forecastAccuracy: KpiValue;
   berthOccupancy: KpiValue;
+  /** Combined Anchored / Approaching card (dual count in `breakdown`). */
   anchored: KpiValue;
-  approaching: KpiValue;
 }
 
 export type KpiKey = keyof KpiBundle;

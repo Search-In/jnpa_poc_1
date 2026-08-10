@@ -207,6 +207,7 @@ function kpiCard(
   definition: string,
   basis: string,
   note = '',
+  baselineSource = 'no published JNPA baseline — figure is a simulated delta under assumption A-01',
 ): Record<string, unknown> {
   return {
     key,
@@ -217,7 +218,7 @@ function kpiCard(
     n,
     definition,
     basis,
-    baseline_source: 'no published baseline for this KPI',
+    baseline_source: baselineSource,
     baseline: null,
     vs_baseline_pct: null,
     note,
@@ -278,17 +279,18 @@ export async function shimKpisFromCallsAndState(
     ),
     kpiCard(
       'AVG_TAT',
-      'Average Vessel Turnaround',
+      'Average Vessel TAT',
       tat,
       'h',
       stats.departed,
-      'Mean hours alongside (ATD − ATA) for completed calls',
-      'core.vessel_call factual timestamps',
+      'mean(ATD − ATA) for completed calls',
+      'core.vessel_call factual timestamps (ATA / ATD)',
       tat != null ? '' : 'not measurable — no completed calls with both ATA and ATD',
+      'jnport.gov.in Operating Performance Profile 27.36 h pilot-to-pilot FY 2025-26',
     ),
     kpiCard(
       'JIT_PCT',
-      'Just-In-Time Arrivals',
+      'JIT',
       null,
       '%',
       0,
@@ -298,7 +300,7 @@ export async function shimKpisFromCallsAndState(
     ),
     kpiCard(
       'FORECAST_ACC',
-      'Forecast Accuracy',
+      'Accuracy of Prediction',
       null,
       '%',
       0,
