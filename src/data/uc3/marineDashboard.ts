@@ -26,6 +26,7 @@
  */
 
 import { http } from './client';
+import { env } from '../config';
 
 // ------------------------------------------------------------------ paths
 export const MARINE_BERTHS_PATH = '/marine/berths';
@@ -242,9 +243,7 @@ export function toBerthingPlanEntries(
 
 /** Demo/sim pin for marine dashboard reads (`VITE_UC3_AS_OF`), if set. */
 export function marineAsOfMs(): number | undefined {
-  const pinned = (import.meta.env.VITE_UC3_AS_OF as string | undefined) ?? '';
-  const parsed = pinned ? Date.parse(pinned) : NaN;
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return env.uc3.asOfMs > 0 ? env.uc3.asOfMs : undefined;
 }
 
 // ------------------------------------------------------------------ KPIs

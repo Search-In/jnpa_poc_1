@@ -25,6 +25,8 @@ interface ImportMetaEnv {
   readonly VITE_UC3_API_BASE?: string;
   readonly VITE_UC3_USERNAME?: string;
   readonly VITE_UC3_PASSWORD?: string;
+  /** Demo pin ISO (e.g. 2026-06-09T08:30:00+05:30). Authoritative twin clock. */
+  readonly VITE_UC3_AS_OF?: string;
   // UC-1 Gen-2 model service (see src/data/config.ts → env.ml). Serves on :8100.
   readonly VITE_ML_ENABLED?: string;
   readonly VITE_ML_API_BASE?: string;

@@ -29,6 +29,7 @@ import {
 import { HeaderBar } from '@/components/HeaderBar';
 import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
+import { useDataModeStore } from '@/provenance/useDataModeStore';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
@@ -118,6 +119,13 @@ export function App() {
   }, []);
   useSimClock();
   useSimReactivity();
+
+  // UC1-004: a corpus pin means REPLAY — banner + header clock share that era.
+  useEffect(() => {
+    if (env.uc3.asOfMs > 0) {
+      useDataModeStore.getState().setMode('REPLAY');
+    }
+  }, []);
 
   // The live-AIS overlay starts OFF on every load, so first paint never depends
   // on a gateway call and no session ever comes up claiming to show real traffic

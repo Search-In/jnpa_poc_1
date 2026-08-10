@@ -114,6 +114,14 @@ export interface AppEnv {
     /** PoC login (POST {apiBase}/auth/login). See the scope-honesty note above. */
     username: string;
     password: string;
+    /**
+     * Demo / sim pin (`VITE_UC3_AS_OF`). When set, every UC-3 marine board and the
+     * header clock use this instant instead of the browser wall clock (UI-001:
+     * single authoritative clock). Empty → live "now".
+     */
+    asOfIso: string;
+    /** Parsed epoch ms for `asOfIso`, or 0 when unset/invalid. */
+    asOfMs: number;
   };
   /**
    * UC-1 Gen-2 model service (`ml/`, FastAPI). Owns TAT (LightGBM) + berth
@@ -267,6 +275,13 @@ export const env: AppEnv = {
     apiBase: str(import.meta.env.VITE_UC3_API_BASE, '/api'),
     username: str(import.meta.env.VITE_UC3_USERNAME),
     password: str(import.meta.env.VITE_UC3_PASSWORD),
+    asOfIso: str(import.meta.env.VITE_UC3_AS_OF),
+    asOfMs: (() => {
+      const raw = str(import.meta.env.VITE_UC3_AS_OF);
+      if (!raw) return 0;
+      const n = Date.parse(raw);
+      return Number.isFinite(n) ? n : 0;
+    })(),
   },
   ml: {
     // On by default so a running Gen-2 service works; panels degrade to an
