@@ -65,8 +65,12 @@ jobs:
           VITE_DATA_MODE: mock
           VITE_UC3_ENABLED: "true"
           VITE_UC3_API_BASE: "/api"
-          VITE_UC3_USERNAME: ${{ secrets.VITE_UC3_USERNAME }}
-          VITE_UC3_PASSWORD: ${{ secrets.VITE_UC3_PASSWORD }}
+          # Turns on the sign-in gate. Users authenticate against the UC-3
+          # gateway's POST /api/auth/login with their own DTCCC account, so there
+          # are no VITE_UC3_USERNAME / VITE_UC3_PASSWORD secrets any more — Vite
+          # inlined those into the JS bundle where anyone with devtools could
+          # read them. Delete both from the repository secrets; nothing reads them.
+          VITE_AUTH_ENABLED: "true"
           VITE_LIVE_AIS_ENABLED: "true"
           VITE_LDB_ENABLED: "true"
         run: |

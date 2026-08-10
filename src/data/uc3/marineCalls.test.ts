@@ -356,9 +356,9 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].vcn).toBe('INNSA1BM0R3119');
 
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/marine/calls?limit=100&offset=0');
-    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');
   });
 
   it('fetchVesselCallsPage passes the envelope through for the pager', async () => {

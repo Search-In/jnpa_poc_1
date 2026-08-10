@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env } from '../config';
 import { http, httpErrorMessage, uc3Url } from './client';
 import { clearAuthToken } from './token';
+import { getToken as getSessionToken } from '../../auth/sessionStore';
+
+/** The bearer the global test setup signs in with (src/test/setup.ts). */
+const SESSION_TOKEN = 'test.jwt.token';
 
 function jsonResponse(body: unknown, status = 200, statusText = 'OK'): Response {
   return {
@@ -86,13 +90,15 @@ describe('http (authenticated transport)', () => {
     const body = await http<{ total: number }>('/shipping-lines/lines');
 
     expect(body.total).toBe(0);
-    const [url, init] = spy.mock.calls[1];
+    // Call 0, not 1: there is no login round trip in front of the request any
+    // more, and the bearer is the one the signed-in session already holds.
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/shipping-lines/lines');
-    expect(authOf(init)).toBe('Bearer T1');
+    expect(authOf(init)).toBe(`Bearer ${SESSION_TOKEN}`);
   });
 
-  it('reuses the cached token across requests (one login, many calls)', async () => {
-    const spy = vi.fn((url: string) =>
+  it('NEVER logs in — the bearer comes from the signed-in session', async () => {
+    const spy = vi.fn((url: string, _init?: RequestInit) =>
       isLogin(url) ? jsonResponse(loginBody('T1')) : jsonResponse({ ok: true }),
     );
     vi.stubGlobal('fetch', spy);
@@ -101,17 +107,18 @@ describe('http (authenticated transport)', () => {
     await http('/b');
     await http('/c');
 
-    expect(spy.mock.calls.filter(([u]) => isLogin(String(u)))).toHaveLength(1);
+    // The transport used to authenticate itself with build-time credentials.
+    // A data request must never put a credential on the wire now.
+    expect(spy.mock.calls.filter(([u]) => isLogin(String(u)))).toHaveLength(0);
+    const gets = spy.mock.calls.filter(([u]) => !isLogin(String(u)));
+    expect(gets).toHaveLength(3);
+    for (const [, init] of gets) expect(authOf(init)).toBe(`Bearer ${SESSION_TOKEN}`);
   });
 
-  it('on 401 re-logs in and replays the request exactly once', async () => {
+  it('on 401 re-reads the session and replays the request exactly once', async () => {
     let gets = 0;
-    let logins = 0;
     const spy = vi.fn((url: string, _init?: RequestInit) => {
-      if (isLogin(url)) {
-        logins += 1;
-        return jsonResponse(loginBody(`T${logins}`));
-      }
+      if (isLogin(url)) return jsonResponse(loginBody('T1'));
       gets += 1;
       // First GET is rejected (expired token), the replay succeeds.
       return gets === 1
@@ -123,27 +130,24 @@ describe('http (authenticated transport)', () => {
     const body = await http<{ recovered: boolean }>('/shipping-lines/lines');
 
     expect(body.recovered).toBe(true);
-    expect(logins).toBe(2); // original + one re-login
     expect(gets).toBe(2); // original + one replay
-    // The replay carried the NEW token, not the stale one.
-    const getCalls = spy.mock.calls.filter(([u]) => !isLogin(String(u)));
-    expect(authOf(getCalls[0][1])).toBe('Bearer T1');
-    expect(authOf(getCalls[1][1])).toBe('Bearer T2');
+    expect(spy.mock.calls.filter(([u]) => isLogin(String(u)))).toHaveLength(0);
   });
 
-  it('surfaces a second 401 instead of retrying forever', async () => {
-    let logins = 0;
+  it('surfaces a second 401 and ends the session instead of retrying forever', async () => {
+    let gets = 0;
     const spy = vi.fn((url: string) => {
-      if (isLogin(url)) {
-        logins += 1;
-        return jsonResponse(loginBody('T1'));
-      }
+      if (isLogin(url)) return jsonResponse(loginBody('T1'));
+      gets += 1;
       return jsonResponse({ detail: 'nope' }, 401, 'Unauthorized');
     });
     vi.stubGlobal('fetch', spy);
 
     await expect(http('/shipping-lines/lines')).rejects.toThrow(/HTTP 401/);
-    expect(logins).toBe(2); // exactly one retry, never a loop
+    expect(gets).toBe(2); // exactly one retry, never a loop
+    // A bearer the gateway rejects twice is dead: the session is dropped so
+    // AuthGate returns the user to the sign-in screen.
+    expect(getSessionToken()).toBeNull();
   });
 
   it('throws a descriptive error on a non-401 failure without retrying', async () => {

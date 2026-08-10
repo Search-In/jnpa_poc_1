@@ -10,6 +10,7 @@ import { defineCustomElements as defineCalcite } from '@esri/calcite-components/
 import { defineCustomElements as defineMapComponents } from '@arcgis/map-components/loader';
 
 import { tokens } from './theme/tokens';
+import { AuthGate } from './auth/AuthGate';
 import { App } from './App';
 import { SimulatorPage } from './sim/SimulatorPage';
 import { useHashRoute } from './sim/useHashRoute';
@@ -45,8 +46,14 @@ defineCalcite({ resourcesUrl: 'https://js.arcgis.com/calcite-components/3.3.3/as
 defineMapComponents({ resourcesUrl: 'https://js.arcgis.com/4.34/map-components/' });
 applyTheme();
 
+// AuthGate is the whole-app protection point. UC-1 has no route table to guard
+// (a two-branch hash router, then Calcite tabs inside one root), so the root is
+// the one choke point. With VITE_AUTH_ENABLED unset it is a pass-through and
+// the mount is exactly as it was.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Root />
+    <AuthGate>
+      <Root />
+    </AuthGate>
   </StrictMode>
 );

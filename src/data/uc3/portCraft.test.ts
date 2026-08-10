@@ -94,9 +94,9 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const rows = await fetchPortCraft({ craftType: 'Tug' });
     expect(rows).toHaveLength(1);
     expect(rows[0].name).toBe('Ocean Divine');
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/marine/port-craft?craft_type=Tug&limit=100&offset=0');
-    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');
   });
 
   it('fetchPortCraftPage passes the envelope through', async () => {

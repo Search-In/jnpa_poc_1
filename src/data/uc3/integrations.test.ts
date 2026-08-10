@@ -133,7 +133,7 @@ describe('fetchJnpaIntegrationHealth', () => {
     expect(syncedGroupCount(h.groups)).toBe(2);
     const call = fetchMock.mock.calls.find(([u]) => String(u).includes(JNPA_INTEGRATION_HEALTH_PATH))!;
     expect(String(call[0])).toBe(`/api${JNPA_INTEGRATION_HEALTH_PATH}`);
-    expect(call[1]?.headers).toMatchObject({ authorization: 'Bearer T1' });
+    expect(call[1]?.headers).toMatchObject({ authorization: 'Bearer test.jwt.token' });
   });
 
   it('surfaces a gateway failure so the card can render "unavailable"', async () => {

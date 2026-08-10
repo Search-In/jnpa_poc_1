@@ -52,7 +52,9 @@ const page = (items: VesselWire[], total = items.length) => ({
 function jsonResponse(body: unknown, status = 200, statusText = 'OK'): Response {
   return { ok: status >= 200 && status < 300, status, statusText, json: async () => body } as unknown as Response;
 }
-const loginBody = { access_token: 'T1', token_type: 'bearer', role: 'DTCCC_ADMIN', auth_enabled: true };
+// No `loginBody` fixture here any more: the transport does not log in, so no
+// suite needs to prime a token response in front of the request it is testing.
+// The bearer comes from the session seeded in src/test/setup.ts.
 
 beforeEach(() => clearAuthToken());
 afterEach(() => { vi.unstubAllGlobals(); clearAuthToken(); });
@@ -180,7 +182,6 @@ describe('vesselsQuery', () => {
 describe('I/O', () => {
   it('fetchVesselsPage returns mapped rows with the envelope', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(loginBody))
       .mockResolvedValueOnce(jsonResponse(page([ROW], 9)));
     vi.stubGlobal('fetch', fetchMock);
     const res = await fetchVesselsPage();
@@ -190,7 +191,6 @@ describe('I/O', () => {
 
   it('fetchVesselStats maps the counters', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(loginBody))
       .mockResolvedValueOnce(jsonResponse({ total: 9, with_teu: 6, by_flag: [] }));
     vi.stubGlobal('fetch', fetchMock);
     expect((await fetchVesselStats()).withTeu).toBe(6);
@@ -198,17 +198,15 @@ describe('I/O', () => {
 
   it('fetchVessel URL-encodes the IMO path segment', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(loginBody))
       .mockResolvedValueOnce(jsonResponse(ROW));
     vi.stubGlobal('fetch', fetchMock);
     await fetchVessel('9815628');
-    const url = String(fetchMock.mock.calls[1][0]);
+    const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain('/marine/vessels/9815628');
   });
 
   it('rejects (not throws) when the gateway errors', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(loginBody))
       .mockResolvedValueOnce(jsonResponse({ detail: 'boom' }, 500, 'Server Error'));
     vi.stubGlobal('fetch', fetchMock);
     await expect(fetchVesselsPage()).rejects.toThrow(/500/);
