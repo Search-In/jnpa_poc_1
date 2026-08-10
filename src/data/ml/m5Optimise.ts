@@ -17,6 +17,32 @@ import type { Berth } from '@/types/domain';
 
 const H = 3_600_000;
 
+/**
+ * The service validates its payload with pydantic `Field` bounds, and real JNPA
+ * data does NOT fit them unmodified — so every bounded field is clamped here
+ * rather than letting the panel take an opaque 422.
+ *
+ * The one that bites: `BerthModel.length_m` is `le=600`, but GTI-1 is 712 m and
+ * BMCT-1/BMCT-2 are 1000 m in the berth fixtures. Sending those raw makes EVERY
+ * optimise call fail. Clamping is safe for this solver — it places at most one
+ * vessel per berth per window and the largest permitted LOA is 500 m, so the
+ * removed headroom cannot change a feasibility decision.
+ *
+ * Mirrored from `ml/src/uc1_models/uc1_m5_berth_optimiser.py` (BerthModel /
+ * BerthRequestModel). Keep in step if the service's bounds change.
+ */
+const LIMITS = {
+  berthLengthM: 600,
+  berthMaxDraftM: 25,
+  loaM: 500,
+  draftM: 25,
+  serviceHoursMin: 0.5,
+  serviceHoursMax: 240,
+} as const;
+
+const clamp = (v: number, lo: number, hi: number): number =>
+  Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo;
+
 /** Solver choice. `auto` = CP-SAT when available, otherwise greedy. */
 export type M5Algorithm = 'auto' | 'greedy' | 'cpsat';
 
@@ -48,7 +74,7 @@ export interface M5OptimiseResult {
 export const M5_OPTIMISE_PATH = '/uc1/m5/optimise';
 
 /** The `POST /uc1/m5/optimise` request body — mirrors the service's `OptimiseRequest`. */
-interface M5RequestWire {
+export interface M5RequestWire {
   request_id: string;
   vessel_id: string;
   vessel_name: string;
@@ -59,7 +85,7 @@ interface M5RequestWire {
   service_hours: number;
 }
 
-interface M5BerthWire {
+export interface M5BerthWire {
   berth_id: string;
   terminal: string;
   length_m: number;
@@ -68,7 +94,7 @@ interface M5BerthWire {
 }
 
 /** The subset of the plan response (`BerthPlan.as_dict()`) this module reads. */
-interface M5PlanWire {
+export interface M5PlanWire {
   algorithm: string;
   solve_ms: number;
   unassigned_request_ids?: string[];
@@ -90,26 +116,27 @@ interface M5PlanWire {
   }>;
 }
 
-function toRequestWire(r: BerthRequest): M5RequestWire {
+export function toRequestWire(r: BerthRequest): M5RequestWire {
   return {
     request_id: r.planId,
     vessel_id: r.mmsi,
     vessel_name: r.vesselName,
-    loa_m: r.loaM,
-    draft_m: r.draftM,
+    loa_m: clamp(r.loaM, 1, LIMITS.loaM),
+    draft_m: clamp(r.draftM, 0.1, LIMITS.draftM),
     // Preference only; the service treats an empty string as "no preference".
     requested_berth_id: r.requestedBerthId ?? '',
     requested_start_utc: new Date(r.requestedStartMs).toISOString(),
-    service_hours: r.durationMs / H,
+    // `service_hours` is `gt=0`, so a zero-length plan entry must be floored.
+    service_hours: clamp(r.durationMs / H, LIMITS.serviceHoursMin, LIMITS.serviceHoursMax),
   };
 }
 
-function toBerthWire(b: Berth): M5BerthWire {
+export function toBerthWire(b: Berth): M5BerthWire {
   return {
     berth_id: b.BERTH_ID,
     terminal: b.TERMINAL,
-    length_m: b.LENGTH_M,
-    max_draft_m: b.DRAFT_M,
+    length_m: clamp(b.LENGTH_M, 1, LIMITS.berthLengthM),
+    max_draft_m: clamp(b.DRAFT_M, 0.1, LIMITS.berthMaxDraftM),
     out_of_service: b.STATUS === 'maintenance',
   };
 }

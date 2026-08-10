@@ -144,7 +144,12 @@ export function TatPredictionCard() {
                         <span
                           style={{ color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}
                         >
-                          +{c.hours.toFixed(1)} h
+                          {/* The service ranks drivers by the SIZE of the effect,
+                              not its sign, so a factor that SAVES time (dredging
+                              restoring depth) can appear here. A hardcoded "+"
+                              rendered those as "+-2.4 h". */}
+                          {c.hours >= 0 ? '+' : '−'}
+                          {Math.abs(c.hours).toFixed(1)} h
                         </span>
                       </div>
                     ))}

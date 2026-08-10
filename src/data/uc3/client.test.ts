@@ -187,7 +187,9 @@ describe('http (authenticated transport)', () => {
 
     await http('/marine/bathymetry/surveys', { headers: { 'x-data-mode': 'DEMO' } });
 
-    const [, init] = spy.mock.calls[1];
+    // `http` no longer auto-logs-in (the token comes from the user's session),
+    // so the request under test is the FIRST fetch, not the second.
+    const [, init] = spy.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
     expect(headers['x-data-mode']).toBe('DEMO');
   });
