@@ -84,7 +84,7 @@ export const DEMO_TAT_INPUT: M3PredictInput = {
 export const M3_PREDICT_PATH = '/uc1/m3/predict';
 
 /** The subset of the `POST /uc1/m3/predict` response this module reads. */
-interface M3Wire {
+export interface M3Wire {
   p10_hours: number;
   p50_hours: number;
   p90_hours: number;

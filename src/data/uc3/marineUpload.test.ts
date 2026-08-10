@@ -314,7 +314,8 @@ describe('validateMarineCsv / importMarineCsv (multipart transport)', () => {
     vi.stubGlobal('fetch', spy);
 
     await importMarineCsv(csvFile(), { override: true });
-    const body = spy.mock.calls[1][1]?.body as FormData;
+    // No auto-login any more, so the upload is the FIRST fetch, not the second.
+    const body = spy.mock.calls[0][1]?.body as FormData;
     expect(body).toBeInstanceOf(FormData);
     expect(body.get('override')).toBe('true');
   });

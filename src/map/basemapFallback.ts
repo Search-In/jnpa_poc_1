@@ -57,9 +57,34 @@ export function makeOfflineBasemap(): Basemap {
   });
 }
 
-/** The basemap to start with: local when offline is requested, else online 'hybrid'. */
-export function initialBasemap(): string | Basemap {
-  return isOfflineRequested() ? makeOfflineBasemap() : 'hybrid';
+/**
+ * Keyless online basemap. Esri's imagery bases ('hybrid', 'satellite') fetch
+ * from services.arcgisonline.com/World_Imagery, which returns EMPTY tiles
+ * without a valid token — a basemap that reports `loaded` while rendering a
+ * white void. The 'osm' base is the one built-in that carries no Esri service
+ * URL at all (a plain OpenStreetMap tile layer), so it renders real streets,
+ * coastline and port geometry with no API key and no sign-in.
+ *
+ * It is raster street cartography, NOT satellite imagery: the honest ceiling
+ * for a keyless account. Set VITE_ARCGIS_API_KEY to get 'hybrid' imagery back.
+ */
+export function makeKeylessBasemap(): string {
+  return 'osm';
+}
+
+/**
+ * The basemap to start with:
+ *   • `?offline=1`      → bundled local base (no tiles at all)
+ *   • no ArcGIS API key → keyless 'osm' (real geography, no token)
+ *   • key present       → 'hybrid' satellite imagery
+ *
+ * The no-key branch matters because ArcGIS Online TRIAL subscriptions cannot
+ * issue API keys at all, so "no key" is the normal state for a PoC org, not an
+ * error — and it previously produced a blank white world.
+ */
+export function initialBasemap(hasApiKey: boolean = true): string | Basemap {
+  if (isOfflineRequested()) return makeOfflineBasemap();
+  return hasApiKey ? 'hybrid' : makeKeylessBasemap();
 }
 
 /**

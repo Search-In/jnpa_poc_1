@@ -13,17 +13,22 @@ import { tokens } from './theme/tokens';
 import { AuthGate } from './auth/AuthGate';
 import { App } from './App';
 import { SimulatorPage } from './sim/SimulatorPage';
+import { VrPage } from './vr/VrPage';
 import { useHashRoute } from './sim/useHashRoute';
 import './index.css';
 
 /**
  * Root — hash-routed shell. `#/simulator` renders the standalone Simulator
  * control room (its own tab, drives the dashboard via BroadcastChannel);
- * everything else renders the dashboard app.
+ * `#/vr` renders the immersive 3D/VR port walkthrough (also its own tab, and
+ * also a pure consumer of the shared sim state); everything else renders the
+ * dashboard app.
  */
 function Root() {
   const route = useHashRoute();
-  return route.startsWith('/simulator') ? <SimulatorPage /> : <App />;
+  if (route.startsWith('/simulator')) return <SimulatorPage />;
+  if (route.startsWith('/vr')) return <VrPage />;
+  return <App />;
 }
 
 /** Seed CSS custom properties from the token file so CSS has no colour literals. */
