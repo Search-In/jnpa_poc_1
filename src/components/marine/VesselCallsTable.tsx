@@ -187,9 +187,8 @@ export function VesselCallsTable({
           scale="s"
           clearable
           placeholder="Search vessel name…"
-          value={vessel}
           style={{ maxWidth: 240 }}
-          onCalciteInputChange={(e) => {
+          onCalciteInputInput={(e) => {
             setOffset(0);
             setVessel((e.target as unknown as { value: string }).value);
           }}

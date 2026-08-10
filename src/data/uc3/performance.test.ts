@@ -201,9 +201,9 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     vi.stubGlobal('fetch', spy);
     const k = await fetchPerformanceKpi();
     expect(k.metrics.totalTeus).toBe(18432.5);
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/performance/kpi');
-    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');
   });
 
   it('traffic: builds the URL and maps the envelope', async () => {
@@ -212,7 +212,7 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const p = await fetchPerformanceTrafficPage({ terminal: 'NSICT', period: 'DAY' }, 25, 50);
     expect(p.total).toBe(812);
     expect(p.items[0].terminalCode).toBe('NSICT');
-    expect(spy.mock.calls[1][0]).toBe(
+    expect(spy.mock.calls[0][0]).toBe(
       `${'/api'}${PERF_TRAFFIC_PATH}?terminal=NSICT&period=DAY&limit=25&offset=50`);
   });
 

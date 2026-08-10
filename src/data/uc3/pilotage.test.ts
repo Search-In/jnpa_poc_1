@@ -107,9 +107,9 @@ describe('fetch* (end to end over a stubbed transport)', () => {
     const res = await fetchPilotagePage({ movement: 'INWARD' });
     expect(res.total).toBe(336);
     expect(res.items[0].pilotCode).toBe('JP 91');
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/marine/pilotage?movement=INWARD&limit=50&offset=0');
-    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');
   });
 
   it('fetchPilotage maps a single row', async () => {

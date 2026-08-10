@@ -196,9 +196,9 @@ describe('fetchShippingLines (end to end over a stubbed transport)', () => {
       containerCount: 1534,
     });
 
-    const [url, init] = spy.mock.calls[1];
+    const [url, init] = spy.mock.calls[0];
     expect(url).toBe('/api/shipping-lines/lines?limit=1000&offset=0');
-    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer T1');
+    expect((init?.headers as Record<string, string>).authorization).toBe('Bearer test.jwt.token');
   });
 
   it('rejects (does not throw synchronously) when the endpoint fails', async () => {

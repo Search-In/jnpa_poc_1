@@ -36,6 +36,7 @@
 
 import { useMemo, useState } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   fetchAdvanceListPage,
   SHIPPING_DOC_PAGE_LIMIT,
@@ -127,19 +128,24 @@ export function ShippingLinesAdvanceLists({ view: initialView = 'all' }: { view?
   const [sort, setSort] = useState<SortState>({ key: 'created', dir: 'desc' });
   const [offset, setOffset] = useState(0);
 
+  // `q` drives the SearchBox immediately; only this debounced copy feeds the server
+  // query, so fast typing no longer refetches (and re-renders) on every keystroke —
+  // the race that could re-apply a stale value and drop a character.
+  const debouncedQ = useDebouncedValue(q, 250);
+
   const filters: AdvanceListFilters = {
     listType: view === 'all' ? undefined : view,
     terminal: terminal || undefined,
     category: category || undefined,
     freightKind: freightKind || undefined,
     shippingLine: shippingLine || undefined,
-    q: q.trim() || undefined,
+    q: debouncedQ.trim() || undefined,
   };
 
   // One window per server-filter change. `view` is a dep because it maps to list_type.
   const query = useAdapterQuery(
     () => fetchAdvanceListPage(filters, SHIPPING_DOC_PAGE_LIMIT, 0),
-    [view, terminal, category, freightKind, shippingLine, q],
+    [view, terminal, category, freightKind, shippingLine, debouncedQ],
   );
 
   const loaded = query.data?.items ?? NO_ROWS;
