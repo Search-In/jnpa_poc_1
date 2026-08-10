@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { animationHz, isCoarsePointer, isLowPowerDevice } from './device';
+import { animationHz, isCoarsePointer, isLowPowerDevice, renderScale } from './device';
 
 /** Pretend to be a device with the given pointer type and hardware. */
 function stubDevice(opts: { coarse: boolean; cores?: number; memory?: number }) {
@@ -76,6 +76,32 @@ describe('animationHz', () => {
         expect(animationHz(stereo)).toBeGreaterThanOrEqual(20);
         expect(animationHz(stereo)).toBeLessThanOrEqual(60);
       }
+    }
+  });
+});
+
+describe('renderScale', () => {
+  it('renders at full resolution on a desktop', () => {
+    stubDevice({ coarse: false, cores: 8, memory: 8 });
+    expect(renderScale(true)).toBe(1);
+    expect(renderScale(false)).toBe(1);
+  });
+
+  it('drops resolution hardest for stereo on a handset', () => {
+    stubDevice({ coarse: true, cores: 4, memory: 4 });
+    const stereo = renderScale(true);
+    const mono = renderScale(false);
+    expect(stereo).toBeLessThan(mono);
+    expect(mono).toBeLessThan(1);
+    // 0.62 linear is 38% of the pixels — the point of the exercise.
+    expect(stereo * stereo).toBeLessThan(0.45);
+  });
+
+  it('never scales so far that the view becomes unreadable', () => {
+    stubDevice({ coarse: true, cores: 2, memory: 2 });
+    for (const stereo of [true, false]) {
+      expect(renderScale(stereo)).toBeGreaterThanOrEqual(0.5);
+      expect(renderScale(stereo)).toBeLessThanOrEqual(1);
     }
   });
 });

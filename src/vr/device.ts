@@ -30,6 +30,20 @@ export function isLowPowerDevice(): boolean {
   return cores <= 8 || memory <= 8;
 }
 
+/**
+ * Fraction of the eye box's pixels to actually render, upscaled by CSS to fill
+ * it — the "render scale" every game exposes.
+ *
+ * A phone at devicePixelRatio 3 asks for nine device pixels per CSS pixel, and
+ * stereo asks for two of those buffers. Rendering at 62% linear is 38% of the
+ * pixels: the single biggest lever available, and through a cardboard lens
+ * (which is itself soft and magnified) the softening is close to invisible.
+ */
+export function renderScale(stereo: boolean): number {
+  if (!isLowPowerDevice()) return 1;
+  return stereo ? 0.62 : 0.8;
+}
+
 /** Frames per second the scene animator should target on this device. */
 export function animationHz(stereo: boolean): number {
   if (!isCoarsePointer()) return 30;

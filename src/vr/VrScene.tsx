@@ -46,7 +46,7 @@ import {
 } from '@/map/scene3d';
 import { portAssetLayers } from '@/map/portAssets3d';
 import { createAnimLayers, startSceneAnimation, type AnimInput } from './sceneAnim';
-import { isLowPowerDevice } from './device';
+import { isLowPowerDevice, renderScale } from './device';
 import { initialBasemap, installBasemapFallback, isOfflineRequested } from '@/map/basemapFallback';
 import { applyGraphics } from '@/map/applyGraphics';
 import { useVrStore } from './vrStore';
@@ -165,13 +165,34 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
     // Drawing both would double every hull and every crane.
     const staticAssets = portAssetLayers().filter((l) => !/STS cranes/i.test(l.title ?? ''));
 
+    // Scenery budget. The yard is 60 blocks stacked 2–5 containers high — about
+    // 210 glTF instances — and the truck queues add more. In stereo EVERY one of
+    // them is loaded and drawn twice, once per view, which is what makes a phone
+    // crawl and what makes one eye finish before the other.
+    //
+    // None of it carries what-if state: the impacted assets are the cranes,
+    // berths, channel and hulls. So on a low-power device the yard is thinned to
+    // its bottom tier (60 instances instead of ~210 — it still reads as a
+    // container yard from any distance a viewer stands at) and the truck queues
+    // are dropped. Nothing that answers WHICH/WHERE/HOW is touched.
+    const scenery = lowPower
+      ? staticAssets.filter((l) => !/Trucks/i.test(l.title ?? ''))
+      : staticAssets;
+    if (lowPower) {
+      for (const l of scenery) {
+        if (/Yard stacks/i.test(l.title ?? '')) {
+          (l as unknown as { definitionExpression: string }).definitionExpression = 'tier <= 0';
+        }
+      }
+    }
+
     map.addMany([
       channelLayer(),
       anchorageLayer(),
       anim.water,
       terminalDeckLayer(),
       berthsL,
-      ...staticAssets,
+      ...scenery,
       anim.cranes,
       pilotStationLayer(),
       anim.wakes,
@@ -398,18 +419,42 @@ function Eye({
   viewRef: React.MutableRefObject<HTMLDivElement | null>;
   stereo: boolean;
 }) {
-  if (!stereo) return <div ref={viewRef} style={{ flex: 1, height: '100%' }} />;
+  // Render scale: hand the SceneView a SMALLER box so it rasterises fewer
+  // pixels, then blow it back up with a CSS transform. At 0.62 that is 38% of
+  // the pixels per eye — the biggest single win available on a phone at
+  // devicePixelRatio 3, and through a cardboard lens the softening does not read.
+  const s = renderScale(stereo);
+  const box: React.CSSProperties =
+    s < 1
+      ? {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: `${100 * s}%`,
+          height: `${100 * s}%`,
+          transform: `scale(${1 / s})`,
+          transformOrigin: 'top left',
+        }
+      : { position: 'absolute', inset: 0 };
+
+  if (!stereo) {
+    return (
+      <div style={{ flex: 1, height: '100%', position: 'relative', overflow: 'hidden' }}>
+        <div ref={viewRef} style={box} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {/* The lens mask sits on a WRAPPER, so the rounding is not part of the
+          scaled subtree — inside it, the transform would magnify the mask itself
+          and the two eyes would stop matching. */}
       <div
-        ref={viewRef}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          borderRadius: LENS_RADIUS,
-          overflow: 'hidden',
-        }}
-      />
+        style={{ position: 'absolute', inset: 0, borderRadius: LENS_RADIUS, overflow: 'hidden' }}
+      >
+        <div ref={viewRef} style={box} />
+      </div>
       {/* Vignette: darkens toward the rim the way a real lens does, and hides the
           hard mask edge. Non-interactive so it never eats a tap. */}
       <div
