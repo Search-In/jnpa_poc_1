@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="JNPA digital twin">
+  <rect width="512" height="512" rx="96" fill="#0079c1"/>
+  <!-- Safe zone for maskable icons is the central 80%; everything below sits inside it. -->
+  <g fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Quay line + STS crane silhouette -->
+    <path d="M104 372h304"/>
+    <path d="M168 372V208h132"/>
+    <path d="M300 208h56"/>
+    <path d="M300 208v52"/>
+    <path d="M168 260h132"/>
+  </g>
+  <!-- Hull alongside -->
+  <path d="M120 400h272l-28 44H148z" fill="#ffffff" opacity="0.95"/>
+  <!-- Water -->
+  <g stroke="#9fd4f3" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M104 468h96"/>
+    <path d="M232 468h176"/>
+  </g>
+</svg>

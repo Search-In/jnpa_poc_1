@@ -9,7 +9,7 @@
  */
 import { create } from 'zustand';
 import { PORT_CENTER, TERMINAL_QUAYS, offsetMeters } from '@/map/portGeometry';
-import { DEFAULT_IPD_M, bearingTo, normalizeHeading } from './stereo';
+import { DEFAULT_IPD_M, bearingTo, clampTilt, normalizeHeading } from './stereo';
 
 /** How the scene is presented. */
 export type VrMode =
@@ -124,6 +124,12 @@ interface VrState {
   place: (longitude: number, latitude: number) => void;
   setEyeHeight: (m: number) => void;
   setLook: (heading: number, tilt: number) => void;
+  /**
+   * Look direction from the head tracker. Unlike `setLook` this does NOT cancel
+   * the tour: in cardboard the tour carries you between vantage points while
+   * your head decides where you face, exactly as it does in a real headset.
+   */
+  setGyroLook: (heading: number, tilt: number) => void;
   setHeading: (heading: number) => void;
   setMode: (mode: VrMode) => void;
   setIpd: (m: number) => void;
@@ -131,8 +137,15 @@ interface VrState {
   toggleLabels: () => void;
   toggleEdges: () => void;
   setAutoTour: (on: boolean) => void;
-  /** Camera pose written by the tour director (does not cancel the tour). */
-  setTourPose: (p: { longitude: number; latitude: number; z: number; heading: number; tilt: number }) => void;
+  /**
+   * Camera pose written by the tour director (does not cancel the tour).
+   * `positionOnly` leaves heading/tilt alone so the head tracker keeps the look
+   * direction while the tour still moves the viewer between beats.
+   */
+  setTourPose: (
+    p: { longitude: number; latitude: number; z: number; heading: number; tilt: number },
+    positionOnly?: boolean
+  ) => void;
   enter: (mode: VrMode) => void;
   exit: () => void;
   applyVantage: (v: Vantage) => void;
@@ -168,6 +181,7 @@ export const useVrStore = create<VrState>((set) => ({
   place: (longitude, latitude) => set({ longitude, latitude, autoTour: false }),
   setEyeHeight: (m) => set({ eyeHeightM: Math.min(400, Math.max(1, m)) }),
   setLook: (heading, tilt) => set({ heading, tilt, autoTour: false }),
+  setGyroLook: (heading, tilt) => set({ heading: normalizeHeading(heading), tilt: clampTilt(tilt) }),
   setHeading: (heading) => set({ heading: normalizeHeading(heading) }),
   setMode: (mode) => set({ mode }),
   setIpd: (m) => set({ ipdM: Math.min(0.09, Math.max(0.045, m)) }),
@@ -175,14 +189,18 @@ export const useVrStore = create<VrState>((set) => ({
   toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
   toggleEdges: () => set((s) => ({ showEdges: !s.showEdges })),
   setAutoTour: (autoTour) => set({ autoTour }),
-  setTourPose: (p) =>
-    set({
-      longitude: p.longitude,
-      latitude: p.latitude,
-      eyeHeightM: p.z,
-      heading: normalizeHeading(p.heading),
-      tilt: p.tilt,
-    }),
+  setTourPose: (p, positionOnly = false) =>
+    set(
+      positionOnly
+        ? { longitude: p.longitude, latitude: p.latitude, eyeHeightM: p.z }
+        : {
+            longitude: p.longitude,
+            latitude: p.latitude,
+            eyeHeightM: p.z,
+            heading: normalizeHeading(p.heading),
+            tilt: clampTilt(p.tilt),
+          }
+    ),
   // Entering starts the tour: the point of the walkthrough is that it shows you
   // the impact without you having to know where to look.
   enter: (mode) => set({ entered: true, mode, autoTour: true }),

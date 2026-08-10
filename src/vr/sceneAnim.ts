@@ -49,8 +49,10 @@ import {
   weatherVisual,
   type CraneState,
   type MovingVessel,
+  type WeatherVisual,
 } from './liveWorld';
 import { bearingTo, normalizeHeading } from './stereo';
+import { animationHz, isLowPowerDevice } from './device';
 
 /** Matches `portAssets3d` — the glTF assets are served from the site root. */
 const MODELS = '/models';
@@ -163,6 +165,26 @@ const WAKE_SYMBOL = {
 /** True when this hull is making enough way to leave a wake. */
 function hasWake(v: MovingVessel): boolean {
   return !v.held && v.sog >= 1.5;
+}
+
+/**
+ * Cap weather intensity on a weak device without changing what it depicts.
+ *
+ * Precipitation density and fog thickness are the expensive dials; the weather
+ * TYPE is what carries the meaning (fog is why pilotage stopped), so it is left
+ * exactly as the engine chose it.
+ */
+export function softenWeather(w: WeatherVisual, soften: boolean): WeatherVisual {
+  if (!soften) return w;
+  if (w.type === 'rainy') {
+    return {
+      type: 'rainy',
+      cloudCover: Math.min(w.cloudCover, 0.7),
+      precipitation: Math.min(w.precipitation, 0.35),
+    };
+  }
+  if (w.type === 'foggy') return { type: 'foggy', fogStrength: Math.min(w.fogStrength, 0.5) };
+  return w;
 }
 
 /** `offsetMeters` works in degrees-per-metre units; this takes a bearing. */
@@ -330,6 +352,7 @@ export function startSceneAnimation(
   get: () => AnimInput,
   views: () => SceneView[]
 ): () => void {
+  const lowPower = isLowPowerDevice();
   const reducedMotion =
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -414,7 +437,12 @@ export function startSceneAnimation(
     const hold = holdState(env);
 
     // --- weather ---------------------------------------------------------
-    const w = weatherVisual(env);
+    // Rain and fog are full-screen particle/volumetric effects billed per view.
+    // On a handset in stereo that is two of them, and they are the difference
+    // between a scene that flies and one that stutters — so the intensity is
+    // capped there. The weather TYPE is never changed: a monsoon still renders
+    // as rain, because that is the evidence for the suspension being shown.
+    const w = softenWeather(weatherVisual(env), lowPower && views().length > 1);
     const wKey = JSON.stringify(w);
     const vs = views();
     // `weatherApplied` matters because the first frames can run before the
@@ -578,13 +606,13 @@ export function startSceneAnimation(
   };
 
   /**
-   * Animation runs at ~30 Hz, not at display rate. Nothing in this scene — a
-   * gantry crane at walking pace, a hull at 9 knots, a tide — moves fast enough
-   * to need 60 updates a second, and halving the update rate leaves the whole
-   * remaining frame budget to the renderer, which is what the 45+ fps target is
-   * actually measuring.
+   * Animation runs well below display rate — 30 Hz on a desktop, 20 Hz for
+   * stereo on a handset. Nothing in this scene (a gantry crane at walking pace,
+   * a hull at 9 knots, a tide) moves fast enough to need 60 updates a second,
+   * and every frame not spent here is a frame the renderer keeps — which is what
+   * the 45+ fps target is actually measuring.
    */
-  const MIN_STEP_MS = 1000 / 30;
+  const MIN_STEP_MS = 1000 / animationHz(views().length > 1);
   let lastRenderTs = -Infinity;
 
   const frame = (ts: number): void => {

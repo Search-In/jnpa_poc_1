@@ -46,6 +46,7 @@ import {
 } from '@/map/scene3d';
 import { portAssetLayers } from '@/map/portAssets3d';
 import { createAnimLayers, startSceneAnimation, type AnimInput } from './sceneAnim';
+import { isLowPowerDevice } from './device';
 import { initialBasemap, installBasemapFallback, isOfflineRequested } from '@/map/basemapFallback';
 import { applyGraphics } from '@/map/applyGraphics';
 import { useVrStore } from './vrStore';
@@ -179,6 +180,14 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
       () => viewsRef.current
     );
 
+    // Budget by device, not by hope. Stereo renders the whole port twice, so on
+    // a phone the desktop settings are what "lags a lot" actually means.
+    const lowPower = isLowPowerDevice();
+    const quality: 'low' | 'medium' | 'high' = lowPower ? 'low' : stereo ? 'medium' : 'high';
+    // The atmosphere is a full-screen effect billed per view; on a handset in
+    // stereo that is two of them for scenery you barely register through a lens.
+    const atmosphere = !(lowPower && stereo);
+
     const makeView = (container: HTMLDivElement): SceneView =>
       new SceneView({
         container,
@@ -186,12 +195,12 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
         // Immersive chrome: no zoom/compass/attribution widgets inside the
         // eye boxes. Attribution is shown once in the page footer instead.
         ui: { components: [] },
-        // Two simultaneous views double the draw cost; drop a quality tier in
-        // stereo so the 45+ fps budget still holds on a demo laptop.
-        qualityProfile: stereo ? 'medium' : 'high',
+        qualityProfile: quality,
         environment: {
-          atmosphereEnabled: true,
-          lighting: { type: 'sun', date: SUN_DATE, directShadowsEnabled: !stereo },
+          atmosphereEnabled: atmosphere,
+          // Shadows are the single most expensive lighting option and are the
+          // first thing to go once a second view is on screen.
+          lighting: { type: 'sun', date: SUN_DATE, directShadowsEnabled: !stereo && !lowPower },
         } as never,
         // Popups would open inside an eye box and cannot be dismissed with a
         // headset on; asset detail lives in the HUD list instead.
@@ -336,12 +345,68 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
         display: 'flex',
         // A hard black gutter between the eye boxes is what stops the two
         // images bleeding into each other in a cardboard viewer.
-        gap: stereo ? 2 : 0,
+        gap: stereo ? LENS_GUTTER_PX : 0,
         background: '#000',
       }}
     >
-      <div ref={leftRef} style={{ flex: 1, height: '100%' }} />
-      {stereo ? <div ref={rightRef} style={{ flex: 1, height: '100%' }} /> : null}
+      <Eye viewRef={leftRef} stereo={stereo} />
+      {stereo ? <Eye viewRef={rightRef} stereo /> : null}
+    </div>
+  );
+}
+
+/** Corner rounding of a lens box, as a share of its own size. */
+const LENS_RADIUS = '22%';
+/** Black bar between the two lenses. */
+const LENS_GUTTER_PX = 6;
+
+/**
+ * One eye box.
+ *
+ * In stereo it is masked into a rounded "lens" with a black surround and a soft
+ * vignette, which is what a cardboard viewer actually shows you: the plastic
+ * lens is round, so the corners of a full rectangle are never visible anyway and
+ * only serve to leak light between the eyes. Masking them matches the YouTube
+ * cardboard presentation and makes the two images read as one scene.
+ *
+ * This is a MASK, not optical barrel-distortion pre-warp — correcting for lens
+ * pincushion would need a post-process shader over the SceneView's own canvas,
+ * which the Esri renderer does not expose.
+ */
+function Eye({
+  viewRef,
+  stereo,
+}: {
+  viewRef: React.MutableRefObject<HTMLDivElement | null>;
+  stereo: boolean;
+}) {
+  if (!stereo) return <div ref={viewRef} style={{ flex: 1, height: '100%' }} />;
+  return (
+    <div style={{ flex: 1, height: '100%', position: 'relative', overflow: 'hidden' }}>
+      <div
+        ref={viewRef}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: LENS_RADIUS,
+          overflow: 'hidden',
+        }}
+      />
+      {/* Vignette: darkens toward the rim the way a real lens does, and hides the
+          hard mask edge. Non-interactive so it never eats a tap. */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          borderRadius: LENS_RADIUS,
+          // Enough to soften the mask edge and suggest the lens rim, but not so
+          // much that it eats usable field of view — the port has to stay
+          // visible right out to the edges of the eye box.
+          boxShadow: 'inset 0 0 9vmin 1.5vmin rgba(0,0,0,0.72)',
+        }}
+      />
     </div>
   );
 }

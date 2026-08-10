@@ -76,6 +76,46 @@ every animated asset holds still (the state colouring still reads).
 | **3D** | One `SceneView`, full screen. Drag to look, arrow keys / WASD to walk (hold Shift to stride), `Esc` to exit. |
 | **VR** | **Two** `SceneView`s side by side sharing one `Map`, cameras separated by the interpupillary distance, driven by `deviceorientation`. This is the phone-in-a-cardboard-holder presentation; it also works fullscreen in a headset's own browser. |
 
+### Head tracking (`useGyro.ts`)
+
+Four things the naive `addEventListener('deviceorientation')` gets wrong, all
+handled here — and the first one is usually the whole problem:
+
+1. **Secure context.** Motion sensors are only exposed over HTTPS (or
+   localhost). Opening the app on a phone via `http://192.168.x.x:5173` — the
+   obvious thing to do — means the event *never fires*, with no error. That is
+   detected up front and reported: run the dev server with `VITE_DEV_HTTPS=true`
+   and use the `https://` address.
+2. **Absolute vs relative.** Plain `deviceorientation` on Android is often
+   relative: `alpha` drifts and the port slowly rotates away under you.
+   `deviceorientationabsolute` is preferred, with the relative feed as fallback,
+   and once the absolute feed is alive the relative one is ignored so the two
+   cannot fight over the heading.
+3. **iOS's compass.** Safari does not put true north in `alpha`; it supplies
+   `webkitCompassHeading`, which overrides the derived heading when present.
+4. **The permission gesture.** iOS 13+ gates the sensors behind
+   `DeviceOrientationEvent.requestPermission()`, which must be called from a user
+   gesture — hence the "Enable look-around" button.
+
+A watchdog covers the last case: permission granted, listener attached, still no
+readings. Rather than a frozen horizon you get a message saying so.
+
+**The tour and your head do not fight.** With tracking live the tour is demoted
+to moving you *between* beats while your head owns heading and tilt
+(`setTourPose(pose, positionOnly)`), which is how a real headset behaves.
+`setGyroLook` deliberately does not cancel the tour the way manual input does.
+
+### Lens format
+
+In stereo each eye is masked into a rounded "lens" with a black surround and a
+soft vignette — the cardboard presentation. A real viewer's lens is round, so
+the corners of a full rectangle are never visible anyway and only leak light
+between the eyes.
+
+This is a **mask, not optical pre-warp**. Correcting for lens pincushion would
+need a post-process barrel-distortion shader over the SceneView's own canvas,
+which the Esri renderer does not expose.
+
 ### Why not native WebXR
 
 `SceneView` owns its WebGL context and exposes no hook to render into an
@@ -179,6 +219,38 @@ builds its own scene from the same pure layer builders. The only edits outside
 - **Gyro look-around needs a secure context.** `VITE_DEV_HTTPS=true` serves the
   dev server over https for phone testing; iOS additionally gates the sensors
   behind the "Enable look-around" button (a user gesture).
+- **Fullscreen is requested from the click handler**, not from an effect. It
+  needs a user gesture; asking after mount is outside the gesture and the
+  browser refuses it silently — which is why the view never went fullscreen.
+  Landscape is locked at the same moment for stereo, and a screen wake lock
+  keeps the phone from dimming inside a holder nobody can reach into.
+
+---
+
+## PWA
+
+The app is installable, which is what gives the walkthrough the whole screen
+without browser chrome.
+
+| File | Role |
+| --- | --- |
+| `public/manifest.webmanifest` | `display: fullscreen`, theme/background colour, maskable SVG icon, and shortcuts straight to `#/vr` and `#/simulator` |
+| `public/icon.svg` | Single scalable icon (any + maskable), artwork inside the central 80% safe zone |
+| `public/sw.js` | Service worker — installability plus an offline launch |
+| `index.html` | Manifest link, theme colour, and the iOS-specific `apple-mobile-web-app-*` meta (iOS ignores the manifest's display mode) |
+
+**The service worker is deliberately conservative.** This app reads a gateway, a
+model service and Esri's tile CDN, and serving a stale berth plan or vessel
+position from cache would be an integrity failure, not a feature. So only
+same-origin built assets are cached (stale-while-revalidate; Vite content-hashes
+them so builds never collide). Every `/api`, `/ml-api`, `/aishub-proxy` and
+`/incois-proxy` call and every cross-origin request goes straight to the network.
+Navigations are network-first and fall back to the cached shell only when the
+network fails, so an offline launch opens instead of showing a browser error.
+
+It registers in **production builds only** — in dev a worker caching the shell
+fights Vite's HMR and serves stale modules, which looks exactly like a broken
+build. Test it with `npm run build && npx vite preview`, not `npm run dev`.
 - **Nothing in the frame loop allocates a graphic that outlives the frame.**
   This is the rule that keeps the walkthrough stable over a long session, and it
   was learned the hard way: an earlier version rebuilt the wake and glyph layers
@@ -197,7 +269,18 @@ builds its own scene from the same pure layer builders. The only edits outside
   rides on the geometry. Verified: graphic counts stay pinned at 9/22/10/10/17
   across hundreds of frames and the heap oscillates in a ~70–78 MB band
   (rises and falls — GC reclaiming) instead of climbing.
-- **The animator and the tour director both run at 30 Hz**, not display rate.
+- **The scene budgets itself by device** (`device.ts`), because stereo renders
+  the whole port twice and a phone is not a demo laptop. On a low-power handset
+  the walkthrough drops to `qualityProfile: 'low'`, turns off the atmosphere and
+  shadows, animates at 20 Hz instead of 30, and caps rain/fog *intensity* — never
+  the weather TYPE, because the type is the evidence (fog is *why* pilotage
+  stopped). Probes are capability-based (pointer type, cores, `deviceMemory`),
+  not user-agent sniffing.
+- **Cloud cover is capped at 0.75.** The renderer draws near-total overcast as a
+  BRIGHT dome, so a monsoon pushed toward 1.0 whites the sky out and reads as a
+  broken view rather than a storm.
+- **The animator and the tour director both run at 30 Hz** (20 Hz stereo on
+  mobile), not display rate.
   A gantry crane at walking pace, a hull at 9 knots and a tide do not need 60
   updates a second, and halving the update rate leaves the remaining frame
   budget to the renderer — which is what the 45+ fps target actually measures.

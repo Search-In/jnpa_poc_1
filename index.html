@@ -2,8 +2,26 @@
 <html lang="en" class="calcite-mode-light">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `viewport-fit=cover` lets the immersive view use the full panel on a
+         notched phone; `user-scalable=no` stops a pinch during head-tracking
+         from zooming the page out from under the stereo pair. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>JNPA — Vessel Traffic Management &amp; Optimisation (Digital Twin PoC · UC-1)</title>
+
+    <!-- PWA: installable, and launches without browser chrome so the cardboard
+         view gets the whole screen. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#0079c1" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <!-- iOS has no manifest support for display mode; these are its equivalent. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="JNPA Twin" />
   </head>
   <body>
     <div id="root"></div>

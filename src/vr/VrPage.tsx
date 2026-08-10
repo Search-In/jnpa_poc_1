@@ -12,7 +12,7 @@
  * the store broadcasts across tabs, a scenario loaded in the dashboard is
  * already live when you walk in here.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSimStore } from '@/sim/simStore';
 import { useSimClock } from '@/sim/useSimClock';
 import { useSimReactivity } from '@/sim/useSimReactivity';
@@ -24,16 +24,10 @@ import { PlacePicker } from './PlacePicker';
 import { VrScene } from './VrScene';
 import { useVrData } from './useVrData';
 import { defaultVantages, useVrStore, type VrMode } from './vrStore';
-import {
-  orientationToLook,
-  smoothLook,
-  walk,
-  groundDistanceM,
-  bearingTo,
-  type ViewerPose,
-} from './stereo';
+import { walk, groundDistanceM, bearingTo, type ViewerPose } from './stereo';
 import { overallSeverity } from './impactModel';
 import { buildShots, tourDurationMs, tourFrame } from './cinematic';
+import { useGyro } from './useGyro';
 import { asset3dPosition } from '@/map/scene3d';
 import { PORT_CENTER } from '@/map/portGeometry';
 import { resolveImpactPosition } from './impactLayers';
@@ -51,11 +45,6 @@ const SEVERITY_GLYPH: Record<string, string> = {
   info: '·',
   none: '·',
 };
-
-/** iOS 13+ gates the motion sensors behind an explicit user gesture. */
-interface DeviceOrientationEventStatic {
-  requestPermission?: () => Promise<'granted' | 'denied'>;
-}
 
 export function VrPage() {
   // The walkthrough runs its own clock + reactivity so it works as a standalone
@@ -113,8 +102,33 @@ function Setup({
     xr.isSessionSupported('immersive-vr').then(setXrSupported).catch(() => setXrSupported(false));
   }, []);
 
+  /**
+   * Enter the immersive view.
+   *
+   * Fullscreen is requested HERE, inside the click handler, because it needs a
+   * user gesture — asking for it from an effect after mount is outside the
+   * gesture and the browser rejects it silently, which is why the view never
+   * went fullscreen before. Landscape is then locked for stereo, since a
+   * cardboard holder is landscape by construction. Both are best-effort: a
+   * rejection is normal on desktop and must not block entry.
+   */
   const go = (m: VrMode) => {
     if (!running) setRunning(true);
+    void (async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen?.();
+        }
+        if (m === 'vr') {
+          const orientation = screen.orientation as ScreenOrientation & {
+            lock?: (o: string) => Promise<void>;
+          };
+          await orientation?.lock?.('landscape');
+        }
+      } catch {
+        /* not permitted here — the view still works, just windowed */
+      }
+    })();
     enter(m);
   };
 
@@ -282,8 +296,6 @@ function Immersive({
   mode: VrMode;
 }) {
   const exit = useVrStore((s) => s.exit);
-  const gyroActive = useVrStore((s) => s.gyroActive);
-  const gyroError = useVrStore((s) => s.gyroError);
   const showLabels = useVrStore((s) => s.showLabels);
   const showEdges = useVrStore((s) => s.showEdges);
   const toggleLabels = useVrStore((s) => s.toggleLabels);
@@ -348,47 +360,54 @@ function Immersive({
   }, [mode]);
 
   // ---- gyroscope look (VR mode) ---------------------------------------------
-  const enableGyro = useCallback(async () => {
-    const DOE = window.DeviceOrientationEvent as unknown as DeviceOrientationEventStatic | undefined;
-    if (!DOE) {
-      useVrStore.getState().setGyro(false, 'This device reports no orientation sensor.');
-      return;
-    }
-    try {
-      if (typeof DOE.requestPermission === 'function') {
-        const res = await DOE.requestPermission();
-        if (res !== 'granted') {
-          useVrStore.getState().setGyro(false, 'Motion access denied — look-around is disabled.');
-          return;
-        }
+  // Head tracking writes through `setGyroLook`, which does NOT cancel the tour:
+  // in cardboard the tour carries you between vantage points while your head
+  // decides where you face, exactly as a real headset behaves.
+  const gyro = useGyro(mode === 'vr', (heading, tilt) => {
+    useVrStore.getState().setGyroLook(heading, tilt);
+  });
+
+  // Mirror the sensor state into the store so the scene knows whether the tour
+  // may write heading/tilt or only position.
+  useEffect(() => {
+    useVrStore.getState().setGyro(gyro.live, gyro.message);
+  }, [gyro.live, gyro.message]);
+
+  // Fullscreen is ENTERED from the click handler in `Setup.go` (it needs a user
+  // gesture); this only undoes it, plus the orientation lock, on the way out.
+  useEffect(
+    () => () => {
+      const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
+      try {
+        orientation?.unlock?.();
+      } catch {
+        /* not supported — nothing to undo */
       }
-      useVrStore.getState().setGyro(true, null);
-    } catch {
-      useVrStore.getState().setGyro(false, 'Motion access could not be enabled.');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (mode !== 'vr' || !gyroActive) return;
-    let last: { heading: number; tilt: number } | null = null;
-    const onOrient = (e: DeviceOrientationEvent) => {
-      const look = orientationToLook(e.alpha, e.beta, e.gamma);
-      if (!look) return;
-      last = smoothLook(last, look);
-      useVrStore.getState().setLook(last.heading, last.tilt);
-    };
-    window.addEventListener('deviceorientation', onOrient, true);
-    return () => window.removeEventListener('deviceorientation', onOrient, true);
-  }, [mode, gyroActive]);
-
-  // Fullscreen is what makes a cardboard holder usable; failure is non-fatal.
-  useEffect(() => {
-    if (mode !== 'vr') return;
-    void document.documentElement.requestFullscreen?.().catch(() => {});
-    return () => {
       if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    },
+    []
+  );
+
+  /**
+   * Keep the screen awake while the walkthrough is on. A phone dimming out
+   * mid-demo, inside a cardboard holder where nobody can reach the screen, ends
+   * the demo. Best-effort: unsupported browsers just carry on.
+   */
+  useEffect(() => {
+    let sentinel: { release: () => Promise<void> } | null = null;
+    const wakeLock = (navigator as Navigator & {
+      wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> };
+    }).wakeLock;
+    void wakeLock
+      ?.request('screen')
+      .then((s) => {
+        sentinel = s;
+      })
+      .catch(() => {});
+    return () => {
+      void sentinel?.release().catch(() => {});
     };
-  }, [mode]);
+  }, []);
 
   const severity = overallSeverity(model.impacts);
   const env = model.environment;
@@ -409,6 +428,10 @@ function Immersive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [shotSignature, berths]
   );
+
+  // In cardboard the head owns the look direction, so the tour is demoted to
+  // moving the viewer between beats.
+  const headTracked = mode === 'vr' && gyro.live;
 
   useEffect(() => {
     if (!autoTour || shots.length === 0) {
@@ -445,7 +468,9 @@ function Immersive({
       const elapsed = (ts - t0) % Math.max(1, total);
       const f = tourFrame(shots, from, elapsed, reduced);
       if (!f) return;
-      useVrStore.getState().setTourPose(f.pose);
+      // With head tracking live the viewer owns heading/tilt; the tour only
+      // carries them to the next vantage point.
+      useVrStore.getState().setTourPose(f.pose, headTracked);
       if (f.index !== lastIndex) {
         lastIndex = f.index;
         setCaption({
@@ -458,7 +483,7 @@ function Immersive({
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [autoTour, shots]);
+  }, [autoTour, shots, headTracked]);
 
   // Distance/bearing from the viewer to each impacted asset — "which way do I
   // turn to see this" is the first question in a first-person view.
@@ -555,8 +580,8 @@ function Immersive({
         <button onClick={toggleEdges} style={linkBtn}>
           {showEdges ? 'Hide' : 'Show'} causal edges
         </button>
-        {mode === 'vr' && !gyroActive ? (
-          <button onClick={() => void enableGyro()} style={primaryBtnSm}>
+        {mode === 'vr' && !gyro.live ? (
+          <button onClick={() => void gyro.request()} style={primaryBtnSm}>
             Enable look-around
           </button>
         ) : null}
@@ -594,7 +619,7 @@ function Immersive({
         </div>
       ) : null}
 
-      {gyroError ? (
+      {gyro.message ? (
         <div
           style={{
             position: 'absolute',
@@ -609,7 +634,7 @@ function Immersive({
             zIndex: 11,
           }}
         >
-          {gyroError}
+          {gyro.message}
         </div>
       ) : null}
 
