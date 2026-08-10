@@ -271,11 +271,25 @@ build. Test it with `npm run build && npx vite preview`, not `npm run dev`.
   (rises and falls — GC reclaiming) instead of climbing.
 - **The scene budgets itself by device** (`device.ts`), because stereo renders
   the whole port twice and a phone is not a demo laptop. On a low-power handset
-  the walkthrough drops to `qualityProfile: 'low'`, turns off the atmosphere and
-  shadows, animates at 20 Hz instead of 30, and caps rain/fog *intensity* — never
-  the weather TYPE, because the type is the evidence (fog is *why* pilotage
-  stopped). Probes are capability-based (pointer type, cores, `deviceMemory`),
-  not user-agent sniffing.
+  the walkthrough drops to `qualityProfile: 'low'`, turns shadows off, animates
+  at 20 Hz instead of 30, and caps rain/fog *intensity* — never the weather TYPE,
+  because the type is the evidence (fog is *why* pilotage stopped). Probes are
+  capability-based (pointer type, cores, `deviceMemory`), not UA sniffing.
+- **`atmosphereEnabled` is ALWAYS true — never a performance dial.** In a global
+  scene the atmosphere *is* the sky: switching it off does not buy a cheaper sky,
+  it gives you the black of space, and with `starsEnabled` defaulting on you get
+  a starfield. That is exactly how an earlier mobile-perf pass turned the
+  walkthrough into night. Stars are explicitly off; this is a daytime port.
+- **Tile budget is where the mobile savings actually come from.** Three tile
+  services normally feed this scene — imagery, the label overlay `hybrid` adds
+  on top, and Terrain3D for the ground — and stereo requests from all three
+  twice. On a low-power device the basemap drops to `satellite` (one service; a
+  place label is unreadable through a cardboard lens anyway) and the ground goes
+  flat (Terrain3D gone; JNPA is tidal flats with ~0 m relief). Verified: 2 base
+  layers + 1 ground layer → **1 base layer + 0 ground layers**.
+- **The sun is fixed at 2026-06-16T06:30Z = 12:00 noon IST at JNPA** — midday,
+  deliberately. If the scene ever looks like night, check `atmosphereEnabled`
+  before you touch the date.
 - **Cloud cover is capped at 0.75.** The renderer draws near-total overcast as a
   BRIGHT dome, so a monsoon pushed toward 1.0 whites the sky out and reads as a
   broken view rather than a storm.

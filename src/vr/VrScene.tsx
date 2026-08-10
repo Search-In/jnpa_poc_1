@@ -136,9 +136,23 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
     // `env.arcgisApiKey` after mistaking a stalled render for an auth failure —
     // that gating was wrong and is gone.
     const offline = isOfflineRequested();
+    const lowPower = isLowPowerDevice();
+
+    // Tile budget on a handset. Three separate tile services normally feed this
+    // scene — imagery, the reference/label overlay that 'hybrid' adds on top,
+    // and Terrain3D for the ground — and in stereo two views request from all
+    // three. That is what makes tiles crawl in or never arrive on mobile data.
+    //
+    //  • 'satellite' instead of 'hybrid' drops the label overlay: one tile
+    //    service gone, and place labels are unreadable through a cardboard lens
+    //    anyway.
+    //  • Flat ground drops Terrain3D entirely. JNPA is tidal flats with ~0 m
+    //    relief, so the terrain was buying almost nothing visually.
+    //
+    // Desktop keeps the full setup, identical to `PortScene`.
     const map = new Map({
-      basemap: initialBasemap(),
-      ...(offline ? {} : { ground: 'world-elevation' }),
+      basemap: offline ? initialBasemap() : lowPower ? 'satellite' : initialBasemap(),
+      ...(offline || lowPower ? {} : { ground: 'world-elevation' }),
     });
 
     const d0 = dataRef.current;
@@ -182,11 +196,7 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
 
     // Budget by device, not by hope. Stereo renders the whole port twice, so on
     // a phone the desktop settings are what "lags a lot" actually means.
-    const lowPower = isLowPowerDevice();
     const quality: 'low' | 'medium' | 'high' = lowPower ? 'low' : stereo ? 'medium' : 'high';
-    // The atmosphere is a full-screen effect billed per view; on a handset in
-    // stereo that is two of them for scenery you barely register through a lens.
-    const atmosphere = !(lowPower && stereo);
 
     const makeView = (container: HTMLDivElement): SceneView =>
       new SceneView({
@@ -197,7 +207,15 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
         ui: { components: [] },
         qualityProfile: quality,
         environment: {
-          atmosphereEnabled: atmosphere,
+          // ALWAYS on. In a global scene the atmosphere IS the sky — switching
+          // it off to save a draw call does not give you a cheaper sky, it gives
+          // you the black of space, which is what turned the walkthrough into
+          // night on mobile. Savings come from the tile budget and the quality
+          // profile instead, never from this.
+          atmosphereEnabled: true,
+          // No starfield: this is a daytime port, and a star layer over a black
+          // void was the other half of the "sky is night" impression.
+          starsEnabled: false,
           // Shadows are the single most expensive lighting option and are the
           // first thing to go once a second view is on screen.
           lighting: { type: 'sun', date: SUN_DATE, directShadowsEnabled: !stereo && !lowPower },
