@@ -9,8 +9,10 @@
  * backend (before any CSV upload) every count is 0 by design.
  */
 
+import { useSyncExternalStore } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchMarineStats } from '@/data/uc3/marineCalls';
+import { getAsOfDate, getAsOfDayRange, subscribeAsOfDate } from '@/data/asOfDate';
 import type { MarineCallStats } from '@/types/domain';
 import { PanelError, PanelLoading } from '@/components/common/Panel';
 import { tokens } from '@/theme/tokens';
@@ -38,7 +40,13 @@ function hours(v: number | null): string {
 }
 
 export function MarineStatCards() {
-  const q = useAdapterQuery<MarineCallStats>(() => fetchMarineStats(), []);
+  // Header date-pin (UC1-004): re-anchors these cards to the picked corpus day's
+  // ETA window instead of every call ever recorded.
+  const asOfDate = useSyncExternalStore(subscribeAsOfDate, getAsOfDate, getAsOfDate);
+  const q = useAdapterQuery<MarineCallStats>(
+    () => fetchMarineStats(getAsOfDayRange() ?? {}),
+    [asOfDate],
+  );
 
   if (q.loading && !q.data) return <PanelLoading label="Loading vessel-call KPIs…" />;
   if (q.error) return <PanelError message={q.error} />;

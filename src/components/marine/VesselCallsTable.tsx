@@ -10,10 +10,16 @@
  * and sorts), so a header click refetches rather than reordering a partial page.
  */
 
-import { useState, type CSSProperties } from 'react';
-import { CalciteButton, CalciteInput, CalciteCheckbox, CalciteLabel } from '@esri/calcite-components-react';
+import { useState, useSyncExternalStore, type CSSProperties } from 'react';
+import {
+  CalciteButton,
+  CalciteInput,
+  CalciteCheckbox,
+  CalciteLabel,
+} from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchVesselCallsPage, type VesselCallFilters } from '@/data/uc3/marineCalls';
+import { getAsOfDate, getAsOfDayRange, subscribeAsOfDate } from '@/data/asOfDate';
 import type { VesselCall } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
@@ -47,17 +53,18 @@ const TD: CSSProperties = {
 const PAGE_SIZE = 50;
 
 /** Sortable columns → the backend `sort` key it maps to. */
-const COLUMNS: { key: string; label: string; sort?: string; render: (c: VesselCall) => string }[] = [
-  { key: 'vcn', label: 'VCN', sort: 'vcn', render: (c) => c.vcn || '—' },
-  { key: 'vessel', label: 'Vessel', sort: 'vessel_name', render: (c) => c.vesselName || '—' },
-  { key: 'via', label: 'VIA', sort: 'via_no', render: (c) => c.viaNo || '—' },
-  { key: 'voyage', label: 'Voyage', render: (c) => c.voyageNo || '—' },
-  { key: 'status', label: 'Status', sort: 'status', render: (c) => c.status || '—' },
-  { key: 'eta', label: 'ETA', sort: 'eta', render: (c) => fmt(c.eta) },
-  { key: 'ata', label: 'ATA', sort: 'ata', render: (c) => fmt(c.ata) },
-  { key: 'atd', label: 'ATD', sort: 'atd', render: (c) => fmt(c.atd) },
-  { key: 'updated', label: 'Updated', sort: 'updated_at', render: (c) => fmt(c.updatedAt) },
-];
+const COLUMNS: { key: string; label: string; sort?: string; render: (c: VesselCall) => string }[] =
+  [
+    { key: 'vcn', label: 'VCN', sort: 'vcn', render: (c) => c.vcn || '—' },
+    { key: 'vessel', label: 'Vessel', sort: 'vessel_name', render: (c) => c.vesselName || '—' },
+    { key: 'via', label: 'VIA', sort: 'via_no', render: (c) => c.viaNo || '—' },
+    { key: 'voyage', label: 'Voyage', render: (c) => c.voyageNo || '—' },
+    { key: 'status', label: 'Status', sort: 'status', render: (c) => c.status || '—' },
+    { key: 'eta', label: 'ETA', sort: 'eta', render: (c) => fmt(c.eta) },
+    { key: 'ata', label: 'ATA', sort: 'ata', render: (c) => fmt(c.ata) },
+    { key: 'atd', label: 'ATD', sort: 'atd', render: (c) => fmt(c.atd) },
+    { key: 'updated', label: 'Updated', sort: 'updated_at', render: (c) => fmt(c.updatedAt) },
+  ];
 
 /** epoch ms → IST string, or '—' when unknown (0). */
 function fmt(ms: number): string {
@@ -76,17 +83,21 @@ export function VesselCallsTable({
   const [sort, setSort] = useState('updated_at');
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc');
   const [offset, setOffset] = useState(0);
+  // Header date-pin (UC1-004): re-anchors this table to the picked corpus day's
+  // ETA window instead of every call ever recorded.
+  const asOfDate = useSyncExternalStore(subscribeAsOfDate, getAsOfDate, getAsOfDate);
 
   const filters: VesselCallFilters = {
     vessel: vessel.trim() || undefined,
     inPort: inPort || undefined,
     sort,
     direction,
+    ...(getAsOfDayRange() ?? {}),
   };
 
   const q = useAdapterQuery(
     () => fetchVesselCallsPage(filters, PAGE_SIZE, offset),
-    [vessel, inPort, sort, direction, offset],
+    [vessel, inPort, sort, direction, offset, asOfDate]
   );
 
   const toggleSort = (col: (typeof COLUMNS)[number]) => {
@@ -110,7 +121,15 @@ export function VesselCallsTable({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Toolbar: search + in-port filter */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.space.md, paddingBottom: tokens.space.sm, flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: tokens.space.md,
+          paddingBottom: tokens.space.sm,
+          flexWrap: 'wrap',
+        }}
+      >
         <CalciteInput
           scale="s"
           clearable
@@ -132,13 +151,28 @@ export function VesselCallsTable({
           />
           In port only
         </CalciteLabel>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: tokens.textMuted, fontVariantNumeric: 'tabular-nums' }}>
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 12,
+            color: tokens.textMuted,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
           {from}–{to} of {total}
         </span>
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm }}>
+      <div
+        style={{
+          flex: 1,
+          overflow: 'auto',
+          minHeight: 0,
+          border: `1px solid ${tokens.border}`,
+          borderRadius: tokens.radius.sm,
+        }}
+      >
         {q.loading && !page ? (
           <PanelLoading label="Loading vessel calls…" />
         ) : q.error ? (
@@ -156,7 +190,13 @@ export function VesselCallsTable({
                     key={c.key}
                     style={{ ...TH, cursor: c.sort ? 'pointer' : 'default' }}
                     onClick={() => toggleSort(c)}
-                    aria-sort={c.sort && c.sort === sort ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    aria-sort={
+                      c.sort && c.sort === sort
+                        ? direction === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : 'none'
+                    }
                     title={c.sort ? 'Click to sort' : undefined}
                   >
                     {c.label}
@@ -181,7 +221,9 @@ export function VesselCallsTable({
                           ...TD,
                           fontWeight: col.key === 'vcn' ? 600 : undefined,
                           color: col.key === 'updated' ? tokens.textMuted : TD.color,
-                          fontVariantNumeric: ['eta', 'ata', 'atd', 'updated'].includes(col.key) ? 'tabular-nums' : undefined,
+                          fontVariantNumeric: ['eta', 'ata', 'atd', 'updated'].includes(col.key)
+                            ? 'tabular-nums'
+                            : undefined,
                         }}
                       >
                         {col.render(c)}
@@ -196,11 +238,30 @@ export function VesselCallsTable({
       </div>
 
       {/* Pager */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.space.sm, paddingTop: tokens.space.sm }}>
-        <CalciteButton scale="s" appearance="outline" iconStart="chevron-left" disabled={offset === 0 || undefined} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: tokens.space.sm,
+          paddingTop: tokens.space.sm,
+        }}
+      >
+        <CalciteButton
+          scale="s"
+          appearance="outline"
+          iconStart="chevron-left"
+          disabled={offset === 0 || undefined}
+          onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+        >
           Prev
         </CalciteButton>
-        <CalciteButton scale="s" appearance="outline" iconEnd="chevron-right" disabled={to >= total || undefined} onClick={() => setOffset(offset + PAGE_SIZE)}>
+        <CalciteButton
+          scale="s"
+          appearance="outline"
+          iconEnd="chevron-right"
+          disabled={to >= total || undefined}
+          onClick={() => setOffset(offset + PAGE_SIZE)}
+        >
           Next
         </CalciteButton>
       </div>

@@ -12,7 +12,7 @@
  * fixtures are preserved; every platform module (3D scene, provenance, DUKC,
  * scenarios, workflows) is new and marine-specific.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   CalciteShell,
   CalciteShellPanel,
@@ -28,6 +28,7 @@ import {
 } from '@esri/calcite-components-react';
 import { HeaderBar } from '@/components/HeaderBar';
 import { DataSourceToggle } from '@/components/DataSourceToggle';
+import { HeaderAsOfDatePicker } from '@/components/HeaderAsOfDatePicker';
 import { DataModeChip } from '@/provenance/DataModeChip';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
@@ -65,6 +66,7 @@ import { TideFieldLegend } from '@/components/TideFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
 import { useLiveVesselStore } from '@/map/liveVesselStore';
 import { env } from '@/data/config';
+import { getAsOfDate, subscribeAsOfDate } from '@/data/asOfDate';
 import { Scenarios } from '@/sim/ScenariosPanel';
 import { GuidedTour } from '@/sim/GuidedTour';
 import { ReactiveGuide } from '@/whatif/ReactiveGuide';
@@ -152,6 +154,8 @@ export function App() {
   // Re-fetch berths (through SimAdapter) whenever the operator stages a data
   // override, so forced berth statuses reach the 3D scene live.
   const simVersion = useSimStore((s) => s.version);
+  // Header date-pin (UC1-004): re-anchors the corpus reads to a chosen day.
+  const asOfDate = useSyncExternalStore(subscribeAsOfDate, getAsOfDate, getAsOfDate);
 
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
@@ -207,8 +211,9 @@ export function App() {
     setScene(h);
   }, []);
 
-  // Load berths once (and refetch when the scene needs them). Kept simple — the
-  // 3D scene + gantt both read berths; the store already streams vessels.
+  // Load berths once (and refetch when the scene needs them, or the header
+  // date-pin changes). Kept simple — the 3D scene + gantt both read berths;
+  // the store already streams vessels (subscribeVessels reacts to the pin itself).
   useEffect(() => {
     let alive = true;
     void import('@/data').then(({ getAdapter }) =>
@@ -222,7 +227,7 @@ export function App() {
     return () => {
       alive = false;
     };
-  }, [simVersion]);
+  }, [simVersion, asOfDate]);
 
   // Guided tour drives the camera + active tab + map highlights per step.
   // MUST be stable (useCallback): GuidedTour lists this in a useEffect dep array,
@@ -248,6 +253,7 @@ export function App() {
           <HeaderBar
             extra={
               <>
+                <HeaderAsOfDatePicker />
                 <DataSourceToggle />
                 <RoleSwitcher />
                 <SimControls />

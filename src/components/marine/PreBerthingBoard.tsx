@@ -16,7 +16,7 @@
  * the same constants the planner uses — one vocabulary across screens.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import {
   fetchMarineBerths,
@@ -26,6 +26,7 @@ import {
 } from '@/data/uc3/marineDashboard';
 import { fetchPortCraft } from '@/data/uc3/portCraft';
 import { nearestTide } from '@/data/Uc3Adapter';
+import { getAsOfDate, getAsOfEpoch, subscribeAsOfDate } from '@/data/asOfDate';
 import { STANDARD_CLEARANCE_H, STANDARD_PILOTAGE_LEAD_H } from '@/config/targets';
 import { Panel, PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
@@ -54,8 +55,12 @@ const LAMP: Record<LampState, { bg: string; label: string }> = {
 };
 
 export function PreBerthingBoard() {
-  const berths = useAdapterQuery(() => fetchMarineBerths(), []);
-  const states = useAdapterQuery(() => fetchMarineVesselStates(), []);
+  // Header date-pin (UC1-004): re-anchors the target list + berth/pilot state
+  // to the picked corpus day instead of the backend's live "now".
+  const asOfDate = useSyncExternalStore(subscribeAsOfDate, getAsOfDate, getAsOfDate);
+  const asOfEpoch = getAsOfEpoch();
+  const berths = useAdapterQuery(() => fetchMarineBerths(asOfEpoch || undefined), [asOfDate]);
+  const states = useAdapterQuery(() => fetchMarineVesselStates(asOfEpoch || undefined), [asOfDate]);
   const tides = useAdapterQuery(() => fetchTides(), []);
   const craft = useAdapterQuery(() => fetchPortCraft(), []);
   const [selected, setSelected] = useState<string>('');

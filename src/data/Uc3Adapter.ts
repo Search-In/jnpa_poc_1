@@ -16,8 +16,10 @@
  *
  * TIME MODEL. The corpus is historical (May–Jul 2026). All reads omit `at` so the
  * backend anchors to the latest ACTUAL in the data (the dense berthing-report era);
- * `VITE_UC3_AS_OF` pins a different instant for rehearsing a specific day. The
- * SimAdapter wrapper still overlays what-if levers on top, unchanged.
+ * `VITE_UC3_AS_OF` seeds a default pin, and the header date picker (`asOfDate.ts`,
+ * `HeaderAsOfDatePicker.tsx`) lets the operator repin live to any corpus day —
+ * every fetch reads the pin fresh (no reload needed). The SimAdapter wrapper
+ * still overlays what-if levers on top, unchanged.
  *
  * HONESTY RULES carried through this adapter:
  *   - KPI cards keep the backend's definition/basis/baseline-source strings
@@ -50,6 +52,7 @@ import type {
 } from './types';
 import { KPI_TARGETS } from '@/config/targets';
 import { env } from './config';
+import { getAsOfEpoch, subscribeAsOfDate } from './asOfDate';
 import { computeWhatIf } from './MockAdapter';
 import { fetchShippingLines } from './uc3/shippingLines';
 import { fetchBerthingReportsPage } from './uc3/berthing';
@@ -140,15 +143,13 @@ interface Cached<T> {
 export class Uc3Adapter implements DataAdapter {
   readonly mode = 'live' as const;
 
-  /** Demo pin for the anchor instant (epoch ms); 0 = let the backend anchor. */
-  private readonly asOf: number;
-
   private cache = new Map<string, Cached<unknown>>();
 
-  constructor() {
-    const pinned = (import.meta.env.VITE_UC3_AS_OF as string | undefined) ?? '';
-    const parsed = pinned ? Date.parse(pinned) : NaN;
-    this.asOf = Number.isFinite(parsed) ? parsed : 0;
+  /** Anchor instant (epoch ms); 0 = let the backend anchor. Read live off the
+   * header date-pin store (falls back to VITE_UC3_AS_OF) rather than frozen
+   * at construction, so picking a date updates the dashboard in place. */
+  private get asOf(): number {
+    return getAsOfEpoch();
   }
 
   private at(): number | undefined {
@@ -168,15 +169,18 @@ export class Uc3Adapter implements DataAdapter {
   }
 
   private loadBerths(): Promise<MarineBerthsResult> {
-    return this.cached('berths', () => fetchMarineBerths(this.at()));
+    // Slot keyed by the anchor instant so a header date-pin change busts the
+    // cache immediately instead of serving another date's rows for CACHE_MS.
+    return this.cached(`berths:${this.at() ?? 'latest'}`, () => fetchMarineBerths(this.at()));
   }
 
   private loadKpis(): Promise<MarineKpisResult> {
-    return this.cached('kpis', () => fetchMarineKpis(this.at()));
+    return this.cached(`kpis:${this.at() ?? 'latest'}`, () => fetchMarineKpis(this.at()));
   }
 
   private loadStates(): Promise<MarineVesselState[]> {
-    return this.cached('states', async () => (await fetchMarineVesselStates(this.at())).items);
+    return this.cached(`states:${this.at() ?? 'latest'}`,
+      async () => (await fetchMarineVesselStates(this.at())).items);
   }
 
   private loadTides(): Promise<TideReadingRow[]> {
@@ -353,9 +357,12 @@ export class Uc3Adapter implements DataAdapter {
     };
     void tick();
     const timer = setInterval(tick, POLL_MS);
+    // A header date-pin change must reflect immediately, not wait for the next poll.
+    const unsubAsOf = subscribeAsOfDate(() => void tick());
     return () => {
       alive = false;
       clearInterval(timer);
+      unsubAsOf();
       onState?.('closed');
     };
   }
