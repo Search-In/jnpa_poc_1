@@ -55,6 +55,21 @@ applyTheme();
 // (a two-branch hash router, then Calcite tabs inside one root), so the root is
 // the one choke point. With VITE_AUTH_ENABLED unset it is a pass-through and
 // the mount is exactly as it was.
+/**
+ * Register the service worker that makes the app installable (and therefore
+ * launchable fullscreen, which is what the cardboard view needs).
+ *
+ * PRODUCTION ONLY. In dev a worker caching the shell fights Vite's HMR and
+ * serves stale modules, which looks exactly like a broken build.
+ */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {
+      /* unsupported or blocked — the app works fine without it */
+    });
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthGate>
