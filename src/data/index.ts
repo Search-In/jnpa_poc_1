@@ -1,7 +1,7 @@
 /**
  * Adapter selector — the one place the app obtains its `DataAdapter`.
  *
- * `VITE_DATA_MODE=mock` (default) → MockAdapter, zero credentials.
+ * `VITE_DATA_MODE=mock` (default) → Uc3Adapter when `VITE_UC3_ENABLED`, else MockAdapter.
  * `VITE_DATA_MODE=live`           → ArcGISAdapter (Stream/Feature Layers).
  * `VITE_DATA_MODE=hybrid`         → MockAdapter + real AIS composited on top.
  *
@@ -11,8 +11,11 @@
  * loudly at runtime via `env.dataModeWarning`. Without that gate the fallthrough
  * silently serves invented vessels as if the configuration had worked.
  *
- * UC-3 gateway data is NOT selected here: it is orthogonal to the data mode and
- * switched by VITE_UC3_ENABLED (see the note on `env.uc3` in ./config).
+ * THERE IS NO `uc3` DATA_MODE value (rejected by `resolveDataMode`). UC-3 is
+ * orthogonal and switched by `VITE_UC3_ENABLED`. The map/feed source is a second
+ * switch: `VITE_UC3_DERIVED_VESSELS` (default true) selects corpus DERIVED
+ * positions (UC1-011); set false to keep the mock fleet while UC-3 stays on for
+ * Live AIS + marine screens — the production-style combo.
  *
  * The whole UI imports `getAdapter()` from here and nothing else from `data/`,
  * so swapping modes never touches a component.
@@ -22,6 +25,7 @@ import { env } from './config';
 import { MockAdapter } from './MockAdapter';
 import { ArcGISAdapter } from './ArcGISAdapter';
 import { LiveOverlayAdapter } from './LiveOverlayAdapter';
+import { ResilientCorpusAdapter } from './ResilientCorpusAdapter';
 import { SimAdapter } from '@/sim/SimAdapter';
 import type { DataAdapter } from './types';
 import type { DataMode } from './dataMode';
@@ -30,20 +34,17 @@ let singleton: DataAdapter | null = null;
 
 /**
  * Build the base adapter for the mode (without the simulator overlay).
- *   mock   → MockAdapter (offline).
+ *   mock   → ResilientCorpusAdapter when UC-3 + derived vessels;
+ *            otherwise MockAdapter (offline / production-style demo fleet).
  *   live   → ArcGISAdapter (Stream/Feature Layers only).
  *   hybrid → MockAdapter with real aisstream.io vessels composited on top.
- *
- * THERE IS NO `uc3` MODE, by design. UC-3 gateway data — vessel calls, pilotage,
- * bathymetry, performance, the live-AIS overlay — is ORTHOGONAL to VITE_DATA_MODE and
- * switched by VITE_UC3_ENABLED (README, and the note in dataMode.ts). The two are
- * independent on purpose: gateway records are real whether or not the AIS fleet is
- * simulated, and the marine screens read the `data/uc3/*` connectors directly rather
- * than through this adapter seam.
  */
 export function createBaseAdapter(mode: DataMode = env.dataMode): DataAdapter {
   if (mode === 'live') return new ArcGISAdapter();
   if (mode === 'hybrid') return new LiveOverlayAdapter(new MockAdapter());
+  // UC1-011: corpus vessel-states → map with SOURCE:'derived' provenance.
+  // Opt out with VITE_UC3_DERIVED_VESSELS=false to keep the mock fleet.
+  if (env.uc3.enabled && env.uc3.derivedVessels) return new ResilientCorpusAdapter();
   return new MockAdapter();
 }
 

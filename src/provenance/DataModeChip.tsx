@@ -23,13 +23,16 @@ export function DataModeChip() {
   const icon =
     mode === 'LIVE' ? 'lightning' : mode === 'REPLAY' ? 'clock' : degraded ? 'exclamation-mark-triangle' : 'play';
   const kind = mode === 'LIVE' ? 'brand' : mode === 'REPLAY' ? 'brand' : degraded ? 'inverse' : 'neutral';
+  // `inverse` is a dark Calcite surface — forcing tokens.text (#151515) made
+  // "SIMULATED · IMPUTED" unreadable. Light text on inverse; dark on neutral.
+  const chipText = kind === 'inverse' ? '#ffffff' : tokens.text;
 
   return (
     <CalciteChip
       scale="s"
       kind={kind}
       icon={icon}
-      style={{ cursor: 'pointer', '--calcite-chip-text-color': tokens.text } as React.CSSProperties}
+      style={{ cursor: 'pointer', '--calcite-chip-text-color': chipText } as React.CSSProperties}
       title={
         mode === 'REPLAY'
           ? 'Corpus replay — the twin replays the richest real week JNPA shared; live feeds swap in without code change. Click for Integration Console.'

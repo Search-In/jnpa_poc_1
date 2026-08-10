@@ -421,6 +421,12 @@ const STATUS_ORDER = ['underway', 'approaching', 'anchored', 'berthing', 'moored
 export function vesselGraphics(vessels: Vessel[]): Graphic[] {
   return vessels.map((v) => {
     const size = vesselSize(v.VESSEL_TYPE);
+    const source =
+      v.SOURCE === 'live'
+        ? 'LIVE · AIS fix'
+        : v.SOURCE === 'derived'
+          ? 'DERIVED · geometry from berth/anchorage/channel'
+          : 'SIMULATED';
     return new Graphic({
       geometry: new Point({ longitude: v.LON, latitude: v.LAT }),
       attributes: {
@@ -439,6 +445,7 @@ export function vesselGraphics(vessels: Vessel[]): Graphic[] {
         heading: v.HEADING,
         berth: v.BERTH_ID ?? '—',
         eta: v.ETA ? istTime(v.ETA) : '—',
+        source,
         size,
       },
     });
@@ -447,7 +454,7 @@ export function vesselGraphics(vessels: Vessel[]): Graphic[] {
 
 export function vesselLayer(vessels: Vessel[]): FeatureLayer {
   return new FeatureLayer({
-    title: 'Vessels (live AIS · simulated)',
+    title: 'Vessels (derived / live AIS / simulated)',
     source: vesselGraphics(vessels) as unknown as Graphic[],
     objectIdField: 'objectId',
     geometryType: 'point',
@@ -464,6 +471,7 @@ export function vesselLayer(vessels: Vessel[]): FeatureLayer {
       { name: 'heading', type: 'double' },
       { name: 'berth', type: 'string' },
       { name: 'eta', type: 'string' },
+      { name: 'source', type: 'string' },
       { name: 'size', type: 'double' },
     ],
     renderer: {
@@ -505,6 +513,7 @@ export function vesselLayer(vessels: Vessel[]): FeatureLayer {
         { fieldName: 'heading', label: 'Heading (°T)' },
         { fieldName: 'berth', label: 'Assigned berth' },
         { fieldName: 'eta', label: 'ETA (IST)' },
+        { fieldName: 'source', label: 'Source' },
       ]),
       actions: POPUP_ACTIONS,
     } as never,

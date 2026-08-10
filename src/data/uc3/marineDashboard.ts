@@ -27,6 +27,12 @@
 
 import { http } from './client';
 import { env } from '../config';
+import {
+  isHttpNotFound,
+  shimBerthsFromState,
+  shimKpisFromCallsAndState,
+  shimVesselStatesFromCalls,
+} from './marineDashboardShim';
 
 // ------------------------------------------------------------------ paths
 export const MARINE_BERTHS_PATH = '/marine/berths';
@@ -569,8 +575,23 @@ function withAt(path: string, at?: number, extra?: Record<string, string | numbe
 }
 
 // ------------------------------------------------------------------ fetchers (I/O last)
+async function fetchWithShim<T>(
+  path: string,
+  at: number | undefined,
+  parse: (raw: unknown) => T,
+  shim: (at?: number) => Promise<T>,
+  extra?: Record<string, string | number>,
+): Promise<T> {
+  try {
+    return parse(await http<unknown>(withAt(path, at, extra)));
+  } catch (err) {
+    if (isHttpNotFound(err)) return shim(at);
+    throw err;
+  }
+}
+
 export async function fetchMarineBerths(at?: number): Promise<MarineBerthsResult> {
-  return parseBerths(await http<unknown>(withAt(MARINE_BERTHS_PATH, at)));
+  return fetchWithShim(MARINE_BERTHS_PATH, at, parseBerths, shimBerthsFromState);
 }
 
 export async function fetchMarinePlan(at?: number, days = 5): Promise<MarinePlanResult> {
@@ -578,7 +599,13 @@ export async function fetchMarinePlan(at?: number, days = 5): Promise<MarinePlan
 }
 
 export async function fetchMarineKpis(at?: number, windowDays = 30): Promise<MarineKpisResult> {
-  return parseKpis(await http<unknown>(withAt(MARINE_KPIS_PATH, at, { window_days: windowDays })));
+  return fetchWithShim(
+    MARINE_KPIS_PATH,
+    at,
+    parseKpis,
+    (anchor) => shimKpisFromCallsAndState(anchor, windowDays),
+    { window_days: windowDays },
+  );
 }
 
 export async function fetchMarineArrDep(
@@ -589,7 +616,12 @@ export async function fetchMarineArrDep(
 }
 
 export async function fetchMarineVesselStates(at?: number): Promise<MarineVesselStatesResult> {
-  return parseVesselStates(await http<unknown>(withAt(MARINE_VESSEL_STATES_PATH, at)));
+  return fetchWithShim(
+    MARINE_VESSEL_STATES_PATH,
+    at,
+    parseVesselStates,
+    shimVesselStatesFromCalls,
+  );
 }
 
 export async function fetchPilotPerformance(movement?: string): Promise<PilotPerformanceResult> {

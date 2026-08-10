@@ -375,10 +375,11 @@ export class ArcGISAdapter implements DataAdapter {
 
   async getKPIs(): Promise<KpiBundle> {
     const now = this.now();
-    const [plan, predictions, berths] = await Promise.all([
+    const [plan, predictions, berths, craft] = await Promise.all([
       this.getBerthPlan({ lastHours: 24 }),
       this.getPrediction({ lastHours: 24 }),
       this.getBerths(),
+      this.getPortCraft().catch(() => []),
     ]);
     const snapshots = await this.getKpiHistory({ lastHours: 24 });
     return buildKpiBundle({
@@ -389,6 +390,12 @@ export class ArcGISAdapter implements DataAdapter {
       berthCount: berths.length,
       snapshots,
       windowHours: 24,
+      craftJobs: craft.map((c) => ({
+        type: c.TYPE,
+        deployed: c.STATUS === 'deployed',
+        responseMin: c.RESPONSE_MIN,
+      })),
+      provenance: 'LIVE',
     });
   }
 
