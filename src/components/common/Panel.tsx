@@ -46,12 +46,31 @@ export function Panel({
           background: tokens.panelAlt,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: tokens.text, letterSpacing: 0.3 }}>
+        <h2
+          style={{
+            margin: 0,
+            fontSize: 12,
+            fontWeight: 600,
+            color: tokens.text,
+            letterSpacing: 0.3,
+          }}
+        >
           {title}
         </h2>
         {actions}
       </div>
-      <div style={{ flex: 1, padding: 12, minHeight: 0 }}>{children}</div>
+      <div
+        style={{
+          flex: 1,
+          padding: 12,
+          minHeight: 0,
+          // Fixed-height panels must scroll their body — without this, six-row
+          // ladders (and any tall child) clip with no way to reach lower rows.
+          ...(height ? { overflowY: 'auto' as const } : null),
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }

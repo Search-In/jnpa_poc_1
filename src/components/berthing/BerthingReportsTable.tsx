@@ -11,11 +11,13 @@
  * uploaded through the Data Upload sub-tab.
  */
 
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { CalciteButton, CalciteInput, CalciteCheckbox, CalciteLabel } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
+import { fetchBerthingLifecycleMap, type BerthingLifecycle } from '@/data/uc3/berthingState';
 import {
   fetchBerthingReportsPage,
+  openBerthingSourcePdf,
   BERTHING_TERMINALS,
   BERTHING_STATUSES,
   type BerthingReportFilters,
@@ -23,6 +25,9 @@ import {
 import type { BerthingReport } from '@/types/domain';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
+import { StatusChip } from '@/components/shipping/dataTable';
+import { lifecycleTone } from '@/components/marine/lifecycleTone';
+import { AnomalyMark } from '@/components/marine/AnomalyMark';
 import { tokens } from '@/theme/tokens';
 
 const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse' };
@@ -41,18 +46,67 @@ const TD: CSSProperties = {
 const PAGE_SIZE = 50;
 
 /** Sortable columns → the backend `sort` key it maps to (see repository._SORTS). */
-const COLUMNS: { key: string; label: string; sort?: string; render: (r: BerthingReport) => string; num?: boolean }[] = [
+/** Stable identity so the memo/render does not churn while the lifecycle query loads. */
+const EMPTY_LIFECYCLE: Map<number, BerthingLifecycle> = new Map();
+
+const COLUMNS: {
+  key: string;
+  label: string;
+  sort?: string;
+  /** `lc` is the PCS lifecycle for this row, absent when the VIA resolved to no call. */
+  render: (r: BerthingReport, lc?: BerthingLifecycle) => ReactNode;
+  num?: boolean;
+}[] = [
   { key: 'terminal', label: 'Terminal', sort: 'terminal', render: (r) => r.terminal || '—' },
   { key: 'vessel', label: 'Vessel', sort: 'vessel_name', render: (r) => r.vesselName || '—' },
   { key: 'voyage', label: 'Voyage', render: (r) => r.voyageNumber || '—' },
   { key: 'line', label: 'Line', render: (r) => r.shippingLine || '—' },
   { key: 'berth', label: 'Berth', render: (r) => r.berthNumber || '—' },
-  { key: 'status', label: 'Status', sort: 'status', render: (r) => r.status || '—' },
+  // The PDF-sourced status, verbatim (EXPECTED..DEPARTED — its own vocabulary).
+  { key: 'status', label: 'Report Status', sort: 'status',
+    render: (r) => r.status ? <StatusChip label={r.status} tone={lifecycleTone(r.status)} /> : '—' },
+  // The PCS lifecycle for the same call, from the backend State Engine.
+  //
+  // The ⚠ marks a VERIFIED anomaly, not an empty value: the gateway returned a row whose
+  // VIA resolved to NO vessel call (`lifecycle.callId === null`), which the state service
+  // documents as a real finding. A matched row with nothing to report yet is left plain.
+  { key: 'lifecycle', label: 'Lifecycle',
+    render: (_r, lc) => lc?.status
+      ? <StatusChip label={lc.status} tone={lifecycleTone(lc.status)} />
+      : lc && lc.callId === null
+        ? <span>—<AnomalyMark reason="No correlated vessel call for this voyage" /></span>
+        : '—' },
+  { key: 'berthstate', label: 'Berth State',
+    render: (_r, lc) => lc?.berthState
+      ? <StatusChip label={lc.berthState} tone={lifecycleTone(lc.berthState)} />
+      : '—' },
   { key: 'eta', label: 'ETA', sort: 'eta', render: (r) => fmt(r.eta) },
   { key: 'ata', label: 'ATA', sort: 'ata', render: (r) => fmt(r.ata) },
   { key: 'berthed', label: 'Berthed', render: (r) => fmt(r.berthingTime) },
   { key: 'departed', label: 'Departed', render: (r) => fmt(r.departureTime) },
   { key: 'updated', label: 'Updated', sort: 'updated_at', render: (r) => fmt(r.updatedAt) },
+  {
+    key: 'source',
+    label: 'Source PDF',
+    render: (r) =>
+      r.sourceFile ? (
+        <button
+          type="button"
+          onClick={() => {
+            void openBerthingSourcePdf(r.sourceFile!).catch((err: Error) => {
+              window.alert(err.message);
+            });
+          }}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            color: tokens.accent, fontSize: 12, textDecoration: 'underline',
+          }}
+          title="Open the original berthing-report PDF"
+        >
+          {r.sourceFile.length > 28 ? `${r.sourceFile.slice(0, 26)}…` : r.sourceFile}
+        </button>
+      ) : '—',
+  },
 ];
 
 /** epoch ms → IST string, or '—' when unknown (0). */
@@ -87,6 +141,13 @@ export function BerthingReportsTable() {
     () => fetchBerthingReportsPage(filters, PAGE_SIZE, offset),
     [terminal, statusF, vessel, berthedOnly, sort, direction, offset],
   );
+
+  // PCS lifecycle for the same calls, fetched SEPARATELY so this table degrades to its
+  // pre-existing behaviour (report data only, Lifecycle shows '—') if the state endpoint
+  // is unavailable. Never merged into `report_status`: the two are independent sources
+  // with different vocabularies, and seeing them side by side is the point.
+  const lc = useAdapterQuery(() => fetchBerthingLifecycleMap(terminal || undefined), [terminal]);
+  const lifecycle = lc.data ?? EMPTY_LIFECYCLE;
 
   const toggleSort = (col: (typeof COLUMNS)[number]) => {
     if (!col.sort) return;
@@ -195,7 +256,7 @@ export function BerthingReportsTable() {
                         fontVariantNumeric: ['eta', 'ata', 'berthed', 'departed', 'updated'].includes(col.key) ? 'tabular-nums' : undefined,
                       }}
                     >
-                      {col.render(r)}
+                      {col.render(r, lifecycle.get(r.id))}
                     </td>
                   ))}
                 </tr>

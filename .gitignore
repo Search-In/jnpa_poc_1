@@ -23,3 +23,11 @@ npm-debug.log*
 # vite / vitest cache
 .vite/
 *.tsbuildinfo
+
+package-lock.json
+pnpm-lock.yaml
+
+data/
+
+# local DB dumps (never commit)
+backups/

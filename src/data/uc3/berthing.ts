@@ -320,3 +320,42 @@ export async function validateBerthing(file: File, terminal?: string): Promise<B
 export async function importBerthing(file: File, terminal?: string): Promise<BerthingImportResult> {
   return postForm<BerthingImportResult>(BERTHING_UPLOAD_PATH, buildBerthingUploadForm(file, terminal));
 }
+
+/** List verbatim berthing-report documents (full-extract ledger). */
+export async function fetchBerthingDocuments(limit = 200): Promise<
+  { id: number; file_name: string; terminal: string }[]
+> {
+  const page = await http<{ items?: { id: number; file_name: string; terminal: string }[] }>(
+    `/berthing/documents?limit=${limit}`,
+  );
+  return page.items ?? [];
+}
+
+/**
+ * Open the original source PDF for a normalised row's `sourceFile`.
+ * Looks up the matching verbatim document, then streams `/documents/{id}/pdf`.
+ */
+export async function openBerthingSourcePdf(sourceFile: string): Promise<void> {
+  const docs = await fetchBerthingDocuments();
+  const doc = docs.find((d) => d.file_name === sourceFile);
+  if (!doc) {
+    throw new Error(`No verbatim document for ${sourceFile} — re-import the PDF (extract/import).`);
+  }
+  const { getAuthToken } = await import('./token');
+  const { getDataSourceMode } = await import('../dataSourceMode');
+  const { uc3Url } = await import('./client');
+  const token = await getAuthToken();
+  const res = await fetch(uc3Url(`/berthing/documents/${doc.id}/pdf`), {
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-data-mode': getDataSourceMode(),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`PDF open failed (${res.status}) for ${sourceFile}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener,noreferrer');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

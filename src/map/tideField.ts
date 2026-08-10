@@ -40,12 +40,38 @@ const GRID_H = 160;
  * [r,g,b] 0–255 from t=0 (dark purple) to t=1 (yellow).
  */
 const VIRIDIS: [number, number, number][] = [
-  [68, 1, 84], [71, 13, 96], [72, 24, 106], [72, 35, 116], [71, 45, 123], [69, 55, 129],
-  [66, 64, 134], [62, 73, 137], [59, 82, 139], [55, 91, 141], [51, 99, 141], [47, 107, 142],
-  [44, 114, 142], [41, 122, 142], [38, 130, 142], [35, 137, 142], [33, 145, 140], [31, 152, 139],
-  [31, 160, 136], [34, 168, 132], [40, 176, 127], [51, 183, 122], [66, 190, 113], [84, 197, 104],
-  [104, 203, 92], [126, 208, 79], [149, 213, 64], [173, 217, 48], [197, 220, 34], [222, 222, 24],
-  [246, 224, 34], [253, 231, 37],
+  [68, 1, 84],
+  [71, 13, 96],
+  [72, 24, 106],
+  [72, 35, 116],
+  [71, 45, 123],
+  [69, 55, 129],
+  [66, 64, 134],
+  [62, 73, 137],
+  [59, 82, 139],
+  [55, 91, 141],
+  [51, 99, 141],
+  [47, 107, 142],
+  [44, 114, 142],
+  [41, 122, 142],
+  [38, 130, 142],
+  [35, 137, 142],
+  [33, 145, 140],
+  [31, 152, 139],
+  [31, 160, 136],
+  [34, 168, 132],
+  [40, 176, 127],
+  [51, 183, 122],
+  [66, 190, 113],
+  [84, 197, 104],
+  [104, 203, 92],
+  [126, 208, 79],
+  [149, 213, 64],
+  [173, 217, 48],
+  [197, 220, 34],
+  [222, 222, 24],
+  [246, 224, 34],
+  [253, 231, 37],
 ];
 
 /** Map a normalised t∈[0,1] to a viridis [r,g,b]. */
@@ -86,8 +112,8 @@ export function fieldRange(stations: TideStation[], v: FieldVar): [number, numbe
  * 0..1 diagonal position toward the NE corner; anything past `LAND_EDGE` fades.
  */
 const LAND_EDGE = 0.72;
-function landAlpha(nx: number, ny: number): number {
-  // nx,ny are 0..1 across the extent (E and N). NE corner = (1,1) = land.
+/** nx,ny are 0..1 across the extent (E and N). NE corner = (1,1) = land. */
+export function fieldLandAlpha(nx: number, ny: number): number {
   const toLand = (nx + ny) / 2; // diagonal position toward NE
   if (toLand <= LAND_EDGE) return 1;
   return Math.max(0, 1 - (toLand - LAND_EDGE) / (1 - LAND_EDGE));
@@ -118,7 +144,7 @@ function idw(lon: number, lat: number, stations: TideStation[], v: FieldVar): nu
  */
 export function renderFieldCanvas(
   stations: TideStation[],
-  v: FieldVar,
+  v: FieldVar
 ): { canvas: HTMLCanvasElement; range: [number, number] } | null {
   if (!stations.length || typeof document === 'undefined') return null;
   const [lo, hi] = fieldRange(stations, v);
@@ -140,7 +166,7 @@ export function renderFieldCanvas(
       const lon = xmin + nx * (xmax - xmin);
       const val = idw(lon, lat, stations, v);
       const [r, g, b] = viridis((val - lo) / span);
-      const a = Math.round(255 * 0.82 * landAlpha(nx, ny)); // 0.82 = see basemap through
+      const a = Math.round(255 * 0.82 * fieldLandAlpha(nx, ny)); // 0.82 = see basemap through
       const o = (py * GRID_W + px) * 4;
       img.data[o] = r;
       img.data[o + 1] = g;

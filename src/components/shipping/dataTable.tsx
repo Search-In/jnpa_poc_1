@@ -293,12 +293,31 @@ export function DataNotice({ skipped, serverTotal, loaded }: {
   );
 }
 
-/** Status pill using the UC-1 status ramp. `tone` picks the colour. */
-export function StatusChip({ label, tone }: { label: string; tone: 'good' | 'warn' | 'bad' | 'muted' }) {
-  const color =
-    tone === 'good' ? tokens.good : tone === 'warn' ? tokens.warn : tone === 'bad' ? tokens.bad : tokens.textMuted;
+/** The tones the status ramp supports. `info` is the brand accent (in-port / in-progress). */
+export type ChipTone = 'good' | 'warn' | 'bad' | 'info' | 'muted';
+
+const TONE_COLOR: Record<ChipTone, string> = {
+  good: tokens.good,
+  warn: tokens.warn,
+  bad: tokens.bad,
+  info: tokens.accent,
+  muted: tokens.textMuted,
+};
+
+/**
+ * Status pill using the UC-1 status ramp. `tone` picks the colour.
+ *
+ * NEVER colour-only: the label is always rendered, the dot is `aria-hidden`, and `title`
+ * carries the same text — so the state is legible to a screen reader, in monochrome and
+ * to a colour-blind operator.
+ */
+export function StatusChip({ label, tone, title }: {
+  label: string; tone: ChipTone; title?: string;
+}) {
+  const color = TONE_COLOR[tone] ?? tokens.textMuted;
   return (
     <span
+      title={title ?? label}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px',
         fontSize: 11, lineHeight: 1.3, borderRadius: tokens.radius.sm,

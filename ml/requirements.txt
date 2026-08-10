@@ -1,0 +1,67 @@
+# =============================================================================
+# JNPA UC-I Vessel Traffic Management & Optimization — dependencies
+# Tender ref GeM/2026/B/7297343
+# =============================================================================
+#
+# IMPORTANT: the eight model modules run with NO third-party packages at all.
+# Everything below is optional in the strict sense — each module imports and
+# executes on a bare CPython install:
+#
+#     python uc1_m1_dukc.py        # works with nothing installed
+#
+# Verified against Python 3.12.10 on Windows 11.
+# -----------------------------------------------------------------------------
+
+
+# --- API layer -----------------------------------------------------------
+# Required only to serve the models over HTTP (api.py). The modules themselves
+# guard these imports and expose build_router() that raises a clear message.
+fastapi>=0.115
+pydantic>=2.7
+uvicorn[standard]>=0.30
+
+
+# --- UC1-M3 learned engines ----------------------------------------------
+# The engine fallback chain is lightgbm -> sklearn GBR -> sklearn RF ->
+# additive. The transparent additive model needs neither and always works, so
+# M3 degrades gracefully if these are absent — the reason is reported in
+# `engine_trace`.
+lightgbm>=4.0
+scikit-learn>=1.3
+
+
+# --- UC1-M5 exact solver -------------------------------------------------
+# Enables the CP-SAT berth-allocation solver, the production replacement named
+# in WS2 for the greedy heuristic. Without it M5 returns the greedy plan and
+# says so. Measured on the demo scenario: greedy cost 30.15, CP-SAT 17.66.
+ortools>=9.7
+
+
+# --- Real-data extraction ------------------------------------------------
+# Needed only by dsr_extract.py, which parses section (H) of the 54 JNPA Daily
+# Status Reports into dsr_berth_stays.csv. The models fall back to their seeded
+# synthetic generators when that CSV is absent.
+pdfplumber>=0.11
+
+
+# --- Spreadsheet I/O -----------------------------------------------------
+# Used by jnpa_input.py / predict.py / run_model.py to read .xlsx inputs and
+# write .xlsx outputs. Genuinely optional: jnpa_input.py carries a minimal
+# .xlsx reader built on stdlib zipfile + xml.etree (shared strings, inline
+# strings, booleans and date-formatted serials), verified cell-for-cell against
+# openpyxl in tests/test_integration.py. Without openpyxl, input still reads and
+# output falls back to .csv.
+openpyxl>=3.1
+
+
+# --- Test suite ----------------------------------------------------------
+pytest>=8.0
+# TestClient, for exercising the HTTP surface without starting a server.
+httpx>=0.27
+
+
+# -----------------------------------------------------------------------------
+# NOT required, deliberately:
+#   numpy / pandas — the modules use stdlib statistics and plain lists so they
+#   stay importable anywhere. numpy arrives transitively with scikit-learn.
+# -----------------------------------------------------------------------------

@@ -29,13 +29,15 @@ import {
 import { HeaderBar } from '@/components/HeaderBar';
 import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
+import { useDataModeStore } from '@/provenance/useDataModeStore';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
 import { VesselTable } from '@/components/VesselTable';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
-import { PilotageTable } from '@/components/marine/PilotageTable';
+import { PilotagePage } from '@/components/marine/PilotagePage';
+import { VesselRegisterTable } from '@/components/marine/VesselRegisterTable';
 import { MarineUploadPanel } from '@/components/marine/MarineUploadPanel';
 import { ContainerTrackPanel } from '@/components/marine/ContainerTrackPanel';
 import { PortScene, type PortSceneHandle, type CameraPreset } from '@/map/PortScene';
@@ -62,7 +64,9 @@ import { SeaChannelTable } from '@/components/marine/SeaChannelTable';
 import { BathymetryPage } from '@/components/marine/BathymetryPage';
 import { TideSeaStatePanel } from '@/components/TideSeaStatePanel';
 import { TideFieldLegend } from '@/components/TideFieldLegend';
+import { WindFieldLegend } from '@/components/WindFieldLegend';
 import { useTideFieldStore } from '@/map/tideFieldStore';
+import { useWindFieldStore } from '@/map/windFieldStore';
 import { useLiveVesselStore } from '@/map/liveVesselStore';
 import { env } from '@/data/config';
 import { Scenarios } from '@/sim/ScenariosPanel';
@@ -116,6 +120,13 @@ export function App() {
   useSimClock();
   useSimReactivity();
 
+  // UC1-004: a corpus pin means REPLAY — banner + header clock share that era.
+  useEffect(() => {
+    if (env.uc3.asOfMs > 0) {
+      useDataModeStore.getState().setMode('REPLAY');
+    }
+  }, []);
+
   // The live-AIS overlay starts OFF on every load, so first paint never depends
   // on a gateway call and no session ever comes up claiming to show real traffic
   // the operator didn't ask for. The store already defaults to false and is not
@@ -136,7 +147,10 @@ export function App() {
     const raw = q.get('scenario');
     if (!raw) return;
     const MAP: Record<string, string> = {
-      'VTM-1': 'M5', 'VTM-2': 'M1', 'VTM-3': 'M2', 'MONSOON-FRIDAY': 'M2',
+      'VTM-1': 'M5',
+      'VTM-2': 'M1',
+      'VTM-3': 'M2',
+      'MONSOON-FRIDAY': 'M2',
     };
     const id = MAP[raw.toUpperCase()] ?? raw;
     if (!SCENARIOS.some((s) => s.id === id)) return;
@@ -156,6 +170,8 @@ export function App() {
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('3d'); // 3D is the default first-load view (§A6)
   const tideFieldVisible = useTideFieldStore((s) => s.visible);
   const toggleTideField = useTideFieldStore((s) => s.toggleVisible);
+  const windFieldVisible = useWindFieldStore((s) => s.visible);
+  const toggleWindField = useWindFieldStore((s) => s.toggleVisible);
   // Live AIS overlay (real MarineTraffic-sourced traffic via the shared gateway).
   // Shared store, not local state, so the toggle survives a 2D↔3D flip.
   const liveAisOn = useLiveVesselStore((s) => s.enabled);
@@ -167,7 +183,9 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
-  const [vesselSubTab, setVesselSubTab] = useState<'live' | 'calls' | 'pilotage' | 'upload' | 'track'>('live');
+  const [vesselSubTab, setVesselSubTab] = useState<
+    'live' | 'calls' | 'register' | 'pilotage' | 'upload' | 'track'
+  >('live');
   // Shipping Lines is now a top-level module — its sub-tab and post-import refresh
   // state live inside <ShippingLinesPage>.
   // Bumped after a successful vessel-call import so the sibling (mounted-but-hidden)
@@ -188,7 +206,9 @@ export function App() {
   // 5-Day Berthing tab sub-view. 'plan' (the existing sim/adapter berth-plan gantt) is
   // the default so the tab opens exactly as before; 'reports' hosts the UC-3 terminal
   // berthing-report actuals + stats, 'upload' the berthing Data-Upload flow.
-  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'preberth' | 'upload'>('plan');
+  const [berthingSubTab, setBerthingSubTab] = useState<'plan' | 'reports' | 'preberth' | 'upload'>(
+    'plan'
+  );
   // Bumped after a successful berthing import so the sibling Terminal Reports view
   // remounts and refetches. Presentation-only — no query logic changes.
   const [berthingReportsKey, setBerthingReportsKey] = useState(0);
@@ -217,7 +237,7 @@ export function App() {
         .then((b) => {
           if (alive) setBerths(b as never);
         })
-        .catch(() => {}),
+        .catch(() => {})
     );
     return () => {
       alive = false;
@@ -235,7 +255,7 @@ export function App() {
       if (s.tab && TABS.some((t) => t.id === s.tab)) setActiveTab(s.tab as TabId);
       if (mapMode === '3d') sceneRef.current?.goToPreset(s.preset as CameraPreset);
     },
-    [mapMode],
+    [mapMode]
   );
 
   return (
@@ -274,13 +294,17 @@ export function App() {
           slot="panel-start"
           widthScale="l"
           resizable
-          style={{
-            '--calcite-shell-panel-min-width': '360px',
-            '--calcite-shell-panel-width': '46vw',
-            '--calcite-shell-panel-max-width': '90vw',
-          } as React.CSSProperties}
+          style={
+            {
+              '--calcite-shell-panel-min-width': '360px',
+              '--calcite-shell-panel-width': '46vw',
+              '--calcite-shell-panel-max-width': '90vw',
+            } as React.CSSProperties
+          }
         >
-          <CalcitePanel heading={mapMode === '3d' ? 'JNPA Sea-Port · 3D' : 'Live AIS Map · JNPA approaches'}>
+          <CalcitePanel
+            heading={mapMode === '3d' ? 'JNPA Sea-Port · 3D' : 'Live AIS Map · JNPA approaches'}
+          >
             <div style={{ height: 'calc(100vh - 120px)', position: 'relative' }}>
               {mapMode === '3d' ? (
                 <PortScene
@@ -354,6 +378,15 @@ export function App() {
                 </CalciteButton>
                 <CalciteButton
                   scale="s"
+                  appearance={windFieldVisible ? 'solid' : 'outline'}
+                  iconStart="wind"
+                  title="Toggle Zoom Earth–style wind particle overlay (Open-Meteo 10 m)"
+                  onClick={() => toggleWindField()}
+                >
+                  Wind
+                </CalciteButton>
+                <CalciteButton
+                  scale="s"
                   appearance="outline"
                   iconStart="exclamation-mark-triangle"
                   title="Rehearse ArcGIS token-death: reloads with the bundled offline basemap"
@@ -369,13 +402,23 @@ export function App() {
                   width="auto"
                   scale="s"
                   onCalciteSegmentedControlChange={(e) =>
-                    setMapMode(((e.target as unknown as { value: '2d' | '3d' }).value) === '3d' ? '3d' : '2d')
+                    setMapMode(
+                      (e.target as unknown as { value: '2d' | '3d' }).value === '3d' ? '3d' : '2d'
+                    )
                   }
                 >
-                  <CalciteSegmentedControlItem value="2d" checked={mapMode === '2d'} iconStart="map">
+                  <CalciteSegmentedControlItem
+                    value="2d"
+                    checked={mapMode === '2d'}
+                    iconStart="map"
+                  >
                     2D
                   </CalciteSegmentedControlItem>
-                  <CalciteSegmentedControlItem value="3d" checked={mapMode === '3d'} iconStart="urban-model">
+                  <CalciteSegmentedControlItem
+                    value="3d"
+                    checked={mapMode === '3d'}
+                    iconStart="urban-model"
+                  >
                     3D
                   </CalciteSegmentedControlItem>
                 </CalciteSegmentedControl>
@@ -383,7 +426,15 @@ export function App() {
 
               {/* Camera-preset bar (3D only) — floated on the map bottom-centre. */}
               {mapMode === '3d' && (
-                <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 12,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 5,
+                  }}
+                >
                   <DemoPlayer scene={scene} />
                 </div>
               )}
@@ -393,6 +444,19 @@ export function App() {
               {tideFieldVisible && (
                 <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 5 }}>
                   <TideFieldLegend />
+                </div>
+              )}
+              {/* Wind particle colourbar — bottom-right above tide legend when both on. */}
+              {windFieldVisible && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: tideFieldVisible ? 120 : 12,
+                    right: 12,
+                    zIndex: 5,
+                  }}
+                >
+                  <WindFieldLegend />
                 </div>
               )}
             </div>
@@ -419,7 +483,13 @@ export function App() {
             </CalciteTabNav>
 
             <CalciteTab tab="kpis" selected={activeTab === 'kpis'}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+                  gap: 12,
+                }}
+              >
                 <Panel title="Prediction vs Actual — convergence" minHeight={280}>
                   <PredictionConvergence />
                 </Panel>
@@ -427,10 +497,20 @@ export function App() {
                   <JustInTime />
                 </Panel>
                 <Panel title="Pre-Berthing Delay vs target" minHeight={260}>
-                  <DelayTrend field="PRE_BERTH_DELAY" target={KPI_TARGETS.preBerthingDelay.target} unit="h" label="Pre-berthing delay" />
+                  <DelayTrend
+                    field="PRE_BERTH_DELAY"
+                    target={KPI_TARGETS.preBerthingDelay.target}
+                    unit="h"
+                    label="Pre-berthing delay"
+                  />
                 </Panel>
                 <Panel title="Average Vessel TAT vs target" minHeight={260}>
-                  <DelayTrend field="AVG_TAT" target={KPI_TARGETS.avgTat.target} unit="h" label="Avg TAT" />
+                  <DelayTrend
+                    field="AVG_TAT"
+                    target={KPI_TARGETS.avgTat.target}
+                    unit="h"
+                    label="Avg TAT"
+                  />
                 </Panel>
                 {/* Spec UI-044 (screen M-09): predicted-vs-actual arrival accuracy —
                     previously built but never mounted (audit item D9). */}
@@ -443,19 +523,46 @@ export function App() {
             <CalciteTab tab="vessels" selected={activeTab === 'vessels'}>
               <CalciteTabs layout="inline">
                 <CalciteTabNav slot="title-group">
-                  <CalciteTabTitle tab="v-live" selected={vesselSubTab === 'live'} onCalciteTabsActivate={() => setVesselSubTab('live')}>
+                  <CalciteTabTitle
+                    tab="v-live"
+                    selected={vesselSubTab === 'live'}
+                    onCalciteTabsActivate={() => setVesselSubTab('live')}
+                  >
                     Live AIS Feed
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="v-calls" selected={vesselSubTab === 'calls'} onCalciteTabsActivate={() => setVesselSubTab('calls')}>
+                  <CalciteTabTitle
+                    tab="v-calls"
+                    selected={vesselSubTab === 'calls'}
+                    onCalciteTabsActivate={() => setVesselSubTab('calls')}
+                  >
                     Vessel Calls
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="v-pilotage" selected={vesselSubTab === 'pilotage'} onCalciteTabsActivate={() => setVesselSubTab('pilotage')}>
+                  <CalciteTabTitle
+                    tab="v-register"
+                    selected={vesselSubTab === 'register'}
+                    onCalciteTabsActivate={() => setVesselSubTab('register')}
+                  >
+                    Vessel Register
+                  </CalciteTabTitle>
+                  <CalciteTabTitle
+                    tab="v-pilotage"
+                    selected={vesselSubTab === 'pilotage'}
+                    onCalciteTabsActivate={() => setVesselSubTab('pilotage')}
+                  >
                     Pilotage
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="v-upload" selected={vesselSubTab === 'upload'} onCalciteTabsActivate={() => setVesselSubTab('upload')}>
+                  <CalciteTabTitle
+                    tab="v-upload"
+                    selected={vesselSubTab === 'upload'}
+                    onCalciteTabsActivate={() => setVesselSubTab('upload')}
+                  >
                     Data Upload
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="v-track" selected={vesselSubTab === 'track'} onCalciteTabsActivate={() => setVesselSubTab('track')}>
+                  <CalciteTabTitle
+                    tab="v-track"
+                    selected={vesselSubTab === 'track'}
+                    onCalciteTabsActivate={() => setVesselSubTab('track')}
+                  >
                     Track by Container
                   </CalciteTabTitle>
                 </CalciteTabNav>
@@ -473,11 +580,17 @@ export function App() {
                   <VesselCallsPanel key={vesselCallUploadKey} />
                 </CalciteTab>
 
-                {/* New: UC-3 pilotage movements (core.pilotage). */}
-                <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
-                  <Panel title="Pilotage movements — UC-3 backend (core.pilotage)" height={640}>
-                    <PilotageTable />
+                {/* New: UC-3 vessel MASTER register (core.vessel, VESPRO-sourced). Keyed on the
+                    same upload counter as Vessel Calls so a VESPRO import remounts and refetches. */}
+                <CalciteTab tab="v-register" selected={vesselSubTab === 'register'}>
+                  <Panel title="Vessel register — UC-3 backend (core.vessel, VESPRO)" height={640}>
+                    <VesselRegisterTable key={vesselCallUploadKey} />
                   </Panel>
+                </CalciteTab>
+
+                {/* UC-3 pilotage (core.pilotage), now its own sub-tabbed screen. */}
+                <CalciteTab tab="v-pilotage" selected={vesselSubTab === 'pilotage'}>
+                  <PilotagePage uploadKey={vesselCallUploadKey} />
                 </CalciteTab>
 
                 {/* New: UC-3 vessel-call upload (CSV + BERMAN/CALINF/VESPRO XML + pilot XLSX).
@@ -491,7 +604,6 @@ export function App() {
                 <CalciteTab tab="v-track" selected={vesselSubTab === 'track'}>
                   <ContainerTrackPanel />
                 </CalciteTab>
-
               </CalciteTabs>
             </CalciteTab>
 
@@ -499,11 +611,16 @@ export function App() {
                 Carrier Registry / Data Upload. Composition lives in
                 <ShippingLinesPage>, which also owns the post-import refresh. */}
             <CalciteTab tab="shipping" selected={activeTab === 'shipping'}>
-              <ShippingLinesPage />
+              {/* Carrier Registry's lifecycle columns come from the marine
+                  projection, so a marine import refreshes them too. */}
+              <ShippingLinesPage key={vesselCallUploadKey} />
             </CalciteTab>
 
             <CalciteTab tab="tide" selected={activeTab === 'tide'}>
-              <Panel title="Tide & Sea State — INCOIS OSF (interim: Open-Meteo Marine)" height={640}>
+              <Panel
+                title="Tide & Sea State — INCOIS OSF (interim: Open-Meteo Marine)"
+                height={640}
+              >
                 <TideSeaStatePanel />
               </Panel>
             </CalciteTab>
@@ -511,16 +628,32 @@ export function App() {
             <CalciteTab tab="gantt" selected={activeTab === 'gantt'}>
               <CalciteTabs layout="inline">
                 <CalciteTabNav slot="title-group">
-                  <CalciteTabTitle tab="b-plan" selected={berthingSubTab === 'plan'} onCalciteTabsActivate={() => setBerthingSubTab('plan')}>
+                  <CalciteTabTitle
+                    tab="b-plan"
+                    selected={berthingSubTab === 'plan'}
+                    onCalciteTabsActivate={() => setBerthingSubTab('plan')}
+                  >
                     5-Day Plan
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="b-reports" selected={berthingSubTab === 'reports'} onCalciteTabsActivate={() => setBerthingSubTab('reports')}>
+                  <CalciteTabTitle
+                    tab="b-reports"
+                    selected={berthingSubTab === 'reports'}
+                    onCalciteTabsActivate={() => setBerthingSubTab('reports')}
+                  >
                     Terminal Reports
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="b-preberth" selected={berthingSubTab === 'preberth'} onCalciteTabsActivate={() => setBerthingSubTab('preberth')}>
+                  <CalciteTabTitle
+                    tab="b-preberth"
+                    selected={berthingSubTab === 'preberth'}
+                    onCalciteTabsActivate={() => setBerthingSubTab('preberth')}
+                  >
                     Pre-Berthing Board
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="b-upload" selected={berthingSubTab === 'upload'} onCalciteTabsActivate={() => setBerthingSubTab('upload')}>
+                  <CalciteTabTitle
+                    tab="b-upload"
+                    selected={berthingSubTab === 'upload'}
+                    onCalciteTabsActivate={() => setBerthingSubTab('upload')}
+                  >
                     Data Upload
                   </CalciteTabTitle>
                 </CalciteTabNav>
@@ -539,8 +672,17 @@ export function App() {
                 {/* New: UC-3 per-terminal berthing REPORT actuals (jnpa.berthing_reports).
                     Keyed on the upload counter so a successful import remounts + refetches. */}
                 <CalciteTab tab="b-reports" selected={berthingSubTab === 'reports'}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} key={berthingReportsKey}>
-                    <Panel title="Berthing reports — UC-3 backend (jnpa.berthing_reports)" minHeight={120}>
+                  {/* Keyed on BOTH upload counters: the rows come from berthing reports,
+                      but the Lifecycle and Berth State columns come from the marine
+                      projection, so a marine import changes this view too. */}
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                    key={`${berthingReportsKey}-${vesselCallUploadKey}`}
+                  >
+                    <Panel
+                      title="Berthing reports — UC-3 backend (jnpa.berthing_reports)"
+                      minHeight={120}
+                    >
                       <BerthingStats />
                     </Panel>
                     <Panel title="Terminal berthing reports" height={520}>
@@ -562,13 +704,25 @@ export function App() {
             <CalciteTab tab="dukc" selected={activeTab === 'dukc'}>
               <CalciteTabs layout="inline">
                 <CalciteTabNav slot="title-group">
-                  <CalciteTabTitle tab="d-analysis" selected={dukcSubTab === 'analysis'} onCalciteTabsActivate={() => setDukcSubTab('analysis')}>
+                  <CalciteTabTitle
+                    tab="d-analysis"
+                    selected={dukcSubTab === 'analysis'}
+                    onCalciteTabsActivate={() => setDukcSubTab('analysis')}
+                  >
                     DUKC Analysis
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="d-channels" selected={dukcSubTab === 'channels'} onCalciteTabsActivate={() => setDukcSubTab('channels')}>
+                  <CalciteTabTitle
+                    tab="d-channels"
+                    selected={dukcSubTab === 'channels'}
+                    onCalciteTabsActivate={() => setDukcSubTab('channels')}
+                  >
                     Sea Channels
                   </CalciteTabTitle>
-                  <CalciteTabTitle tab="d-bathymetry" selected={dukcSubTab === 'bathymetry'} onCalciteTabsActivate={() => setDukcSubTab('bathymetry')}>
+                  <CalciteTabTitle
+                    tab="d-bathymetry"
+                    selected={dukcSubTab === 'bathymetry'}
+                    onCalciteTabsActivate={() => setDukcSubTab('bathymetry')}
+                  >
                     Bathymetry
                   </CalciteTabTitle>
                 </CalciteTabNav>
@@ -583,17 +737,28 @@ export function App() {
                 <CalciteTab tab="d-channels" selected={dukcSubTab === 'channels'}>
                   <CalciteTabs layout="inline">
                     <CalciteTabNav slot="title-group">
-                      <CalciteTabTitle tab="sc-data" selected={seaChannelSubTab === 'data'} onCalciteTabsActivate={() => setSeaChannelSubTab('data')}>
+                      <CalciteTabTitle
+                        tab="sc-data"
+                        selected={seaChannelSubTab === 'data'}
+                        onCalciteTabsActivate={() => setSeaChannelSubTab('data')}
+                      >
                         Sea Channel Data
                       </CalciteTabTitle>
-                      <CalciteTabTitle tab="sc-upload" selected={seaChannelSubTab === 'upload'} onCalciteTabsActivate={() => setSeaChannelSubTab('upload')}>
+                      <CalciteTabTitle
+                        tab="sc-upload"
+                        selected={seaChannelSubTab === 'upload'}
+                        onCalciteTabsActivate={() => setSeaChannelSubTab('upload')}
+                      >
                         Data Upload
                       </CalciteTabTitle>
                     </CalciteTabNav>
 
                     {/* Sea-channel register (core.sea_channel) — table only, the DEFAULT. */}
                     <CalciteTab tab="sc-data" selected={seaChannelSubTab === 'data'}>
-                      <Panel title="Sea channels — UC-3 backend (core.sea_channel, WGS84 GeoJSON)" height={420}>
+                      <Panel
+                        title="Sea channels — UC-3 backend (core.sea_channel, WGS84 GeoJSON)"
+                        height={420}
+                      >
                         <SeaChannelTable key={seaChannelUploadKey} />
                       </Panel>
                     </CalciteTab>
@@ -627,19 +792,32 @@ export function App() {
                 Overview on a guided-tour beat since the `tab: 'craft'` steps narrate
                 the resource board. */}
             <CalciteTab tab="craft" selected={activeTab === 'craft'}>
-              <PortCraftPage />
+              {/* Marine-projection consumer: remount after a marine import so the
+                  demand board and operations table reflect the new lifecycle. */}
+              <PortCraftPage key={vesselCallUploadKey} />
             </CalciteTab>
             <CalciteTab tab="scenarios" selected={activeTab === 'scenarios'}>
               <Scenarios />
             </CalciteTab>
             <CalciteTab tab="workflows" selected={activeTab === 'workflows'}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, alignItems: 'start' }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+                  gap: 16,
+                  alignItems: 'start',
+                }}
+              >
                 <div>
-                  <h3 style={{ fontSize: 13, color: tokens.textMuted, margin: '0 0 8px' }}>Workflow composer</h3>
+                  <h3 style={{ fontSize: 13, color: tokens.textMuted, margin: '0 0 8px' }}>
+                    Workflow composer
+                  </h3>
                   <WorkflowComposer />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 13, color: tokens.textMuted, margin: '0 0 8px' }}>Automated-workflow ledger</h3>
+                  <h3 style={{ fontSize: 13, color: tokens.textMuted, margin: '0 0 8px' }}>
+                    Automated-workflow ledger
+                  </h3>
                   <WorkflowRuns />
                 </div>
               </div>

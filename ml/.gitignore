@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Generated predictions. Reproduce with:
+#   python run.py models --model all --input data/input/Vessel_Training_Input_Sample.xlsx
+#
+# `out/*`, NOT `out/`: git does not descend into an excluded DIRECTORY, so a
+# trailing-slash rule would make every negation below dead and the samples that
+# are meant to be tracked would silently not be. Excluding the CONTENTS instead
+# keeps the re-includes working.
+out/*
+
+# ...except the dashboard samples. These are checked in on purpose: they are the
+# exact document shape the web app's Predictions panel renders, so a frontend
+# change can be checked against a file rather than against a running service.
+# Reproduce with:
+#   python run.py predict                              -> predictions_dashboard.json
+#   python run.py models --model all                   -> uc1_all_models_dashboard.json
+#   python src/pipeline/uc1_webapp_adapter.py --json   -> webapp_predictions_demo.json
+!out/predictions_dashboard.json
+!out/uc1_all_models_dashboard.json
+!out/webapp_predictions_demo.json
+
+# The raw JNPA Daily Status Report corpus (44 MB of source PDFs). It is read only
+# by dsr_extract.py, and the numbers the models need are already reduced into
+# data/reference/dsr_berth_stays.csv, which IS tracked. See data/corpus/README.md.
+data/corpus/*
+!data/corpus/README.md

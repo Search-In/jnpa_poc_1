@@ -102,6 +102,43 @@ export function friendlyError(raw: string): FriendlyError {
     );
   }
 
+  // --- AI/ML model service --------------------------------------------------
+  // MUST precede every status branch below. Those branches all say "gateway",
+  // and the model service is a DIFFERENT system (:8100 / `/ml-api`).
+  if (/^\[ML\]/.test(s)) {
+    if (/is not reachable/i.test(s)) {
+      return make(
+        'OFFLINE',
+        'The AI/ML model service isn’t running',
+        'Predictions come from the UC-1 Gen-2 pack: `cd ml && JNPA_PORT=8100 python run.py serve`. ' +
+          'The UC-3 gateway on :8000 is separate and unaffected.',
+        s,
+      );
+    }
+    if (/did not answer within|AbortError/i.test(s)) {
+      return make(
+        'TIMEOUT',
+        'The models took too long to answer',
+        'Retry; if it keeps timing out, raise VITE_ML_TIMEOUT_MS.',
+        s,
+      );
+    }
+    if (/is disabled|VITE_ML_ENABLED=false/i.test(s)) {
+      return make(
+        'DISABLED',
+        'AI/ML predictions are switched off in this build',
+        'This build was made with VITE_ML_ENABLED=false. Ask the deployment owner to enable it and redeploy.',
+        s,
+      );
+    }
+    return make(
+      'SERVER',
+      'The model service couldn’t complete this request',
+      'The service answered, but the run failed. Retry; if it persists, share the technical detail below.',
+      s,
+    );
+  }
+
   // Locally generated — the app declined to call out at all. LDB is not listed
   // here: its connector emits operator language at the source and its panel
   // renders that directly, so a disabled LDB never reaches this classifier.

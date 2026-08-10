@@ -21,8 +21,8 @@ export function DataModeChip() {
   const base = MODE_LABEL[mode] ?? mode;
   const label = mode === 'LIVE' ? 'LIVE' : degraded ? `${base} · ${worst}` : base;
   const icon =
-    mode === 'LIVE' ? 'lightning' : degraded ? 'exclamation-mark-triangle' : 'play';
-  const kind = mode === 'LIVE' ? 'brand' : degraded ? 'inverse' : 'neutral';
+    mode === 'LIVE' ? 'lightning' : mode === 'REPLAY' ? 'clock' : degraded ? 'exclamation-mark-triangle' : 'play';
+  const kind = mode === 'LIVE' ? 'brand' : mode === 'REPLAY' ? 'brand' : degraded ? 'inverse' : 'neutral';
 
   return (
     <CalciteChip
@@ -30,7 +30,11 @@ export function DataModeChip() {
       kind={kind}
       icon={icon}
       style={{ cursor: 'pointer', '--calcite-chip-text-color': tokens.text } as React.CSSProperties}
-      title="Data provenance — click to open the Integration Simulator Console"
+      title={
+        mode === 'REPLAY'
+          ? 'Corpus replay — the twin replays the richest real week JNPA shared; live feeds swap in without code change. Click for Integration Console.'
+          : 'Data provenance — click to open the Integration Simulator Console'
+      }
       onClick={() => setConsoleOpen(true)}
       aria-label={`Data mode ${label}. Click to open the integration console.`}
     >

@@ -1,0 +1,447 @@
+[
+  {
+    "berth_id": "APMT-01",
+    "terminal": "APMT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 48,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "APMT-01"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 88.89
+  },
+  {
+    "berth_id": "APMT-02",
+    "terminal": "APMT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 41,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "APMT-02"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 75.93
+  },
+  {
+    "berth_id": "BMCT-01",
+    "terminal": "BMCT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 55,
+    "occupied_appearances": 47,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "BMCT-01",
+      "BMCT01"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 85.45
+  },
+  {
+    "berth_id": "BMCT-02",
+    "terminal": "BMCT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 44,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "BMCT-02",
+      "BMCT02"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 81.48
+  },
+  {
+    "berth_id": "BMCT-03",
+    "terminal": "BMCT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 56,
+    "occupied_appearances": 44,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "BMCT-03",
+      "BMCT-03 (NORTH)",
+      "BMCT-03 (SOUTH)",
+      "BMCT03"
+    ],
+    "sub_berths": [
+      "NORTH",
+      "SOUTH"
+    ],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 78.57
+  },
+  {
+    "berth_id": "BMCT-04",
+    "terminal": "BMCT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 55,
+    "occupied_appearances": 41,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "BMCT-04",
+      "BMCT04"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 74.55
+  },
+  {
+    "berth_id": "BMCT-05",
+    "terminal": "BMCT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 40,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "BMCT-05",
+      "BMCT05"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 74.07
+  },
+  {
+    "berth_id": "BMCT-06",
+    "terminal": "BMCT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 24,
+    "occupied_appearances": 2,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "BMCT-06",
+      "BMCT06"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 8.33
+  },
+  {
+    "berth_id": "LB-01",
+    "terminal": "BPCL",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 58,
+    "occupied_appearances": 48,
+    "cargo_types": [
+      "A ACID+B ACETATE",
+      "ACETONE",
+      "ATF",
+      "ATF,HSD",
+      "CBFS",
+      "EDIBLE OIL",
+      "HSD",
+      "HSD+MS",
+      "HSD+MS+HF HSD",
+      "LPG",
+      "LPG MIX",
+      "MX+TOLIENE",
+      "MX+TOLUENE",
+      "N-BUTANOL+A ACID",
+      "NAPHTHA [E]",
+      "OLEIC ACID + VAM",
+      "SM"
+    ],
+    "raw_spellings": [
+      "LB-01",
+      "LB-01 [NORTH]",
+      "LB-01 [SOUTH]"
+    ],
+    "sub_berths": [
+      "NORTH",
+      "SOUTH"
+    ],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 82.76
+  },
+  {
+    "berth_id": "LB-02",
+    "terminal": "BPCL",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 35,
+    "cargo_types": [
+      "AMMONIA",
+      "ATF+HF HSD+HSD",
+      "BASE OIL",
+      "BASE OIL [E]",
+      "CHEMICALS",
+      "EDIBLE OIL",
+      "F.O [E]",
+      "FO [E]",
+      "FUEL OIL",
+      "FUEL OIL [E]",
+      "HSD",
+      "HSD + MS",
+      "HSD+MS",
+      "IPA+MDC",
+      "MS & HSD",
+      "NFO",
+      "PH. ACID",
+      "PHOSPHORIC ACID",
+      "RKO [E]",
+      "SM",
+      "TOLUENE+IPA+PHENOL+N. PARAFIN",
+      "VAM+A.ACID"
+    ],
+    "raw_spellings": [
+      "LB-02"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 64.81
+  },
+  {
+    "berth_id": "LB-03",
+    "terminal": "JJLTPL",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 19,
+    "cargo_types": [
+      "A.ACID+VAM",
+      "BASE OIL",
+      "CBFS",
+      "CPO",
+      "CSFO",
+      "EDIBLE OIL",
+      "IPA",
+      "SM/IPA/ACETONE"
+    ],
+    "raw_spellings": [
+      "LB-03"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 35.19
+  },
+  {
+    "berth_id": "LB-04",
+    "terminal": "JJLTPL",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 30,
+    "cargo_types": [
+      "ACETONE/PHENOL",
+      "BASE OIL",
+      "CHEMICALS",
+      "EDIBLE OIL",
+      "N BUTONAL/TOLUNE",
+      "NITRIC ACID",
+      "PH ACID",
+      "PHOSPHORIC ACID",
+      "SM",
+      "SM/MEOH",
+      "STYRENE MONOMER",
+      "VAM/ACETIC ACID"
+    ],
+    "raw_spellings": [
+      "LB-04"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 55.56
+  },
+  {
+    "berth_id": "CCB-N",
+    "terminal": "NSDT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 55,
+    "occupied_appearances": 26,
+    "cargo_types": [
+      "DREDGER"
+    ],
+    "raw_spellings": [
+      "CCB-N"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 47.27
+  },
+  {
+    "berth_id": "CCB-S",
+    "terminal": "NSDT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 22,
+    "cargo_types": [
+      "CEMENT"
+    ],
+    "raw_spellings": [
+      "CCB-S"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 40.74
+  },
+  {
+    "berth_id": "NSD-02",
+    "terminal": "NSDT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 39,
+    "cargo_types": [
+      "A.ACID+TOL",
+      "ACETIC ACID",
+      "BASE OIL",
+      "CEMENT",
+      "CONTAINER",
+      "PROJECT CARGO",
+      "STEEL",
+      "STEEL COIL",
+      "TOL+MX"
+    ],
+    "raw_spellings": [
+      "NSD-02"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 72.22
+  },
+  {
+    "berth_id": "NSD-03",
+    "terminal": "NSDT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 24,
+    "cargo_types": [
+      "CHEMICALS",
+      "CONTAINER",
+      "MEK+SM+A.ACID",
+      "PROJECT CARGO",
+      "SLUDGE OIL",
+      "SM",
+      "STEEL",
+      "STEEL COIL",
+      "TOL+DEA+TEA"
+    ],
+    "raw_spellings": [
+      "NSD-03"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 44.44
+  },
+  {
+    "berth_id": "CB-01",
+    "terminal": "NSFT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 40,
+    "cargo_types": [
+      "CONTAINER",
+      "PORT QASIM"
+    ],
+    "raw_spellings": [
+      "CB01"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 74.07
+  },
+  {
+    "berth_id": "CB-02",
+    "terminal": "NSFT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 26,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "CB02"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 48.15
+  },
+  {
+    "berth_id": "CB-04",
+    "terminal": "NSICT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 38,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "CB04"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 70.37
+  },
+  {
+    "berth_id": "CB-05",
+    "terminal": "NSICT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 43,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "CB05"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 79.63
+  },
+  {
+    "berth_id": "CB-06",
+    "terminal": "NSIGT",
+    "length_m": null,
+    "max_draft_m": null,
+    "appearances": 54,
+    "occupied_appearances": 50,
+    "cargo_types": [
+      "CONTAINER"
+    ],
+    "raw_spellings": [
+      "CB-06"
+    ],
+    "sub_berths": [],
+    "source": "JNPA Daily Status Report section (H)",
+    "utilisation_rate_pct": 92.59
+  }
+]

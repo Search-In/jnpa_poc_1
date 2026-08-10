@@ -14,9 +14,13 @@
  * looking like a load failure.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchBathymetrySurveys } from '@/data/uc3/bathymetry';
+import {
+  getDataSourceMode,
+  subscribeDataSourceMode,
+} from '@/data/dataSourceMode';
 import { SourceBadge } from '@/provenance/SourceBadge';
 import { PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { tokens } from '@/theme/tokens';
@@ -61,6 +65,11 @@ function Stat({ label, value, unit, hint, tone }: {
 }
 
 export function BathymetryOverview({ registerKey = 0 }: BathymetryOverviewProps) {
+  const sourceMode = useSyncExternalStore(
+    subscribeDataSourceMode,
+    getDataSourceMode,
+    getDataSourceMode,
+  );
   const q = useAdapterQuery(
     () => fetchBathymetrySurveys({ sort: 'drawing_no', direction: 'asc' }),
     [registerKey],
@@ -88,7 +97,13 @@ export function BathymetryOverview({ registerKey = 0 }: BathymetryOverviewProps)
   if (q.error) return <PanelError message={q.error} />;
   if (!view) {
     return (
-      <PanelEmpty message="No bathymetry surveys registered yet. Upload a chart PDF via the Data Upload tab." />
+      <PanelEmpty
+        message={
+          sourceMode === 'LIVE'
+            ? 'LIVE shows JNPA API charts only. Data Upload always goes to DEMO — switch to DEMO to see imported charts.'
+            : 'No DEMO bathymetry charts yet. Import a PDF on Data Upload — that is the DEMO corpus.'
+        }
+      />
     );
   }
 
@@ -142,8 +157,8 @@ export function BathymetryOverview({ registerKey = 0 }: BathymetryOverviewProps)
           }}
         >
           <strong>{view.pending}</strong> registered survey{view.pending === 1 ? '' : 's'} carry
-          no soundings yet — the chart PDF has not been uploaded. Use the Data Upload tab; the
-          survey must already be registered for its soundings to attach.
+          no soundings yet — the chart PDF has not been uploaded. Use the Data Upload tab to
+          import the chart; the survey header is created automatically on first successful import.
         </div>
       )}
 
