@@ -286,21 +286,21 @@ export function App() {
                   scale="s"
                   appearance="outline"
                   kind="brand"
-                  iconStart="sliders-horizontal"
-                  title="Open the Simulator control room in a new tab — its controls drive this dashboard live"
-                  onClick={() => window.open('#/simulator', '_blank')}
-                >
-                  Simulator
-                </CalciteButton>
-                <CalciteButton
-                  scale="s"
-                  appearance="outline"
-                  kind="brand"
                   iconStart="viewshed"
                   title="Stand inside the port and watch the active what-if scenario play out around you, in 3D or stereo VR"
                   onClick={() => window.open('#/vr', '_blank')}
                 >
                   Walkthrough
+                </CalciteButton>
+                <CalciteButton
+                  scale="s"
+                  appearance="outline"
+                  kind="brand"
+                  iconStart="sliders-horizontal"
+                  title="Open the Simulator control room in a new tab — its controls drive this dashboard live"
+                  onClick={() => window.open('#/simulator', '_blank')}
+                >
+                  Simulator
                 </CalciteButton>
                 <DataModeChip />
               </>
