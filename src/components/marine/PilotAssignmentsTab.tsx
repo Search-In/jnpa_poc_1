@@ -30,6 +30,7 @@ import { StatusChip } from '@/components/shipping/dataTable';
 import { lifecycleTone } from '@/components/marine/lifecycleTone';
 import { buildPilotRegister, isPilotAssignable }
   from '@/components/marine/pilotLifecycle';
+import { callLabel, isCallIdentifiable } from '@/components/marine/pilotDesk';
 import { matchesIdentity } from '@/components/marine/identitySearch';
 import { propagateMarineStateUpdate, useMarineStateVersion }
   from '@/data/uc3/marineStateBus';
@@ -42,6 +43,10 @@ const TH: CSSProperties = {
   textTransform: 'uppercase', color: tokens.textMuted,
   padding: `${tokens.space.sm}px ${tokens.space.md}px`, borderBottom: `1px solid ${tokens.border}`,
   background: tokens.panelAlt, whiteSpace: 'nowrap', position: 'sticky', top: 0,
+  // Positioned elements in the rows below (the Board/Release buttons) would
+  // otherwise paint over this header as they scroll under it — sticky sets
+  // `z-index: auto`, which loses to any later positioned sibling.
+  zIndex: 1,
 };
 const TD: CSSProperties = {
   fontSize: 12.5, lineHeight: 1.4, color: tokens.text,
@@ -107,9 +112,15 @@ export function PilotAssignmentsTab() {
     // Eligibility comes from the PROJECTION — see isPilotAssignable. Nothing here reads
     // a stored vessel_call column to decide whether a pilot is needed.
     .filter(isPilotAssignable)
-    // Identity, not lifecycle: the operator must be able to tell the vessels apart, and
-    // the backend needs a key to snapshot onto the assignment.
-    .filter((c) => !!c.vesselName && (!!c.vcn || !!c.viaNo))
+    // Identity, not lifecycle: the operator must be able to tell the vessels apart.
+    //
+    // This used to demand `!!c.vesselName && (!!c.vcn || !!c.viaNo)`, which silently made
+    // 828 of 1691 calls — 49% of the corpus — impossible to crew from this screen. A CALINF
+    // seeds a row before the vessel name is known, so the calls it excluded were largely the
+    // forward-looking `Planned` ones an operator most wants to pre-assign. The backend never
+    // needed a name: POST takes `call_id`, and the identity fields are a snapshot for the
+    // ledger's own display. `callLabel` supplies a VCN/VIA label for the dropdown instead.
+    .filter(isCallIdentifiable)
     // Backend rules, mirrored so the picker never offers what POST would refuse with 409.
     // Imported pilotage can coexist with pilot_state Pending (a memo lodged but no
     // boarding), so this is a genuinely separate guard, not a restatement of the above.
@@ -156,7 +167,7 @@ export function PilotAssignmentsTab() {
         vcn: chosenCall.vcn || undefined,
         viaNo: chosenCall.viaNo || undefined,
         imoNo: chosenCall.imoNo || undefined,
-        vesselName: chosenCall.vesselName || undefined,
+        vesselName: chosenCall.vesselName || callLabel(chosenCall),
         createdBy: 'operator',
       });
       setCallId('');
@@ -205,7 +216,10 @@ export function PilotAssignmentsTab() {
           <option value="">Select vessel ({candidates.length} awaiting)</option>
           {candidates.slice(0, 200).map((c) => (
             <option key={c.callId} value={c.callId}>
-              {c.vesselName} · {c.viaNo || c.vcn}
+              {callLabel(c)}
+              {/* Only append the identifier when the label is the NAME — otherwise the
+                  label already IS the VCN/VIA and this would print it twice. */}
+              {c.vesselName && (c.viaNo || c.vcn) ? ` · ${c.viaNo || c.vcn}` : ''}
             </option>
           ))}
         </select>
