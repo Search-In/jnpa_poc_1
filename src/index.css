@@ -52,3 +52,44 @@ body {
   }
 }
 
+
+/* ------------------------------------------------- Audited answer (what-if) --
+   The figures panel beside the walkthrough. Deliberately plain — it sits under a
+   Calcite shell and should read as part of it, not compete with the map. Colours
+   are taken from currentColor so it works whichever Calcite theme is active. */
+.audited-wrap { display: flex; flex-direction: column; gap: 8px;
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  padding-top: 10px; margin-top: 4px; }
+.audited-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.audited-ref { font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+  padding: 1px 6px; border-radius: 4px;
+  background: color-mix(in srgb, currentColor 10%, transparent); }
+.audited-run { margin-left: auto; font: inherit; font-size: 12px; cursor: pointer;
+  padding: 3px 10px; border-radius: 4px; border: 1px solid currentColor;
+  background: transparent; color: inherit; }
+.audited-run[disabled] { opacity: 0.55; cursor: default; }
+.audited-hint { margin: 0; font-size: 11.5px; line-height: 1.45; opacity: 0.75; }
+.audited-answer { display: flex; flex-direction: column; gap: 8px; }
+.audited-verdict { border-radius: 6px; padding: 10px;
+  background: color-mix(in srgb, currentColor 6%, transparent); }
+.audited-headline { margin: 0; font-size: 14px; font-weight: 650; line-height: 1.4; }
+.audited-detail { margin: 4px 0 0; font-size: 11.5px; line-height: 1.45; opacity: 0.78; }
+.audited-banner { margin: 0; font-size: 11.5px; line-height: 1.45; padding: 8px;
+  border-radius: 5px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); }
+.audited-section { display: flex; flex-direction: column; gap: 6px; }
+.audited-section h4 { margin: 8px 0 0; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.05em; opacity: 0.62; }
+.audited-actions { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px; }
+.audited-action { font-size: 11.5px; line-height: 1.45; }
+.audited-evidence { border-radius: 6px; padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent); }
+.audited-summary { cursor: pointer; font-size: 11.5px; font-weight: 600; }
+.audited-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.audited-table th, .audited-table td { text-align: left; vertical-align: top;
+  padding: 4px 6px 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent); }
+.audited-evidence pre { font-size: 10.5px; overflow-x: auto; white-space: pre-wrap;
+  word-break: break-word; }
+.audited-chip { margin-left: 6px; font-size: 10px; padding: 0 5px; border-radius: 3px;
+  background: color-mix(in srgb, currentColor 12%, transparent); }
