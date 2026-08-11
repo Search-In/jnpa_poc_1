@@ -97,6 +97,22 @@ describe('buildUploadForm', () => {
     expect(fd.get('override')).toBe('true');
     expect([...fd.keys()]).toEqual([UPLOAD_FIELD, 'override']);
   });
+
+  it('omits document_type by default so content-sniff routing stays unchanged', () => {
+    expect(buildUploadForm(csvFile()).has('document_type')).toBe(false);
+  });
+
+  it('appends document_type when the caller declares one (e.g. BATHYMETRY)', () => {
+    const fd = buildUploadForm(csvFile(), { documentType: 'BATHYMETRY' });
+    expect(fd.get('document_type')).toBe('BATHYMETRY');
+    expect(fd.has('override')).toBe(false);
+  });
+
+  it('accepts options object with both override and documentType', () => {
+    const fd = buildUploadForm(csvFile(), { override: true, documentType: 'BATHYMETRY' });
+    expect(fd.get('override')).toBe('true');
+    expect(fd.get('document_type')).toBe('BATHYMETRY');
+  });
 });
 
 describe('mapUploadFile (wire → domain)', () => {

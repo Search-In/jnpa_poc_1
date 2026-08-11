@@ -138,7 +138,7 @@ export function PerformanceTrafficTable() {
         loadedCount={rows.length}
         visibleCount={rows.length}
         loadingLabel="Loading daily traffic…"
-        emptyMessage="No daily traffic rows for the current filters. Import a Daily Status Report to populate this view."
+        emptyMessage="No daily traffic rows for the current filters. Import a Daily Status Report under Performance & Reports → Data Upload (admin), then switch to DEMO if needed."
         noMatchMessage="No daily traffic rows match the current filters."
       >
         <table style={TABLE}>

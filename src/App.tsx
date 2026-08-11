@@ -796,9 +796,9 @@ export function App() {
                     <CalciteTab tab="sc-upload" selected={seaChannelSubTab === 'upload'}>
                       <MarineUploadPanel
                         title="Sea-channel data upload — validate → import (UC-3 backend)"
-                        accept=".zip,.shp,application/zip,application/x-zip-compressed"
+                        accept=".zip,application/zip,application/x-zip-compressed"
                         showTemplate={false}
-                        helpText="Accepts the zipped ESRI shapefile bundle (e.g. JNPA_Sea_Channels.zip). The backend detects the format by content and reprojects to WGS84."
+                        helpText="Accepts a zipped ESRI shapefile bundle only (e.g. JNPA_Sea_Channels.zip containing .shp/.shx/.dbf/.prj). A bare .shp file is rejected — zip the full set first. The backend reprojects to WGS84."
                         onImported={() => setSeaChannelUploadKey((k) => k + 1)}
                       />
                     </CalciteTab>

@@ -49,6 +49,7 @@ export function PlanImportPanel() {
   const [csvText, setCsvText] = useState('');
   const [errors, setErrors] = useState<ImportRowError[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [fileFail, setFileFail] = useState<string | null>(null);
   const [draft, setDraft] = useState<ManualDraft>(EMPTY_DRAFT);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -61,20 +62,50 @@ export function PlanImportPanel() {
   }, [imported, berthsQ.data]);
 
   const runImport = (text: string) => {
+    setFileFail(null);
     const res = parsePlanCsv(text);
     setErrors(res.errors);
     if (res.entries.length) {
       addMany(res.entries);
-      setNotice(`Imported ${res.entries.length} row(s)${res.errors.length ? `, ${res.errors.length} rejected` : ''}.`);
+      setNotice(
+        `Imported ${res.entries.length} row(s)${res.errors.length ? `, ${res.errors.length} rejected` : ''}.`,
+      );
     } else {
-      setNotice(res.errors.length ? 'No rows imported — see errors below.' : 'No rows found.');
+      setNotice(
+        res.errors.length
+          ? `Import failed — no rows imported. ${res.errors.length} problem(s) below explain why.`
+          : 'Import failed — no rows found in the CSV (empty file or header only).',
+      );
     }
   };
 
   const onFile = async (file: File) => {
-    const text = await file.text();
-    setCsvText(text);
-    runImport(text);
+    setFileFail(null);
+    const name = file.name.toLowerCase();
+    if (/\.(xlsx|xls|xlsm)$/.test(name)) {
+      const why =
+        'XLSX/XLS is not supported on Plan Import. Open the workbook in Excel → Save As → CSV UTF-8 (.csv), then choose that .csv file.';
+      setFileFail(why);
+      setErrors([{ line: 0, field: 'file', message: why }]);
+      setNotice('Import failed — wrong file format.');
+      return;
+    }
+    if (name && !name.endsWith('.csv') && file.type && !/csv|text\//i.test(file.type)) {
+      const why = `Unsupported file “${file.name}”. Plan Import accepts CSV only (.csv).`;
+      setFileFail(why);
+      setErrors([{ line: 0, field: 'file', message: why }]);
+      setNotice('Import failed — wrong file format.');
+      return;
+    }
+    try {
+      const text = await file.text();
+      setCsvText(text);
+      runImport(text);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      setFileFail(`Could not read file: ${why}`);
+      setNotice('Import failed — file unreadable.');
+    }
   };
 
   const addManual = () => {
@@ -133,7 +164,9 @@ export function PlanImportPanel() {
         disabled={!editable}
         style={{ border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm, padding: 10, margin: 0 }}
       >
-        <legend style={{ fontSize: 12, color: tokens.textMuted, padding: '0 6px' }}>Import CSV / XLSX-as-CSV</legend>
+        <legend style={{ fontSize: 12, color: tokens.textMuted, padding: '0 6px' }}>
+          Import CSV (export XLSX → CSV UTF-8 first)
+        </legend>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input
             ref={fileRef}
@@ -143,15 +176,35 @@ export function PlanImportPanel() {
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void onFile(f);
+              e.target.value = '';
             }}
           />
           <CalciteButton scale="s" iconStart="upload" onClick={() => fileRef.current?.click()} disabled={!editable}>
-            Choose file
+            Choose CSV
           </CalciteButton>
           <CalciteButton scale="s" appearance="outline" iconStart="copy" onClick={() => setCsvText(CSV_TEMPLATE)}>
             Load template
           </CalciteButton>
         </div>
+        <div style={{ fontSize: 11, color: tokens.textMuted, marginTop: 6 }}>
+          Accepts <strong>.csv</strong> only. Native Excel (.xlsx) is not parsed here — Save As CSV first.
+          Rows stay in a client-side overlay (session); they are not written to the UC-3 gateway.
+        </div>
+        {fileFail && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: tokens.bad,
+              border: `1px solid ${tokens.bad}`,
+              borderRadius: tokens.radius.sm,
+              padding: 8,
+            }}
+          >
+            <strong>Why it failed:</strong> {fileFail}
+          </div>
+        )}
         <textarea
           value={csvText}
           onChange={(e) => setCsvText(e.target.value)}
@@ -203,9 +256,12 @@ export function PlanImportPanel() {
       {/* Row errors */}
       {errors.length > 0 && (
         <div style={{ fontSize: 11, color: tokens.bad, border: `1px solid ${tokens.bad}`, borderRadius: tokens.radius.sm, padding: 8 }}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Rejected rows</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Why rows failed ({errors.length})</div>
           {errors.slice(0, 12).map((e, i) => (
-            <div key={i}>line {e.line} · {e.field}: {e.message}</div>
+            <div key={i}>
+              {e.line > 0 ? `line ${e.line} · ` : ''}
+              {e.field}: {e.message}
+            </div>
           ))}
           {errors.length > 12 && <div>…and {errors.length - 12} more.</div>}
         </div>

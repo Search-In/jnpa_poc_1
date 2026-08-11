@@ -27,12 +27,12 @@ import {
   type ShippingLinesImportResult,
   type ShippingLinesParseError,
 } from '@/data/uc3/shippingLines';
+import { importFailureReason } from '@/data/uc3/importFailure';
 import { Panel, PanelError } from '@/components/common/Panel';
 import { tokens } from '@/theme/tokens';
 
-/** Formats the picker offers: advance lists as CSV/XLS/XLSX, EDO as XLSX (CODECO XML in
- *  a cell). The backend detects each by content — this only controls the OS dialog. */
-const ACCEPT = '.csv,.xlsx,.xls,.xml,text/csv';
+/** Formats the picker offers: advance lists as CSV/XLS/XLSX; EDO as XLSX or CODECO XML. */
+const ACCEPT = '.csv,.xlsx,.xls,.xml,text/csv,application/xml,text/xml';
 
 /** Human labels for the document-type selector. */
 const LIST_TYPE_LABELS: Record<string, string> = {
@@ -63,6 +63,27 @@ function ErrorList({ errors }: { errors: ShippingLinesParseError[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function WhyFailed({ reason }: { reason: string | null }) {
+  if (!reason) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        marginTop: 8,
+        fontSize: 12,
+        color: tokens.bad,
+        lineHeight: 1.4,
+        border: `1px solid ${tokens.bad}`,
+        borderRadius: tokens.radius.sm,
+        padding: 8,
+        background: `${tokens.bad}10`,
+      }}
+    >
+      <strong>Why it failed:</strong> {reason}
     </div>
   );
 }
@@ -166,13 +187,17 @@ export function ShippingLinesUploadPanel({ onImported }: { onImported?: (result:
         </div>
 
         <div style={{ fontSize: 11, color: tokens.textMuted }}>
-          Accepts an Import/Export Advance List (IAL/EAL) as CSV/XLS/XLSX, or an Electronic
-          Delivery Order (EDO / CODECO) as XLSX. The backend detects the format by content and
-          idempotently collapses byte-identical rows on re-import.
+          IAL/EAL: CSV / XLS / XLSX. EDO: XLSX or CODECO XML. Imports land in DEMO — switch the
+          header to DEMO to see new rows. Wrong document type is a common reject reason.
         </div>
       </fieldset>
 
-      {err && <div style={{ marginTop: 8 }}><PanelError message={err} /></div>}
+      {err && (
+        <div style={{ marginTop: 8 }}>
+          <PanelError message={err} />
+          <WhyFailed reason={`Transport/auth error: ${err}`} />
+        </div>
+      )}
 
       {/* Validate (dry-run) outcome */}
       {validation && (
@@ -180,6 +205,13 @@ export function ShippingLinesUploadPanel({ onImported }: { onImported?: (result:
           <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(validation.status) }}>
             {validation.status} · {validation.list_type} — {validation.summary.valid} valid / {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
           </div>
+          <WhyFailed
+            reason={importFailureReason({
+              status: validation.status,
+              errors: validation.errors,
+              invalid: validation.summary.invalid,
+            })}
+          />
           <ErrorList errors={validation.errors} />
         </div>
       )}
@@ -191,6 +223,14 @@ export function ShippingLinesUploadPanel({ onImported }: { onImported?: (result:
             {result.status}
             {result.duplicate_file ? ' — identical file already imported' : ` — ${result.imported} imported, ${result.skipped} skipped, ${result.invalid} invalid`}
           </div>
+          <WhyFailed
+            reason={importFailureReason({
+              status: result.status,
+              errors: result.errors,
+              duplicateFile: result.duplicate_file,
+              invalid: result.invalid,
+            })}
+          />
           {result.errors && <ErrorList errors={result.errors} />}
         </div>
       )}
