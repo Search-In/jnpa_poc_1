@@ -57,7 +57,11 @@ export function weatherVisual(env: VrEnvironment): WeatherVisual {
     return {
       type: 'rainy',
       // A storm sea implies an overcast sky even when rain is not reported.
-      cloudCover: clamp01(0.45 + rain / 60 + (rough - 1) / 6),
+      //
+      // Capped at 0.75: the renderer draws near-total cover as a BRIGHT overcast
+      // dome, so pushing toward 1.0 whites the sky out and reads as a broken
+      // view rather than a monsoon. 0.75 is heavy, grey and still legible.
+      cloudCover: Math.min(0.75, clamp01(0.45 + rain / 60 + (rough - 1) / 6)),
       precipitation: clamp01(rain > 0.5 ? rain / 45 : (rough - 2) / 3),
     };
   }

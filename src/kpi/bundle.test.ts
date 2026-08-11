@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildKpiBundle, type KpiInputs } from './bundle';
 import { KPI_TARGETS } from '@/config/targets';
+import { KPI_ANATOMY } from '@/config/kpiAnatomy';
 import type { BerthingPlanEntry, KpiSnapshot, PredictionPoint, Vessel } from '@/types/domain';
 
 const H = 3_600_000;
@@ -76,27 +77,49 @@ function baseInputs(over: Partial<KpiInputs> = {}): KpiInputs {
     berthCount: 6,
     snapshots,
     windowHours: 24,
+    craftJobs: [
+      { type: 'pilot', deployed: true, responseMin: 12 },
+      { type: 'tug', deployed: false, responseMin: 14 },
+      { type: 'mooring', deployed: true, responseMin: 8 },
+    ],
+    provenance: 'SIM',
     ...over,
   };
 }
 
 describe('buildKpiBundle', () => {
-  it('produces all eight KPI cards with correct keys, labels, units and targets', () => {
+  it('produces all eight tender KPI cards with anatomy (UC1-042)', () => {
     const b = buildKpiBundle(baseInputs());
     const keys = Object.keys(b) as (keyof typeof b)[];
     expect(keys).toHaveLength(8);
     for (const k of keys) {
       expect(b[k].key).toBe(k);
       expect(b[k].label).toBe(KPI_TARGETS[k].label);
+      expect(b[k].label).toBe(KPI_ANATOMY[k].name);
       expect(b[k].unit).toBe(KPI_TARGETS[k].unit);
       expect(b[k].target).toBe(KPI_TARGETS[k].target);
+      expect(b[k].definition).toBeTruthy();
+      expect(b[k].basis).toBeTruthy();
+      expect(b[k].baselineSource).toBeTruthy();
+      expect(b[k].provenance).toBe('SIM');
+      expect(b[k].sampleN).toBeGreaterThan(0);
+      // Never a bare number: unit present (or vessels) + baseline statement.
+      expect(b[k].unit.length).toBeGreaterThan(0);
     }
   });
 
-  it('counts anchored and approaching vessels from the live set', () => {
+  it('combines anchored and approaching into one card with breakdown', () => {
     const b = buildKpiBundle(baseInputs());
-    expect(b.anchored.value).toBe(1);
-    expect(b.approaching.value).toBe(2);
+    expect(b.anchored.value).toBe(3);
+    expect(b.anchored.breakdown).toBe('1 anchored · 2 approaching');
+    expect(b.anchored.label).toBe('Anchored / Approaching');
+  });
+
+  it('computes Port Craft Optimization utilisation', () => {
+    const b = buildKpiBundle(baseInputs());
+    // 2 of 3 deployed across types averaged: pilot 100%, tug 0%, mooring 100% → 66.7
+    expect(b.portCraftOptimization.value).toBeCloseTo(66.7, 0);
+    expect(b.portCraftOptimization.unit).toBe('%');
   });
 
   it('attaches trend series sourced from snapshots', () => {
@@ -106,17 +129,22 @@ describe('buildKpiBundle', () => {
     expect(b.avgTat.trend.map((t) => t.value)).toEqual([25, 27]);
   });
 
-  it('computes deltaPct against target', () => {
+  it('computes deltaPct against target and attaches p50/p90 for TAT', () => {
     const b = buildKpiBundle(baseInputs());
-    // approaching value 2 vs target 8 → (2-8)/8*100 = -75
-    expect(b.approaching.deltaPct).toBeCloseTo(-75, 5);
+    // avgTat: ACTUAL_END-ACTUAL_START = 7h vs target 24 → (7-24)/24*100
+    expect(b.avgTat.p50).toBe(7);
+    expect(b.avgTat.p90).toBe(7);
+    expect(b.avgTat.deltaPct).toBeCloseTo(((7 - 24) / 24) * 100, 0);
   });
 
-  it('handles empty plan/predictions without throwing or NaN', () => {
-    const b = buildKpiBundle(baseInputs({ plan: [], predictions: [] }));
-    expect(b.preBerthingDelay.value).toBe(0);
-    expect(b.jitPct.value).toBe(0);
-    expect(b.forecastAccuracy.value).toBe(0);
-    expect(Number.isNaN(b.avgTat.value)).toBe(false);
+  it('renders unmeasurable dash anatomy when samples are empty (n=0 + note)', () => {
+    const b = buildKpiBundle(
+      baseInputs({ plan: [], predictions: [], craftJobs: [], vessels: [] }),
+    );
+    expect(b.preBerthingDelay.sampleN).toBe(0);
+    expect(b.preBerthingDelay.note).toMatch(/not measurable/i);
+    expect(b.jitPct.sampleN).toBe(0);
+    expect(b.portCraftOptimization.sampleN).toBe(0);
+    expect(b.anchored.sampleN).toBe(0);
   });
 });

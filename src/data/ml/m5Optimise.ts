@@ -154,7 +154,7 @@ function epochMs(iso: string): number {
 export async function optimiseM5(
   requests: BerthRequest[],
   berths: Berth[],
-  algorithm: M5Algorithm = 'auto',
+  algorithm: M5Algorithm = 'auto'
 ): Promise<M5OptimiseResult> {
   const plan = await mlHttp<M5PlanWire>(M5_OPTIMISE_PATH, {
     method: 'POST',

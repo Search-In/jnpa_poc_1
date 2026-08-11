@@ -112,6 +112,7 @@ export class MockAdapter implements DataAdapter {
 
   async getKPIs(): Promise<KpiBundle> {
     const now = this.now();
+    const craft = makePortCraft(now);
     return buildKpiBundle({
       now,
       vessels: makeVessels(now, this.tick),
@@ -120,6 +121,12 @@ export class MockAdapter implements DataAdapter {
       berthCount: BERTHS.length,
       snapshots: makeKpiSnapshots(now),
       windowHours: 24,
+      craftJobs: craft.map((c) => ({
+        type: c.TYPE,
+        deployed: c.STATUS === 'deployed',
+        responseMin: c.RESPONSE_MIN,
+      })),
+      provenance: 'SIM',
     });
   }
 

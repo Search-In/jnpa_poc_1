@@ -58,7 +58,9 @@ describe('toBerthWire', () => {
     // BMCT-1/BMCT-2 are 1000 m in the fixtures. Unclamped, every optimise call
     // 422s on real data and the panel's optimiser is dead on arrival.
     const overLong = BERTHS.filter((b) => b.LENGTH_M > 600);
-    expect(overLong.length, 'fixtures still contain an over-long berth to guard').toBeGreaterThan(0);
+    expect(overLong.length, 'fixtures still contain an over-long berth to guard').toBeGreaterThan(
+      0
+    );
 
     for (const b of BERTHS) {
       const w = toBerthWire(b);

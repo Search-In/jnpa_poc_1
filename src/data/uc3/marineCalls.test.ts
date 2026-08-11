@@ -10,6 +10,11 @@ import {
   mapVesselCallEvent,
   marineCallsQuery,
   marineStatsQuery,
+  mergeVesselCalls,
+  searchVesselCallsPage,
+  sortVesselCalls,
+  CALL_SEARCH_FIELDS,
+  SEARCH_FETCH_LIMIT,
   parseMarineStats,
   parseVesselCallsPage,
   parseVesselCallTimeline,
@@ -503,5 +508,173 @@ describe('mapVesselCall — derived lifecycle beside the stored stage', () => {
     expect(page).toHaveLength(2);
     expect(page[0].lifecycle?.status).toBe('At Berth');
     expect(page[1].lifecycle).toBeNull();
+  });
+});
+
+describe('mergeVesselCalls', () => {
+  it('dedupes on callId — a row matched by two identifiers is counted once', () => {
+    // Realistic: 'S0561' hits both the VIA request and the VCN that embeds it.
+    const a = mapVesselCall(CALL)!;
+    const b = mapVesselCall({ ...CALL, call_id: 13 })!;
+    expect(mergeVesselCalls([[a, b], [a]]).map((c) => c.callId)).toEqual([12, 13]);
+  });
+
+  it('is empty for no pages and tolerates empty ones', () => {
+    expect(mergeVesselCalls([])).toEqual([]);
+    expect(mergeVesselCalls([[], []])).toEqual([]);
+  });
+});
+
+describe('sortVesselCalls', () => {
+  const withEta = (callId: number, eta: number) =>
+    mapVesselCall({ ...CALL, call_id: callId, eta: eta ? new Date(eta).toISOString() : null })!;
+
+  it('orders ascending and descending on a timestamp column', () => {
+    const rows = [withEta(1, 3000), withEta(2, 1000), withEta(3, 2000)];
+    expect(sortVesselCalls(rows, 'eta', 'asc').map((c) => c.callId)).toEqual([2, 3, 1]);
+    expect(sortVesselCalls(rows, 'eta', 'desc').map((c) => c.callId)).toEqual([1, 3, 2]);
+  });
+
+  it('keeps unknowns LAST in BOTH directions, mirroring the gateway NULLS LAST', () => {
+    // The mapper turns an absent ETA into 0. Sorted naively, ascending would put
+    // every unparsed row above the real schedule — the opposite of useful.
+    const rows = [withEta(1, 0), withEta(2, 2000), withEta(3, 1000)];
+    expect(sortVesselCalls(rows, 'eta', 'asc').map((c) => c.callId)).toEqual([3, 2, 1]);
+    expect(sortVesselCalls(rows, 'eta', 'desc').map((c) => c.callId)).toEqual([2, 3, 1]);
+  });
+
+  it('sorts text columns and pushes blank names last', () => {
+    const named = (callId: number, name: string | null) =>
+      mapVesselCall({ ...CALL, call_id: callId, vessel_name: name })!;
+    const rows = [named(1, null), named(2, 'MAERSK'), named(3, 'APL')];
+    expect(sortVesselCalls(rows, 'vessel_name', 'asc').map((c) => c.callId)).toEqual([3, 2, 1]);
+  });
+
+  it('breaks ties on callId DESC, as the gateway ORDER BY does', () => {
+    const rows = [withEta(7, 1000), withEta(9, 1000), withEta(8, 1000)];
+    expect(sortVesselCalls(rows, 'eta', 'asc').map((c) => c.callId)).toEqual([9, 8, 7]);
+  });
+
+  it('falls back to updated_at for an unknown sort key and does not mutate its input', () => {
+    const rows = [withEta(1, 1000), withEta(2, 2000)];
+    const before = rows.map((c) => c.callId);
+    sortVesselCalls(rows, 'no_such_column', 'asc');
+    expect(rows.map((c) => c.callId)).toEqual(before);
+  });
+});
+
+describe('searchVesselCallsPage (the OR the gateway cannot do)', () => {
+  /** Stub that answers each fanned-out request with the rows that field would match. */
+  const routed = (byField: Record<string, VesselCallWire[]>) =>
+    vi.fn((url: string) => {
+      if (String(url).endsWith('/auth/login')) return jsonResponse(loginBody);
+      const q = new URLSearchParams(String(url).split('?')[1] ?? '');
+      for (const f of CALL_SEARCH_FIELDS) {
+        if (q.has(f)) return jsonResponse(page(byField[f] ?? []));
+      }
+      return jsonResponse(page([]));
+    });
+
+  it('asks the gateway once per identifier, each carrying the same term', async () => {
+    const spy = routed({});
+    vi.stubGlobal('fetch', spy);
+    await searchVesselCallsPage('S0561');
+
+    const urls = spy.mock.calls
+      .map(([u]) => String(u))
+      .filter((u) => u.includes(MARINE_CALLS_PATH));
+    expect(urls).toHaveLength(CALL_SEARCH_FIELDS.length);
+    for (const field of CALL_SEARCH_FIELDS) {
+      expect(urls.some((u) => u.includes(`${field}=S0561`))).toBe(true);
+    }
+  });
+
+  it('finds a NAMELESS call by its VIA — the case a name-only box could not reach', async () => {
+    const nameless = { ...CALL, call_id: 40, vessel_name: null, via_no: 'S0814' };
+    vi.stubGlobal('fetch', routed({ via: [nameless] }));
+
+    const res = await searchVesselCallsPage('S0814');
+    expect(res.items.map((c) => c.callId)).toEqual([40]);
+    expect(res.items[0].vesselName).toBe('');
+  });
+
+  it('unions across fields and counts a doubly-matched row once', async () => {
+    const byVia = { ...CALL, call_id: 12 };
+    const byVoyage = { ...CALL, call_id: 41 };
+    vi.stubGlobal('fetch', routed({ via: [byVia], vcn: [byVia], voyage: [byVoyage] }));
+
+    const res = await searchVesselCallsPage('S0561');
+    expect(res.total).toBe(2);
+    expect(res.items.map((c) => c.callId).sort()).toEqual([12, 41]);
+  });
+
+  it('keeps the caller other filters but never lets a stale identifier AND the term away', async () => {
+    const spy = routed({});
+    vi.stubGlobal('fetch', spy);
+    // `vessel` here is what the previous single-field design would have sent. If it
+    // survived, `?vessel=OLD&via=S0561` would mean "name OLD *and* VIA S0561" — zero rows.
+    await searchVesselCallsPage('S0561', { vessel: 'OLD', inPort: true, sort: 'eta' });
+
+    const viaUrl = spy.mock.calls
+      .map(([u]) => String(u))
+      .find((u) => u.includes('via=S0561'))!;
+    expect(viaUrl).toContain('in_port=true');
+    expect(viaUrl).toContain('sort=eta');
+    expect(viaUrl).not.toContain('vessel=OLD');
+  });
+
+  it('pages and sorts the merged set in the browser', async () => {
+    const rows = [40, 41, 42].map((call_id) => ({ ...CALL, call_id, eta: null }));
+    vi.stubGlobal('fetch', routed({ via: rows }));
+
+    const first = await searchVesselCallsPage('S', { sort: 'call_id', direction: 'asc' }, 2, 0);
+    expect(first.items.map((c) => c.callId)).toEqual([40, 41]);
+    expect(first.total).toBe(3);
+
+    const second = await searchVesselCallsPage('S', { sort: 'call_id', direction: 'asc' }, 2, 2);
+    expect(second.items.map((c) => c.callId)).toEqual([42]);
+    expect(second.offset).toBe(2);
+  });
+
+  it('flags truncated when a field returns its full ceiling', async () => {
+    const many = Array.from({ length: SEARCH_FETCH_LIMIT }, (_, i) => ({ ...CALL, call_id: i + 1 }));
+    vi.stubGlobal('fetch', routed({ via: many }));
+
+    const res = await searchVesselCallsPage('S');
+    expect(res.truncated).toBe(true);
+  });
+
+  it('is not truncated when every field answered under the ceiling', async () => {
+    vi.stubGlobal('fetch', routed({ via: [CALL] }));
+    expect((await searchVesselCallsPage('S0561')).truncated).toBe(false);
+  });
+
+  it('returns the fields that answered when one fails, and marks the result partial', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (String(url).endsWith('/auth/login')) return jsonResponse(loginBody);
+        if (String(url).includes('vcn=')) return jsonResponse({ error: 'boom' }, 500, 'Server Error');
+        return jsonResponse(page(String(url).includes('via=') ? [CALL] : []));
+      }),
+    );
+
+    const res = await searchVesselCallsPage('S0561');
+    expect(res.items.map((c) => c.callId)).toEqual([12]);
+    // The VCN identifier contributed nothing, so the count is a floor — say so
+    // rather than letting a half-answered search read as exhaustive.
+    expect(res.truncated).toBe(true);
+  });
+
+  it('rejects when EVERY field fails — a dead gateway is not "no matches"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        String(url).endsWith('/auth/login')
+          ? jsonResponse(loginBody)
+          : jsonResponse({ error: 'boom' }, 500, 'Server Error'),
+      ),
+    );
+    await expect(searchVesselCallsPage('S0561')).rejects.toThrow();
   });
 });

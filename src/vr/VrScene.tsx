@@ -46,6 +46,7 @@ import {
 } from '@/map/scene3d';
 import { portAssetLayers } from '@/map/portAssets3d';
 import { createAnimLayers, startSceneAnimation, type AnimInput } from './sceneAnim';
+import { isLowPowerDevice, renderScale } from './device';
 import { initialBasemap, installBasemapFallback, isOfflineRequested } from '@/map/basemapFallback';
 import { applyGraphics } from '@/map/applyGraphics';
 import { useVrStore } from './vrStore';
@@ -135,9 +136,23 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
     // `env.arcgisApiKey` after mistaking a stalled render for an auth failure —
     // that gating was wrong and is gone.
     const offline = isOfflineRequested();
+    const lowPower = isLowPowerDevice();
+
+    // Tile budget on a handset. Three separate tile services normally feed this
+    // scene — imagery, the reference/label overlay that 'hybrid' adds on top,
+    // and Terrain3D for the ground — and in stereo two views request from all
+    // three. That is what makes tiles crawl in or never arrive on mobile data.
+    //
+    //  • 'satellite' instead of 'hybrid' drops the label overlay: one tile
+    //    service gone, and place labels are unreadable through a cardboard lens
+    //    anyway.
+    //  • Flat ground drops Terrain3D entirely. JNPA is tidal flats with ~0 m
+    //    relief, so the terrain was buying almost nothing visually.
+    //
+    // Desktop keeps the full setup, identical to `PortScene`.
     const map = new Map({
-      basemap: initialBasemap(),
-      ...(offline ? {} : { ground: 'world-elevation' }),
+      basemap: offline ? initialBasemap() : lowPower ? 'satellite' : initialBasemap(),
+      ...(offline || lowPower ? {} : { ground: 'world-elevation' }),
     });
 
     const d0 = dataRef.current;
@@ -150,13 +165,34 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
     // Drawing both would double every hull and every crane.
     const staticAssets = portAssetLayers().filter((l) => !/STS cranes/i.test(l.title ?? ''));
 
+    // Scenery budget. The yard is 60 blocks stacked 2–5 containers high — about
+    // 210 glTF instances — and the truck queues add more. In stereo EVERY one of
+    // them is loaded and drawn twice, once per view, which is what makes a phone
+    // crawl and what makes one eye finish before the other.
+    //
+    // None of it carries what-if state: the impacted assets are the cranes,
+    // berths, channel and hulls. So on a low-power device the yard is thinned to
+    // its bottom tier (60 instances instead of ~210 — it still reads as a
+    // container yard from any distance a viewer stands at) and the truck queues
+    // are dropped. Nothing that answers WHICH/WHERE/HOW is touched.
+    const scenery = lowPower
+      ? staticAssets.filter((l) => !/Trucks/i.test(l.title ?? ''))
+      : staticAssets;
+    if (lowPower) {
+      for (const l of scenery) {
+        if (/Yard stacks/i.test(l.title ?? '')) {
+          (l as unknown as { definitionExpression: string }).definitionExpression = 'tier <= 0';
+        }
+      }
+    }
+
     map.addMany([
       channelLayer(),
       anchorageLayer(),
       anim.water,
       terminalDeckLayer(),
       berthsL,
-      ...staticAssets,
+      ...scenery,
       anim.cranes,
       pilotStationLayer(),
       anim.wakes,
@@ -179,6 +215,10 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
       () => viewsRef.current
     );
 
+    // Budget by device, not by hope. Stereo renders the whole port twice, so on
+    // a phone the desktop settings are what "lags a lot" actually means.
+    const quality: 'low' | 'medium' | 'high' = lowPower ? 'low' : stereo ? 'medium' : 'high';
+
     const makeView = (container: HTMLDivElement): SceneView =>
       new SceneView({
         container,
@@ -186,12 +226,20 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
         // Immersive chrome: no zoom/compass/attribution widgets inside the
         // eye boxes. Attribution is shown once in the page footer instead.
         ui: { components: [] },
-        // Two simultaneous views double the draw cost; drop a quality tier in
-        // stereo so the 45+ fps budget still holds on a demo laptop.
-        qualityProfile: stereo ? 'medium' : 'high',
+        qualityProfile: quality,
         environment: {
+          // ALWAYS on. In a global scene the atmosphere IS the sky — switching
+          // it off to save a draw call does not give you a cheaper sky, it gives
+          // you the black of space, which is what turned the walkthrough into
+          // night on mobile. Savings come from the tile budget and the quality
+          // profile instead, never from this.
           atmosphereEnabled: true,
-          lighting: { type: 'sun', date: SUN_DATE, directShadowsEnabled: !stereo },
+          // No starfield: this is a daytime port, and a star layer over a black
+          // void was the other half of the "sky is night" impression.
+          starsEnabled: false,
+          // Shadows are the single most expensive lighting option and are the
+          // first thing to go once a second view is on screen.
+          lighting: { type: 'sun', date: SUN_DATE, directShadowsEnabled: !stereo && !lowPower },
         } as never,
         // Popups would open inside an eye box and cannot be dismissed with a
         // headset on; asset detail lives in the HUD list instead.
@@ -336,12 +384,92 @@ export function VrScene({ berths, vessels, model }: VrSceneProps) {
         display: 'flex',
         // A hard black gutter between the eye boxes is what stops the two
         // images bleeding into each other in a cardboard viewer.
-        gap: stereo ? 2 : 0,
+        gap: stereo ? LENS_GUTTER_PX : 0,
         background: '#000',
       }}
     >
-      <div ref={leftRef} style={{ flex: 1, height: '100%' }} />
-      {stereo ? <div ref={rightRef} style={{ flex: 1, height: '100%' }} /> : null}
+      <Eye viewRef={leftRef} stereo={stereo} />
+      {stereo ? <Eye viewRef={rightRef} stereo /> : null}
+    </div>
+  );
+}
+
+/** Corner rounding of a lens box, as a share of its own size. */
+const LENS_RADIUS = '22%';
+/** Black bar between the two lenses. */
+const LENS_GUTTER_PX = 6;
+
+/**
+ * One eye box.
+ *
+ * In stereo it is masked into a rounded "lens" with a black surround and a soft
+ * vignette, which is what a cardboard viewer actually shows you: the plastic
+ * lens is round, so the corners of a full rectangle are never visible anyway and
+ * only serve to leak light between the eyes. Masking them matches the YouTube
+ * cardboard presentation and makes the two images read as one scene.
+ *
+ * This is a MASK, not optical barrel-distortion pre-warp — correcting for lens
+ * pincushion would need a post-process shader over the SceneView's own canvas,
+ * which the Esri renderer does not expose.
+ */
+function Eye({
+  viewRef,
+  stereo,
+}: {
+  viewRef: React.MutableRefObject<HTMLDivElement | null>;
+  stereo: boolean;
+}) {
+  // Render scale: hand the SceneView a SMALLER box so it rasterises fewer
+  // pixels, then blow it back up with a CSS transform. At 0.62 that is 38% of
+  // the pixels per eye — the biggest single win available on a phone at
+  // devicePixelRatio 3, and through a cardboard lens the softening does not read.
+  const s = renderScale(stereo);
+  const box: React.CSSProperties =
+    s < 1
+      ? {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: `${100 * s}%`,
+          height: `${100 * s}%`,
+          transform: `scale(${1 / s})`,
+          transformOrigin: 'top left',
+        }
+      : { position: 'absolute', inset: 0 };
+
+  if (!stereo) {
+    return (
+      <div style={{ flex: 1, height: '100%', position: 'relative', overflow: 'hidden' }}>
+        <div ref={viewRef} style={box} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {/* The lens mask sits on a WRAPPER, so the rounding is not part of the
+          scaled subtree — inside it, the transform would magnify the mask itself
+          and the two eyes would stop matching. */}
+      <div
+        style={{ position: 'absolute', inset: 0, borderRadius: LENS_RADIUS, overflow: 'hidden' }}
+      >
+        <div ref={viewRef} style={box} />
+      </div>
+      {/* Vignette: darkens toward the rim the way a real lens does, and hides the
+          hard mask edge. Non-interactive so it never eats a tap. */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          borderRadius: LENS_RADIUS,
+          // Enough to soften the mask edge and suggest the lens rim, but not so
+          // much that it eats usable field of view — the port has to stay
+          // visible right out to the edges of the eye box.
+          boxShadow: 'inset 0 0 9vmin 1.5vmin rgba(0,0,0,0.72)',
+        }}
+      />
     </div>
   );
 }
