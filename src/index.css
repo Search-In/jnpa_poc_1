@@ -93,3 +93,21 @@ body {
   word-break: break-word; }
 .audited-chip { margin-left: 6px; font-size: 10px; padding: 0 5px; border-radius: 3px;
   background: color-mix(in srgb, currentColor 12%, transparent); }
+
+/* Audited-answer scenario picker — all nine, UC-1's own first. */
+.audited-title { font-size: 12px; font-weight: 650; }
+.audited-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.audited-tab { font: inherit; font-size: 11px; cursor: pointer; padding: 3px 7px;
+  border-radius: 4px; background: transparent; color: inherit; text-align: left;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.audited-tab-on { background: color-mix(in srgb, currentColor 10%, transparent);
+  font-weight: 600; }
+.audited-ref { font-weight: 700; margin-right: 5px; padding: 0 4px;
+  border-radius: 3px; font-size: 10px; }
+.audited-ref-notice { background: color-mix(in srgb, #2f6fd0 22%, transparent); }
+.audited-ref-bidder { background: color-mix(in srgb, currentColor 12%, transparent); }
+.audited-owner { opacity: 0.55; font-size: 10px; margin-left: 4px; }
+.audited-question { margin: 0; font-size: 11.5px; line-height: 1.45; opacity: 0.85; }
+.audited-caveat { margin: 0; font-size: 11px; line-height: 1.45; opacity: 0.72;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, currentColor 25%, transparent); }
