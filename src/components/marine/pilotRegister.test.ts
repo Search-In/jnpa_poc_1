@@ -18,8 +18,9 @@ function mv(over: Partial<Pilotage> = {}): Pilotage {
 function ma(over: Partial<ManualPilotAssignment> = {}): ManualPilotAssignment {
   return {
     id: 1, callId: 2, vcn: '', viaNo: 'S0999', imoNo: '', vesselName: 'MANUAL VESSEL',
-    pilotCode: 'JP 91', pilotName: '', status: 'Assigned', assignedAt: 500,
-    boardedAt: 0, releasedAt: 0, createdBy: 'operator', active: true, supersededAt: 0,
+    pilotCode: 'JP 91', pilotName: '', status: 'Assigned', movementType: 'INWARD',
+    berthId: null, assignedAt: 500, boardedAt: 0, releasedAt: 0, createdBy: 'operator',
+    active: true, supersededAt: 0,
     ...over,
   };
 }
