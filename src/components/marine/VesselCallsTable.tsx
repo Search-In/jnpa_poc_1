@@ -42,6 +42,7 @@ import { AnomalyBadge } from '@/components/common/AnomalyBadge';
 import { ShowAnomalyToggle } from '@/components/common/ShowAnomalyToggle';
 import { PilotCell } from '@/components/marine/PilotCell';
 import { usePilotDesk } from '@/components/marine/usePilotDesk';
+import { defaultBerthId, defaultMovement } from '@/components/marine/pilotDesk';
 import { CalciteNotice } from '@esri/calcite-components-react';
 import { tokens } from '@/theme/tokens';
 
@@ -172,6 +173,12 @@ export function VesselCallsTable({
   // register whose availability the first one changes.
   const [pickerCallId, setPickerCallId] = useState<number | null>(null);
   const [pickerPilotId, setPickerPilotId] = useState('');
+  // The declared leg. Seeded from the call's own lifecycle when the picker opens — a
+  // default the operator confirms, not a value derived behind their back.
+  const [pickerMovement, setPickerMovement] = useState('');
+  // Destination berth. Seeded from the berth the call already holds, so an inward movement
+  // confirms the BERALT allotment and a shift starts from where she is.
+  const [pickerBerthId, setPickerBerthId] = useState<number | null>(null);
 
   const term = search.trim();
   // The identifier fields are deliberately absent here: when a term is typed the
@@ -195,6 +202,8 @@ export function VesselCallsTable({
   const closePicker = () => {
     setPickerCallId(null);
     setPickerPilotId('');
+    setPickerMovement('');
+    setPickerBerthId(null);
   };
 
   const toggleSort = (col: (typeof COLUMNS)[number]) => {
@@ -375,9 +384,15 @@ export function VesselCallsTable({
                             onOpenChange={(o) => {
                               setPickerCallId(o ? c.callId : null);
                               setPickerPilotId('');
+                              setPickerMovement(o ? defaultMovement(c) : '');
+                              setPickerBerthId(o ? defaultBerthId(c) : null);
                             }}
                             pilotId={pickerPilotId}
                             onPilotIdChange={setPickerPilotId}
+                            movement={pickerMovement}
+                            onMovementChange={setPickerMovement}
+                            berthId={pickerBerthId}
+                            onBerthIdChange={setPickerBerthId}
                           />
                         ) : (
                           col.render?.(c)
