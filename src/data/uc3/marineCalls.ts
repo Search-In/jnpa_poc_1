@@ -424,3 +424,160 @@ export async function fetchVesselCallTimeline(
     await http<VesselCallTimelineWire>(`${MARINE_CALLS_PATH}/${callId}/timeline`),
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-identifier search
+//
+// Most calls in the corpus carry NO vessel name (the CALINF that seeds a row
+// often has only the VIA), so a name-only search box finds nothing for them.
+// Operators work off a manifest and type whatever identifier it shows — VCN,
+// VIA or voyage.
+//
+// The gateway cannot answer that in one request: `_where()` (marine/repository.py)
+// AND-s every filter it is given, so `?vessel=X&via=X` means "name contains X AND
+// VIA contains X", which is the opposite of what a single box means. There is no
+// OR/`q` parameter. So the OR is assembled here, client-side, by asking the
+// gateway the same question once per field and merging the answers.
+//
+// Consequences, all deliberate:
+//  • Only while a term is typed. An empty box takes the original single-request
+//    server-paginated path untouched.
+//  • Paging and sorting of a RESULT SET are client-side, over at most
+//    SEARCH_FETCH_LIMIT rows per field. `truncated` says when that cap was hit,
+//    so the count is never silently short (same posture as PilotageTable).
+//  • `vcn` is an EQUALITY filter on the backend (`_EQ_FILTERS`), not ILIKE, so it
+//    only fires on a full pasted VCN. A partial VCN still matches via its VIA
+//    tail — 'INNSA1NS0S0814' is found by 'S0814' through the `via` request —
+//    but a VCN *prefix* ('INNSA1') is not searchable without a gateway change.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The filter keys the search term is fanned out over, in the order their hits are
+ * merged. `vessel`, `via` and `voyage` are backend ILIKE substring filters;
+ * `vcn` is exact — see the note above.
+ */
+export const CALL_SEARCH_FIELDS = ['vessel', 'vcn', 'via', 'voyage'] as const;
+
+/** Per-field ceiling for a search fan-out. The gateway caps `limit` at 500. */
+export const SEARCH_FETCH_LIMIT = 500;
+
+/** Comparators for the backend `sort` keys, so a merged set orders as the server would. */
+const SORT_ACCESSORS: Record<string, (c: VesselCall) => number | string> = {
+  eta: (c) => c.eta,
+  etb: (c) => c.etb,
+  etd: (c) => c.etd,
+  ata: (c) => c.ata,
+  atc: (c) => c.atc,
+  atd: (c) => c.atd,
+  updated_at: (c) => c.updatedAt,
+  call_id: (c) => c.callId,
+  terminal_id: (c) => c.terminalId ?? 0,
+  vessel_name: (c) => c.vesselName,
+  vcn: (c) => c.vcn,
+  via_no: (c) => c.viaNo,
+  status: (c) => c.status,
+};
+
+/**
+ * Order a merged result set the way `ORDER BY <col> <dir> NULLS LAST, call_id DESC`
+ * would. Pure.
+ *
+ * The NULLS-LAST parity matters: the domain mapper turns an unknown timestamp into
+ * 0 and an unresolved name into '', which would otherwise sort to the TOP of an
+ * ascending page and put every unparsed row in front of the operator.
+ */
+export function sortVesselCalls(
+  calls: VesselCall[],
+  sort = 'updated_at',
+  direction: 'asc' | 'desc' = 'desc',
+): VesselCall[] {
+  const get = SORT_ACCESSORS[sort] ?? SORT_ACCESSORS.updated_at;
+  const dir = direction === 'asc' ? 1 : -1;
+  return [...calls].sort((a, b) => {
+    const x = get(a);
+    const y = get(b);
+    // Empty/0 is the mapper's "unknown" — always last, whichever way the column runs.
+    const xEmpty = x === 0 || x === '';
+    const yEmpty = y === 0 || y === '';
+    if (xEmpty !== yEmpty) return xEmpty ? 1 : -1;
+    if (!xEmpty) {
+      const cmp = typeof x === 'string' ? x.localeCompare(String(y)) : Number(x) - Number(y);
+      if (cmp !== 0) return cmp * dir;
+    }
+    return b.callId - a.callId;
+  });
+}
+
+/**
+ * Union of several fetched pages, keyed on `callId`. Pure.
+ *
+ * A row legitimately appears in more than one response — a search for 'S0814'
+ * matches both the VIA and the VCN that embeds it — so the merge dedupes rather
+ * than double-counting, which would corrupt the row count under the table.
+ */
+export function mergeVesselCalls(pages: readonly VesselCall[][]): VesselCall[] {
+  const byId = new Map<number, VesselCall>();
+  for (const page of pages) {
+    for (const call of page) {
+      if (!byId.has(call.callId)) byId.set(call.callId, call);
+    }
+  }
+  return [...byId.values()];
+}
+
+/**
+ * One page of calls matching `term` in ANY of `CALL_SEARCH_FIELDS`, with the rest
+ * of `filters` (in-port, status, …) still AND-ed as the caller intended.
+ *
+ * A field whose request fails is dropped rather than failing the whole search: a
+ * partial result with `truncated` set beats an error panel when three of four
+ * identifiers answered. If EVERY request fails the rejection is propagated, so a
+ * dead gateway still surfaces as an error and not as "no matches".
+ */
+export async function searchVesselCallsPage(
+  term: string,
+  filters: VesselCallFilters = {},
+  limit = MARINE_CALLS_PAGE_LIMIT,
+  offset = 0,
+): Promise<{
+  items: VesselCall[];
+  total: number;
+  limit: number;
+  offset: number;
+  truncated: boolean;
+}> {
+  const needle = term.trim();
+  const settled = await Promise.allSettled(
+    CALL_SEARCH_FIELDS.map((field) =>
+      fetchVesselCallsPage(
+        // The caller's own filters minus every identifier field, so the term owns
+        // them outright and a stale `vessel` cannot AND the fan-out down to zero.
+        { ...filters, vessel: undefined, vcn: undefined, via: undefined, voyage: undefined,
+          [field]: needle },
+        SEARCH_FETCH_LIMIT,
+        0,
+      ),
+    ),
+  );
+
+  const ok = settled.filter((r) => r.status === 'fulfilled');
+  if (ok.length === 0) {
+    throw (settled[0] as PromiseRejectedResult).reason;
+  }
+  const pages = ok.map((r) => (r as PromiseFulfilledResult<{ items: VesselCall[] }>).value);
+
+  const merged = mergeVesselCalls(pages.map((p) => p.items));
+  const sorted = sortVesselCalls(merged, filters.sort, filters.direction);
+  return {
+    items: sorted.slice(offset, offset + limit),
+    total: sorted.length,
+    limit,
+    offset,
+    // A field that returned exactly its cap has more rows the merge never saw, so
+    // the total below the table is a floor, not the count. Also true when a field
+    // errored out — that identifier contributed nothing.
+    truncated:
+      ok.length < CALL_SEARCH_FIELDS.length ||
+      pages.some((p) => p.items.length >= SEARCH_FETCH_LIMIT),
+  };
+}

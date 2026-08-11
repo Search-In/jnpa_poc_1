@@ -48,7 +48,7 @@ lines, vessel calls, pilotage, bathymetry, port craft and performance.
 |---|---|
 | `VITE_UC3_ENABLED` | Master switch (default on). `false` → the app makes no gateway call at all. |
 | `VITE_UC3_API_BASE` | Path prefix the browser calls. Keep it **relative** (`/api`) so the proxy stays in the path and no CORS applies. |
-| `VITE_UC3_USERNAME` / `VITE_UC3_PASSWORD` | PoC login for `POST {base}/auth/login`. Inlined into the bundle — demo credential only. |
+| `VITE_AUTH_ENABLED` | Sign-in gate. `true` → `AuthGate` shows the login screen and the user signs in with their own DTCCC account against `POST {base}/auth/login`; the 8 h JWT is the only source of a bearer. With `VITE_UC3_ENABLED=true` and this unset, nobody ever signs in and every UC-3 panel fails with `[UC3] not signed in`. Replaced `VITE_UC3_USERNAME` / `VITE_UC3_PASSWORD`, which were inlined into the bundle. |
 | `VITE_GATEWAY_URL` | **Dev only** — where the Vite proxy forwards `/api`. Production resolves the gateway in `deploy/nginx.conf`, not here. Defaults to `http://localhost:8000`; if nothing is listening there, every `/api` call returns Vite's `ECONNREFUSED` 500. |
 
 **Live AIS overlay** (real MarineTraffic positions via the gateway) — see `docs/LIVE_AIS.md`.
@@ -110,16 +110,15 @@ The deployed URL is the **submission artefact**. Drive the live expert demo from
 local `npm run dev` instead: a bad toggle or a rotated credential is then a
 one-line fix, not a five-minute redeploy.
 
-`.env` for the demo machine — fill the credentials from the programme's secret
-store, and **never commit the file** (`.env` is gitignored; `.env.example` is not):
+`.env` for the demo machine — no credential goes in the file any more (the
+presenter types theirs into the sign-in screen), and **never commit it** (`.env` is gitignored; `.env.example` is not):
 
 ```bash
 VITE_DATA_MODE=mock                                  # honest, labelled simulation
 VITE_GATEWAY_URL=https://traffic-three.searchintech.in # dev-proxy target for /api
 VITE_UC3_ENABLED=true
 VITE_UC3_API_BASE=/api
-VITE_UC3_USERNAME=<from secret store>
-VITE_UC3_PASSWORD=<from secret store>
+VITE_AUTH_ENABLED=true                               # presenter signs in on the day
 VITE_LIVE_AIS_ENABLED=true
 VITE_LDB_ENABLED=true
 VITE_LDB_MOBILE_NO=<presenter's mobile — pre-fills the OTP form>

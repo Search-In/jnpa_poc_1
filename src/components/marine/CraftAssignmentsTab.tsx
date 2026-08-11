@@ -45,6 +45,10 @@ const TH: CSSProperties = {
   textTransform: 'uppercase', color: tokens.textMuted,
   padding: `${tokens.space.sm}px ${tokens.space.md}px`, borderBottom: `1px solid ${tokens.border}`,
   background: tokens.panelAlt, whiteSpace: 'nowrap', position: 'sticky', top: 0,
+  // Positioned elements in the rows below (the Board/Release buttons) would
+  // otherwise paint over this header as they scroll under it — sticky sets
+  // `z-index: auto`, which loses to any later positioned sibling.
+  zIndex: 1,
 };
 const TD: CSSProperties = {
   fontSize: 12.5, lineHeight: 1.4, color: tokens.text,
