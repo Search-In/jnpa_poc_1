@@ -96,7 +96,9 @@ export function PerformanceOverview() {
   if (q.loading && !q.data) return <PanelLoading label="Loading performance KPIs…" />;
   if (q.error) return <PanelError message={q.error} />;
   if (!q.data || !q.data.reportDate) {
-    return <PanelEmpty message="No daily performance report has been imported yet." />;
+    return (
+      <PanelEmpty message="No daily performance report has been imported yet. Use Performance & Reports → Data Upload (admin) to import a Daily Status Report PDF/CSV." />
+    );
   }
   const kpi = q.data;
 

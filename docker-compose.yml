@@ -1,10 +1,29 @@
-# One-command run of the UC-1 SPA (spec D-1): `docker compose up`.
-# Serves the static bundle on http://localhost:80 as a non-root user, mock
-# mode (no credentials). Put a TLS-terminating reverse proxy in front for
-# production (see docs/DEPLOYMENT.md).
+# One-command run of the UC-1 SPA + Gen-2 model service (spec D-1):
+#   docker compose up --build
+#
+# SPA on :80/:443 (TLS via host-mounted certs). Model service is INTERNAL only —
+# nginx fronts it at /ml-api; :8100 is never published (no auth of its own).
+# See docs/ML_MODELS.md § Production and docs/DEPLOYMENT.md.
 
 version: '3.8'
 services:
+  uc1-ml:
+    image: uc1-ml:local
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    # Deliberately NO ports: — reach it only via the compose network as uc1-ml:8100.
+    restart: unless-stopped
+    environment:
+      - JNPA_HOST=0.0.0.0
+      - JNPA_PORT=8100
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   uc1-vtms:
     image: uc1-vtms:local
     build:
@@ -17,5 +36,7 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot
     restart: unless-stopped
+    depends_on:
+      - uc1-ml
     environment:
       - VITE_DATA_MODE=mock

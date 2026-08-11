@@ -9,9 +9,10 @@ env:
   NODE_VERSION: "24"
   DEPLOY_DIR: "/home/ec2-user/jnpa_poc_1"
   # Refuse to deploy below this much free space on the EC2 root volume. The
-  # tarball is ~10MB and the nginx image ~100MB; 2GB leaves comfortable room
-  # for the upload, the extracted dist, and one image build.
-  MIN_FREE_MB: "2048"
+  # SPA tarball is ~10MB, nginx image ~100MB, and the Gen-2 model image
+  # (LightGBM + sklearn) is ~800MB–1.2GB on first build; 3GB leaves room for
+  # the upload, both image builds, and one previous generation to prune.
+  MIN_FREE_MB: "3072"
 
 jobs:
   build-and-deploy:
@@ -73,6 +74,10 @@ jobs:
           VITE_AUTH_ENABLED: "true"
           VITE_LIVE_AIS_ENABLED: "true"
           VITE_LDB_ENABLED: "true"
+          # Gen-2 model panels (TAT / berth optimiser). Served same-origin at
+          # /ml-api → uc1-ml:8100 on the compose network (never published).
+          VITE_ML_ENABLED: "true"
+          VITE_ML_API_BASE: "/ml-api"
         run: |
           node --max-old-space-size=4096 ./node_modules/.bin/vite build
 
@@ -141,11 +146,23 @@ jobs:
       # -----------------------------
       - name: Package Deployment Files
         run: |
+          # SPA + nginx image context, plus the Gen-2 model service build context.
+          # Exclude venv / tests / docs / DSR corpus so the tarball stays small;
+          # ml/Dockerfile installs deps inside the image.
           tar -czf deploy.tar.gz \
+            --exclude='ml/.venv' \
+            --exclude='ml/**/__pycache__' \
+            --exclude='ml/.pytest_cache' \
+            --exclude='ml/tests' \
+            --exclude='ml/docs' \
+            --exclude='ml/out' \
+            --exclude='ml/data/corpus' \
+            --exclude='ml/*.md' \
             dist \
             Dockerfile \
             docker-compose.yml \
-            deploy/nginx.conf
+            deploy/nginx.conf \
+            ml
 
       # -----------------------------
       # Upload Package
@@ -182,7 +199,7 @@ jobs:
 
           # Build BEFORE stopping anything — the running container keeps
           # serving if the build fails, instead of leaving the site down.
-          echo "Building new image..."
+          echo "Building new images (SPA + Gen-2 model service)..."
 
           docker compose build
 
@@ -196,7 +213,15 @@ jobs:
 
           echo "Waiting for application..."
 
-          sleep 10
+          sleep 15
+
+          # Smoke the model proxy (nginx → uc1-ml). Soft-fail: SPA still serves
+          # if ML is warming up; the Predictions panel shows its own notice.
+          if curl -sf "http://127.0.0.1/ml-api/health" >/dev/null; then
+            echo "✅ /ml-api/health OK"
+          else
+            echo "⚠️  /ml-api/health not ready yet — check: docker compose logs uc1-ml"
+          fi
 
           # Reclaim the images and cache this deploy just orphaned. Safe with
           # -a because the container is already up and holds a reference to

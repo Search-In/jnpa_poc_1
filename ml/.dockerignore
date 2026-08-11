@@ -1,0 +1,17 @@
+# Keep the production image lean. The Docker build context is `ml/`.
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+docs/
+out/
+data/corpus/
+*.md
+.git/
+.gitignore
+pytest.ini
+requirements.txt

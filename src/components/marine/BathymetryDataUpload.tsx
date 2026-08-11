@@ -27,12 +27,13 @@ export function BathymetryDataUpload({ onImported }: BathymetryDataUploadProps) 
     <MarineUploadPanel
       title="Bathymetry chart upload — validate → import (UC-3 backend)"
       accept=".pdf,application/pdf,.json,application/json"
+      documentType="BATHYMETRY"
       showTemplate={false}
       helpText={
         'Accepts a multibeam bathymetry chart PDF (e.g. 6148-24-SUR-PO-111-EF.pdf) or the ' +
-        'canonical bathymetry JSON. The backend detects the format by content and extracts ' +
-        'the soundings — depth, above-design flag and UTM 43N coordinates where the chart ' +
-        'carries a grid. The survey header is created from the drawing number on first import.'
+        'canonical bathymetry JSON. Declares document_type=BATHYMETRY so the gateway does ' +
+        'not mis-route the PDF as port craft. Extracts soundings — depth, above-design ' +
+        'flag and UTM 43N coordinates where the chart carries a grid.'
       }
       onImported={onImported}
     />

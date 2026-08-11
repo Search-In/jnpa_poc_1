@@ -1,18 +1,6 @@
 /**
- * <BerthingUploadPanel> — the 5-Day Berthing ▸ Data Upload sub-tab. Drives the
- * berthing Data-Upload workflow (validate → preview → import) through the Phase-1
- * uc3/berthing connector. No transport logic lives here — it only orchestrates the
- * connector and renders results.
- *
- * Mirrors <MarineUploadPanel> (the marine upload) but targets the SEPARATE berthing
- * endpoints (`/api/berthing/validate`, `/api/berthing/upload`) and adds a terminal
- * selector — the source is per-terminal daily reports (APMT/BMCT/NSFT/NSICT/NSIGT) in
- * PDF/CSV/XLS/XLSX. 'All terminals' means "read the per-row Terminal column". The
- * backend detects the format by content; the picker `accept` is only the OS dialog hint.
- *
- * RBAC: mirrors MarineUploadPanel — a read-only role sees the controls disabled with a
- * lock notice, never a hidden feature. A successful import calls `onImported` so the
- * sibling Terminal Reports view can refresh.
+ * <PerformanceUploadPanel> — Performance & Reports ▸ Data Upload.
+ * Admin-only gateway flow: validate → import Daily Status / monthly TEU / LDB PDF|CSV|XLSX.
  */
 
 import { useRef, useState } from 'react';
@@ -21,32 +9,31 @@ import { useRoleStore } from '@/auth/roleStore';
 import { canEdit } from '@/auth/roles';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import {
-  validateBerthing,
-  importBerthing,
-  fetchBerthingUploads,
-  BERTHING_TERMINALS,
-  type BerthingValidateResult,
-  type BerthingImportResult,
-  type BerthingParseError,
-} from '@/data/uc3/berthing';
+  PERF_REPORT_TYPES,
+  PERF_REPORT_TYPE_LABELS,
+  PERF_UPLOAD_ACCEPT,
+  fetchPerformanceUploads,
+  importPerformanceUpload,
+  perfTemplateHref,
+  validatePerformanceUpload,
+  type PerfImportResult,
+  type PerfParseError,
+  type PerfReportType,
+  type PerfValidateResult,
+} from '@/data/uc3/performanceUpload';
 import { importFailureReason } from '@/data/uc3/importFailure';
 import { Panel, PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
 import { tokens } from '@/theme/tokens';
 
-/** Formats the picker offers: terminal berthing reports as PDF, or the CSV/XLS/XLSX
- *  normalised equivalents. The backend detects each by content — this only controls
- *  what the OS file dialog shows. */
-const ACCEPT = '.pdf,.csv,.xlsx,.xls,application/pdf,text/csv';
-
-/** A green/amber/red tone for an upload/validate status string. */
 function statusTone(status: string): string {
-  if (status === 'SUCCESS' || status === 'VALIDATED') return tokens.good;
-  if (status === 'PARTIAL' || status === 'SKIPPED_DUPLICATE') return tokens.warn;
-  return tokens.bad; // REJECTED | FAILED
+  const s = status.toUpperCase();
+  if (s === 'SUCCESS' || s === 'VALIDATED' || s === 'IMPORTED') return tokens.good;
+  if (s === 'PARTIAL' || s === 'SKIPPED_DUPLICATE') return tokens.warn;
+  return tokens.bad;
 }
 
-function ErrorList({ errors }: { errors: BerthingParseError[] }) {
+function ErrorList({ errors }: { errors: PerfParseError[] }) {
   if (errors.length === 0) return null;
   return (
     <div style={{ marginTop: 8 }}>
@@ -87,12 +74,12 @@ function WhyFailed({ reason }: { reason: string | null }) {
   );
 }
 
-function UploadHistory({ refreshKey }: { refreshKey: number }) {
-  const q = useAdapterQuery(() => fetchBerthingUploads({}, 25, 0), [refreshKey]);
+function UploadHistory({ refreshKey, reportType }: { refreshKey: number; reportType: PerfReportType }) {
+  const q = useAdapterQuery(() => fetchPerformanceUploads(reportType, 25, 0), [refreshKey, reportType]);
   if (q.loading && !q.data) return <PanelLoading label="Loading history…" />;
   if (q.error) return <PanelError message={q.error} />;
   const rows = q.data ?? [];
-  if (rows.length === 0) return <PanelEmpty message="No berthing uploads yet." />;
+  if (rows.length === 0) return <PanelEmpty message="No performance uploads yet for this report type." />;
 
   const TD: React.CSSProperties = {
     fontSize: 12,
@@ -109,17 +96,11 @@ function UploadHistory({ refreshKey }: { refreshKey: number }) {
   };
 
   return (
-    <div
-      style={{
-        overflow: 'auto',
-        border: `1px solid ${tokens.border}`,
-        borderRadius: tokens.radius.sm,
-      }}
-    >
+    <div style={{ overflow: 'auto', border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            {['File', 'Terminal', 'Status', 'Rows', 'OK', 'Failed', 'When', 'Detail'].map((h) => (
+            {['File', 'Status', 'Rows', 'Inserted', 'Errors', 'When', 'Notes'].map((h) => (
               <th key={h} style={TH}>
                 {h}
               </th>
@@ -128,17 +109,14 @@ function UploadHistory({ refreshKey }: { refreshKey: number }) {
         </thead>
         <tbody>
           {rows.map((f) => (
-            <tr key={f.id}>
+            <tr key={f.uploadId || f.filename}>
               <td style={{ ...TD, fontWeight: 600, whiteSpace: 'normal', maxWidth: 220 }}>{f.filename || '—'}</td>
-              <td style={TD}>{f.terminal || '—'}</td>
               <td style={{ ...TD, color: statusTone(f.status), fontWeight: 700 }}>{f.status || '—'}</td>
-              <td style={TD}>{f.totalRows}</td>
-              <td style={TD}>{f.successRows}</td>
-              <td style={TD}>{f.failedRows}</td>
+              <td style={TD}>{f.rowCount}</td>
+              <td style={TD}>{f.insertedCount}</td>
+              <td style={TD}>{f.errorCount}</td>
               <td style={{ ...TD, color: tokens.textMuted }}>{f.createdAt ? istDateTime(f.createdAt) : '—'}</td>
-              <td style={{ ...TD, whiteSpace: 'normal', maxWidth: 260, color: tokens.bad }}>
-                {f.errorDetail || '—'}
-              </td>
+              <td style={{ ...TD, whiteSpace: 'normal', maxWidth: 240, color: tokens.bad }}>{f.notes || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -147,15 +125,15 @@ function UploadHistory({ refreshKey }: { refreshKey: number }) {
   );
 }
 
-export function BerthingUploadPanel({ onImported }: { onImported?: (result: BerthingImportResult) => void } = {}) {
+export function PerformanceUploadPanel({ onImported }: { onImported?: () => void } = {}) {
   const role = useRoleStore((s) => s.role);
   const editable = canEdit(role);
 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [terminal, setTerminal] = useState(''); // '' → All terminals (per-row column)
-  const [validation, setValidation] = useState<BerthingValidateResult | null>(null);
-  const [result, setResult] = useState<BerthingImportResult | null>(null);
+  const [reportType, setReportType] = useState<PerfReportType>('daily_status');
+  const [validation, setValidation] = useState<PerfValidateResult | null>(null);
+  const [result, setResult] = useState<PerfImportResult | null>(null);
   const [busy, setBusy] = useState<'validate' | 'import' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -172,7 +150,7 @@ export function BerthingUploadPanel({ onImported }: { onImported?: (result: Bert
     setBusy('validate');
     setErr(null);
     try {
-      setValidation(await validateBerthing(file, terminal || undefined));
+      setValidation(await validatePerformanceUpload(file, reportType));
       setResult(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -186,10 +164,12 @@ export function BerthingUploadPanel({ onImported }: { onImported?: (result: Bert
     setBusy('import');
     setErr(null);
     try {
-      const r = await importBerthing(file, terminal || undefined);
+      const r = await importPerformanceUpload(file, reportType);
       setResult(r);
       setRefreshKey((k) => k + 1);
-      onImported?.(r);
+      if ((r.status || '').toUpperCase() === 'IMPORTED' || (r.status || '').toUpperCase() === 'SUCCESS') {
+        onImported?.();
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -206,36 +186,35 @@ export function BerthingUploadPanel({ onImported }: { onImported?: (result: Bert
     color: tokens.text,
   };
 
-  const validateWhy = validation
-    ? importFailureReason({
-        status: validation.status,
-        errors: validation.errors,
-        invalid: validation.summary.invalid,
-      })
-    : null;
-  const importWhy = result
-    ? importFailureReason({
-        status: result.status,
-        errors: result.errors,
-        duplicateFile: result.duplicate_file,
-      })
-    : null;
+  const canUpload = editable;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Panel title="Terminal berthing report upload — validate → import (UC-3 backend)" minHeight={160}>
-        {!editable && (
+      <Panel title="Performance data upload — Daily Status / TEU / LDB (UC-3, admin)" minHeight={160}>
+        {!canUpload && (
           <CalciteNotice open kind="warning" scale="s" icon="lock">
-            <div slot="message">Your role is read-only — validation and import are disabled.</div>
+            <div slot="message">
+              Your role is read-only — validation and import are disabled. Gateway also requires a
+              DTCCC_ADMIN JWT when auth is enabled.
+            </div>
+          </CalciteNotice>
+        )}
+
+        {canUpload && (
+          <CalciteNotice open kind="info" scale="s" icon="information">
+            <div slot="message">
+              Gateway enforces <strong>DTCCC_ADMIN</strong> on these endpoints. A non-admin token returns
+              403 — the Why-it-failed panel will show that auth error.
+            </div>
           </CalciteNotice>
         )}
 
         <fieldset
-          disabled={!editable || undefined}
+          disabled={!canUpload || undefined}
           style={{
             border: 'none',
             padding: 0,
-            margin: editable ? 0 : '8px 0 0',
+            margin: canUpload ? 0 : '8px 0 0',
             display: 'flex',
             flexDirection: 'column',
             gap: 10,
@@ -243,59 +222,55 @@ export function BerthingUploadPanel({ onImported }: { onImported?: (result: Bert
         >
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <select
-              value={terminal}
-              onChange={(e) => setTerminal(e.target.value)}
+              value={reportType}
+              onChange={(e) => setReportType(e.target.value as PerfReportType)}
               style={selectStyle}
-              aria-label="Terminal for this upload"
-              disabled={!editable || undefined}
+              aria-label="Report type"
             >
-              <option value="">All terminals (per-row)</option>
-              {BERTHING_TERMINALS.map((t) => (
+              {PERF_REPORT_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {PERF_REPORT_TYPE_LABELS[t]}
                 </option>
               ))}
             </select>
             <input
               ref={fileRef}
               type="file"
-              accept={ACCEPT}
+              accept={PERF_UPLOAD_ACCEPT}
               style={{ display: 'none' }}
               onChange={(e) => pick(e.target.files?.[0] ?? null)}
             />
-            <CalciteButton
-              scale="s"
-              iconStart="upload"
-              disabled={!editable || undefined}
-              onClick={() => fileRef.current?.click()}
-            >
+            <CalciteButton scale="s" iconStart="upload" onClick={() => fileRef.current?.click()}>
               Choose file
             </CalciteButton>
             <span style={{ fontSize: 12, color: tokens.textMuted }}>{file ? file.name : 'No file chosen'}</span>
+            <a
+              href={perfTemplateHref(reportType)}
+              style={{ fontSize: 12, color: tokens.accent, marginLeft: 'auto' }}
+              title="Download CSV template for this report type"
+            >
+              Download template
+            </a>
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <CalciteButton
               scale="s"
               appearance="outline"
-              disabled={!editable || !file || busy != null || undefined}
+              disabled={!file || busy != null || undefined}
               onClick={onValidate}
             >
               Validate
             </CalciteButton>
-            <CalciteButton
-              scale="s"
-              disabled={!editable || !file || busy != null || undefined}
-              onClick={onImport}
-            >
+            <CalciteButton scale="s" disabled={!file || busy != null || undefined} onClick={onImport}>
               Import
             </CalciteButton>
             {busy && <CalciteLoader inline label={busy === 'validate' ? 'Validating…' : 'Importing…'} />}
           </div>
 
           <div style={{ fontSize: 11, color: tokens.textMuted }}>
-            Accepts a terminal berthing report as PDF (APMT/BMCT/NSFT/NSICT/NSIGT) or its CSV/XLS/XLSX
-            equivalent. Imports land in DEMO — switch the header to DEMO to see new rows.
+            Accepts official JNPA report <strong>PDF</strong>, or CSV/XLSX built from the template
+            (.pdf, .csv, .xlsx, .xlsm, .txt). Wrong report_type vs file content is a common reject.
           </div>
         </fieldset>
 
@@ -317,11 +292,14 @@ export function BerthingUploadPanel({ onImported }: { onImported?: (result: Bert
             }}
           >
             <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(validation.status) }}>
-              {validation.status}
-              {validation.terminal ? ` · ${validation.terminal}` : ''} — {validation.summary.valid} valid /{' '}
-              {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
+              {validation.status} · {validation.report_type}
             </div>
-            <WhyFailed reason={validateWhy} />
+            <WhyFailed
+              reason={importFailureReason({
+                status: validation.status,
+                errors: validation.errors,
+              })}
+            />
             <ErrorList errors={validation.errors} />
           </div>
         )}
@@ -338,18 +316,21 @@ export function BerthingUploadPanel({ onImported }: { onImported?: (result: Bert
           >
             <div style={{ fontSize: 12, fontWeight: 700, color: statusTone(result.status) }}>
               {result.status}
-              {result.duplicate_file
-                ? ' — identical file already imported'
-                : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
+              {result.inserted != null ? ` — ${result.inserted} inserted, ${result.skipped ?? 0} skipped` : ''}
             </div>
-            <WhyFailed reason={importWhy} />
+            <WhyFailed
+              reason={importFailureReason({
+                status: result.status,
+                errors: result.errors,
+              })}
+            />
             {result.errors && <ErrorList errors={result.errors} />}
           </div>
         )}
       </Panel>
 
-      <Panel title="Upload history — berthing import ledger" minHeight={160}>
-        <UploadHistory refreshKey={refreshKey} />
+      <Panel title="Upload history — performance import ledger" minHeight={160}>
+        <UploadHistory refreshKey={refreshKey} reportType={reportType} />
       </Panel>
     </div>
   );

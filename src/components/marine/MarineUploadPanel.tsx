@@ -37,6 +37,7 @@ import {
   type MarineImportResult,
   type MarineParseError,
 } from '@/data/uc3/marineUpload';
+import { importFailureReason } from '@/data/uc3/importFailure';
 import type { MarineUploadRowError } from '@/types/domain';
 import { Panel, PanelEmpty, PanelError, PanelLoading } from '@/components/common/Panel';
 import { istDateTime } from '@/util/format';
@@ -64,6 +65,11 @@ export interface MarineUploadPanelProps {
   helpText?: ReactNode;
   /** File-dialog `accept` filter (does not affect processing). */
   accept?: string;
+  /**
+   * Explicit gateway `document_type` (e.g. `BATHYMETRY`). Sent on validate/import
+   * so PDF charts are not mis-routed to PORT_CRAFT. Omit for content-sniffed uploads.
+   */
+  documentType?: string;
   /** Show the "Download template" link (vessel-call CSV template). Default true. */
   showTemplate?: boolean;
   /** Called after a successful (non-throwing) import — lets a sibling view refresh. */
@@ -97,6 +103,27 @@ function ErrorList({ errors }: { errors: MarineParseError[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function WhyFailed({ reason }: { reason: string | null }) {
+  if (!reason) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        marginTop: 8,
+        fontSize: 12,
+        color: tokens.bad,
+        lineHeight: 1.4,
+        border: `1px solid ${tokens.bad}`,
+        borderRadius: tokens.radius.sm,
+        padding: 8,
+        background: `${tokens.bad}10`,
+      }}
+    >
+      <strong>Why it failed:</strong> {reason}
     </div>
   );
 }
@@ -206,6 +233,7 @@ export function MarineUploadPanel({
   title = DEFAULT_TITLE,
   helpText = DEFAULT_HELP_TEXT,
   accept = DEFAULT_ACCEPT,
+  documentType,
   showTemplate = true,
   onImported,
 }: MarineUploadPanelProps = {}) {
@@ -223,6 +251,8 @@ export function MarineUploadPanel({
   const [err, setErr] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const uploadOpts = documentType ? { documentType } : {};
+
   const pick = (f: File | null) => {
     setFile(f);
     setValidation(null);
@@ -237,7 +267,7 @@ export function MarineUploadPanel({
     setBusy('validate');
     setErr(null);
     try {
-      setValidation(await validateMarineCsv(file));
+      setValidation(await validateMarineCsv(file, uploadOpts));
       setResult(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -261,7 +291,9 @@ export function MarineUploadPanel({
     setLedgerErrors([]);
     setLedgerDetail(null);
     try {
-      const r = override ? await overrideImportMarineCsv(file) : await importMarineCsv(file);
+      const r = override
+        ? await overrideImportMarineCsv(file, uploadOpts)
+        : await importMarineCsv(file, uploadOpts);
       setResult(r);
       setRefreshKey((k) => k + 1); // refresh history
       onImported?.(r); // let a sibling view (e.g. SeaChannelTable) refresh
@@ -392,6 +424,7 @@ export function MarineUploadPanel({
         {err && (
           <div style={{ marginTop: 8 }}>
             <PanelError message={err} />
+            <WhyFailed reason={`Transport/auth error: ${err}`} />
           </div>
         )}
 
@@ -410,6 +443,13 @@ export function MarineUploadPanel({
               {validation.status} — {validation.summary.valid} valid /{' '}
               {validation.summary.invalid} invalid / {validation.summary.duplicates} duplicate
             </div>
+            <WhyFailed
+              reason={importFailureReason({
+                status: validation.status,
+                errors: validation.errors,
+                invalid: validation.summary.invalid,
+              })}
+            />
             <ErrorList errors={validation.errors} />
           </div>
         )}
@@ -431,9 +471,14 @@ export function MarineUploadPanel({
                 ? ' — identical file already imported'
                 : ` — ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped`}
             </div>
-            {ledgerDetail && (
-              <div style={{ marginTop: 6, fontSize: 12, color: tokens.text }}>{ledgerDetail}</div>
-            )}
+            <WhyFailed
+              reason={importFailureReason({
+                status: result.status,
+                errors: result.errors,
+                duplicateFile: result.duplicate_file,
+                detail: ledgerDetail,
+              })}
+            />
             {result.errors && <ErrorList errors={result.errors} />}
             <LedgerErrorList errors={ledgerErrors} />
             {isDuplicateSkip && editable && file && (
