@@ -19,7 +19,9 @@ import type { CSSProperties } from 'react';
 import { CalciteButton } from '@esri/calcite-components-react';
 import { StatusChip } from '@/components/shipping/dataTable';
 import { lifecycleTone } from '@/components/marine/lifecycleTone';
-import { buildCallPilotView, callLabel } from '@/components/marine/pilotDesk';
+import {
+  berthRequirement, buildCallPilotView, callLabel, legalMovements, movementLabel,
+} from '@/components/marine/pilotDesk';
 import type { PilotDesk } from '@/components/marine/usePilotDesk';
 import { tokens } from '@/theme/tokens';
 import type { VesselCall } from '@/types/domain';
@@ -43,6 +45,10 @@ export function PilotCell({
   onOpenChange,
   pilotId,
   onPilotIdChange,
+  movement,
+  onMovementChange,
+  berthId,
+  onBerthIdChange,
 }: {
   call: VesselCall;
   desk: PilotDesk;
@@ -51,6 +57,12 @@ export function PilotCell({
   onOpenChange: (open: boolean) => void;
   pilotId: string;
   onPilotIdChange: (id: string) => void;
+  /** The leg being declared. Preselected by the parent from the call's own lifecycle. */
+  movement: string;
+  onMovementChange: (m: string) => void;
+  /** Destination berth. Seeded from the call's current berth; required for a shift. */
+  berthId: number | null;
+  onBerthIdChange: (id: number | null) => void;
 }) {
   const view = buildCallPilotView(call, desk.manualByCall, desk.importedByCall);
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
@@ -85,12 +97,52 @@ export function PilotCell({
   // ---- the open picker ----------------------------------------------------------------
   if (open && view.action === 'assign' && actionable) {
     const chosen = desk.available.find((r) => r.pilotId === pilotId);
+    const needsBerth = berthRequirement(movement);
+    // Sorted by code so the list reads like the quay, not like insertion order.
+    const berthOptions = [...desk.berths.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    // A shift with no destination is the bug this picker exists to prevent, so Confirm
+    // stays disabled until one is chosen rather than silently writing a no-op movement.
+    const berthOk = needsBerth !== 'required' || berthId !== null;
     return (
       <div style={ROW} onClick={stop}>
+        {/* The leg comes FIRST: it is the question the operator answers, and it decides
+            what Release will record — BERTHED for an inward or shifting movement,
+            SAILED for an outward one. Preselected, so the common case is one click. */}
+        <select
+          style={{ ...SELECT, maxWidth: 130 }}
+          value={movement}
+          autoFocus
+          onChange={(e) => onMovementChange(e.target.value)}
+          aria-label={`Movement leg for ${callLabel(call)}`}
+        >
+          {/* Impossible legs are DISABLED rather than hidden, and carry the reason: an
+              operator who expects to see 'Shifting' should learn why it is unavailable,
+              not find the option silently missing. */}
+          {legalMovements(call).map((m) => (
+            <option key={m.value} value={m.value} disabled={!m.legal} title={m.why}>
+              {m.label}{m.legal ? '' : ' — not possible'}
+            </option>
+          ))}
+        </select>
+        {/* Destination. A SHIFTING movement IS its destination — releasing without one
+            recorded 'she is fast alongside' while the call still named the berth she had
+            just left. Hidden for OUTWARD, which frees a berth rather than taking one. */}
+        {needsBerth !== 'none' && (
+          <select
+            style={{ ...SELECT, maxWidth: 110 }}
+            value={berthId === null ? '' : String(berthId)}
+            onChange={(e) => onBerthIdChange(e.target.value ? Number(e.target.value) : null)}
+            aria-label={`Destination berth for ${callLabel(call)}`}
+          >
+            <option value="">{needsBerth === 'required' ? 'Berth…' : 'No berth'}</option>
+            {berthOptions.map(([id, code]) => (
+              <option key={id} value={id}>{code}</option>
+            ))}
+          </select>
+        )}
         <select
           style={SELECT}
           value={pilotId}
-          autoFocus
           onChange={(e) => onPilotIdChange(e.target.value)}
           aria-label={`Select a pilot for ${callLabel(call)}`}
         >
@@ -103,13 +155,14 @@ export function PilotCell({
         </select>
         <CalciteButton
           scale="s"
-          disabled={!chosen || desk.busy || undefined}
+          disabled={!chosen || !berthOk || desk.busy || undefined}
+          title={berthOk ? undefined : 'Choose the berth she is shifting to'}
           onClick={() => {
-            if (!chosen) return;
+            if (!chosen || !berthOk) return;
             // Close ONLY on success. A 409 (the call gained an imported memo since the
             // page loaded) leaves the picker open with the choice intact, so the operator
             // can read the notice and pick another pilot rather than start over.
-            void desk.assign(call, chosen).then((ok) => {
+            void desk.assign(call, chosen, movement, berthId).then((ok) => {
               if (!ok) return;
               onPilotIdChange('');
               onOpenChange(false);
@@ -172,6 +225,14 @@ export function PilotCell({
           scale="s"
           appearance="outline"
           disabled={desk.busy || undefined}
+          title={
+            view.movementType
+              ? `Release the pilot and complete the movement (${movementLabel(view.movementType)})`
+                + (view.berthId !== null && desk.berths.get(view.berthId)
+                  ? ` → ${desk.berths.get(view.berthId)}`
+                  : '')
+              : 'Release the pilot. No leg was declared, so the visit will not advance.'
+          }
           onClick={(e) => {
             stop(e as unknown as { stopPropagation: () => void });
             void desk.release(view.assignmentId!);

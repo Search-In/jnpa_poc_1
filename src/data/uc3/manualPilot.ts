@@ -32,6 +32,10 @@ export interface ManualPilotWire {
   pilot_code: string | null;
   pilot_name: string | null;
   status: string | null;
+  /** INWARD | OUTWARD | SHIFTING. Null on assignments predating gateway migration 0054. */
+  movement_type: string | null;
+  /** Destination berth declared at assignment. Null for OUTWARD and pre-0055 rows. */
+  berth_id: number | null;
   assigned_at: string | null;
   boarded_at: string | null;
   released_at: string | null;
@@ -52,6 +56,23 @@ export interface ManualPilotAssignment {
   pilotName: string;
   /** Assigned | Onboard | Released. */
   status: string;
+  /**
+   * The leg this pilot ran: INWARD | OUTWARD | SHIFTING, '' when never declared.
+   *
+   * It is what lets Release advance the VISIT, not just the pilot: the gateway records
+   * BERTHED for an inward or shifting movement and SAILED for an outward one. Without it
+   * a release wrote PILOT_DISEMBARKED alone, which the status ladder does not read, so
+   * the call stuck at 'Pilot Boarded' with the pilot showing Completed beside it.
+   */
+  movementType: string;
+  /**
+   * Destination berth the operator declared, null when none applies.
+   *
+   * A SHIFTING movement is DEFINED by this: without it the release recorded 'she is fast
+   * alongside' while the call still named the berth she had just left. Null for OUTWARD
+   * (she is leaving) and for assignments made before the field existed.
+   */
+  berthId: number | null;
   assignedAt: number;
   boardedAt: number;
   releasedAt: number;
@@ -78,6 +99,8 @@ export function mapManualPilot(w: Partial<ManualPilotWire> | null | undefined): 
     pilotCode: str(w?.pilot_code),
     pilotName: str(w?.pilot_name),
     status: str(w?.status) || 'Assigned',
+    movementType: str(w?.movement_type).toUpperCase(),
+    berthId: typeof w?.berth_id === 'number' ? w.berth_id : null,
     assignedAt: toEpochMs(w?.assigned_at),
     boardedAt: toEpochMs(w?.boarded_at),
     releasedAt: toEpochMs(w?.released_at),
@@ -104,6 +127,10 @@ export interface AssignPilotInput {
   imoNo?: string;
   vesselName?: string;
   createdBy?: string;
+  /** INWARD | OUTWARD | SHIFTING. Omit to record no visit milestone on release. */
+  movementType?: string;
+  /** Destination berth. Required for SHIFTING; ignored by the gateway for OUTWARD. */
+  berthId?: number | null;
 }
 
 /* ----------------------------------------------------------------------- I/O */
@@ -134,6 +161,8 @@ export async function assignPilot(input: AssignPilotInput): Promise<ManualPilotA
     imo_no: input.imoNo || null,
     vessel_name: input.vesselName || null,
     created_by: input.createdBy || null,
+    movement_type: input.movementType || null,
+    berth_id: input.berthId ?? null,
   };
   return mapManualPilot(await http<ManualPilotWire>(MANUAL_PILOT_PATH, {
     method: 'POST',

@@ -21,6 +21,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchPilotagePage } from '@/data/uc3/pilotage';
+import { fetchBerthCodes } from '@/data/uc3/portCraftState';
 import {
   assignPilot, boardPilot, fetchManualPilotAssignments, releasePilot,
 } from '@/data/uc3/manualPilot';
@@ -40,6 +41,8 @@ export interface PilotDesk {
   importedByCall: ReturnType<typeof indexImportedByCall>;
   /** Pilots with no open movement and no live assignment — the Assign dropdown's options. */
   available: PilotRegisterRow[];
+  /** berth_id → code, for the destination picker. Empty when the read failed. */
+  berths: Map<number, string>;
   loading: boolean;
   /** A read that failed. The column degrades to status-only rather than erroring the table. */
   error: string | null;
@@ -52,7 +55,8 @@ export interface PilotDesk {
    * is reported through `actionError`, and the boolean is what lets a caller keep its
    * picker open on a 409 instead of discarding the operator's choice.
    */
-  assign: (call: VesselCall, pilot: PilotRegisterRow) => Promise<boolean>;
+  assign: (call: VesselCall, pilot: PilotRegisterRow, movementType: string,
+           berthId: number | null) => Promise<boolean>;
   board: (assignmentId: number) => Promise<boolean>;
   release: (assignmentId: number) => Promise<boolean>;
 }
@@ -71,6 +75,9 @@ export function usePilotDesk(): PilotDesk {
     () => fetchPilotagePage({}, PILOT_SCAN, 0),
     [refreshKey, marineVersion],
   );
+  // Reference data, not state: the berth list does not change when an assignment does, so
+  // it is deliberately outside the refresh key. Resolves to an empty map on failure.
+  const berthQ = useAdapterQuery(() => fetchBerthCodes(), []);
 
   const manualRows = useMemo(() => assignments.data?.items ?? [], [assignments.data]);
   const importedRows = useMemo(() => pilotage.data?.items ?? [], [pilotage.data]);
@@ -105,7 +112,8 @@ export function usePilotDesk(): PilotDesk {
   }, []);
 
   const assign = useCallback(
-    (call: VesselCall, pilot: PilotRegisterRow) =>
+    (call: VesselCall, pilot: PilotRegisterRow, movementType: string,
+     berthId: number | null) =>
       mutate(() =>
         assignPilot({
           callId: call.callId,
@@ -119,6 +127,12 @@ export function usePilotDesk(): PilotDesk {
           // for exactly the rows that could not be assigned before.
           vesselName: call.vesselName || callLabel(call),
           createdBy: 'operator',
+          // The leg decides which visit milestone Release records. Without it the call
+          // would advance no further than 'Pilot Boarded' once the pilot stepped off.
+          movementType,
+          // Where the movement puts her. The gateway drops it for an OUTWARD leg, so a
+          // stale value cannot imply a destination the release will never write.
+          berthId,
         }),
       ),
     [mutate],
@@ -131,6 +145,7 @@ export function usePilotDesk(): PilotDesk {
     manualByCall,
     importedByCall,
     available,
+    berths: berthQ.data ?? new Map<number, string>(),
     loading: (assignments.loading && !assignments.data) || (pilotage.loading && !pilotage.data),
     error: assignments.error || pilotage.error,
     actionError,
