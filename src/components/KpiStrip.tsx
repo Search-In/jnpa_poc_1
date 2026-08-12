@@ -6,6 +6,7 @@
  */
 
 import { CalciteNotice } from '@esri/calcite-components-react';
+import { InfoPopover } from '@/components/common/InfoPopover';
 import { useAppStore } from '@/store/useAppStore';
 import { KPI_TARGETS } from '@/config/targets';
 import type { KpiKey, KpiValue } from '@/types/kpi';
@@ -93,6 +94,28 @@ function Card({
       ? `p50 ${kpi.p50 ?? '—'} · p90 ${kpi.p90 ?? '—'}`
       : 'p50 / p90 distribution';
 
+  // Spec UI-041 baseline-source. Same content and branching as before — it is only
+  // moved OFF the card face and shown on demand through the title info popup.
+  const baselineInfo =
+    kpi.baselineValue !== undefined && !unmeasurable ? (
+      <>
+        <span style={{ fontWeight: 700 }}>
+          JNPA baseline {kpi.baselineValue}
+          {kpi.unit} {kpi.baselinePeriod ? `(${kpi.baselinePeriod})` : ''}
+        </span>
+        {kpi.vsBaselinePct !== undefined && (
+          <span
+            style={{ marginLeft: 4, fontWeight: 700, color: deltaColor(key, kpi.vsBaselinePct) }}
+          >
+            {signedPct(kpi.vsBaselinePct)} vs baseline
+          </span>
+        )}
+        <div>{kpi.baselineSource ?? 'jnport.gov.in ▸ Reports ▸ Operating Performance Profile'}</div>
+      </>
+    ) : kpi.baselineSource ? (
+      <span>{kpi.baselineSource}</span>
+    ) : null;
+
   return (
     <div
       className="app-region"
@@ -121,13 +144,13 @@ function Card({
       >
         <div style={{ fontSize: 11, color: tokens.textMuted, lineHeight: 1.3 }}>
           {kpi.label}
-          {tooltip && (
-            <span aria-hidden style={{ marginLeft: 4, cursor: 'help', opacity: 0.7 }}>
-              ⓘ
+          {baselineInfo && (
+            <span style={{ marginLeft: 3, verticalAlign: 'middle' }}>
+              <InfoPopover label={`${kpi.label} — baseline & source`}>{baselineInfo}</InfoPopover>
             </span>
           )}
         </div>
-        {kpi.provenance && <ProvenanceChip mode={kpi.provenance} />}
+        {kpi.provenance && kpi.provenance !== 'SIM' && <ProvenanceChip mode={kpi.provenance} />}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
@@ -197,33 +220,8 @@ function Card({
         />
       )}
 
-      {/* Spec UI-041 baseline-source — never a bare percentage alone. */}
-      {kpi.baselineValue !== undefined && !unmeasurable ? (
-        <div style={{ fontSize: 9.5, color: tokens.textMuted, lineHeight: 1.35 }}>
-          <span style={{ fontWeight: 700 }}>
-            JNPA baseline {kpi.baselineValue}
-            {kpi.unit} {kpi.baselinePeriod ? `(${kpi.baselinePeriod})` : ''}
-          </span>
-          {kpi.vsBaselinePct !== undefined && (
-            <span
-              style={{
-                marginLeft: 4,
-                fontWeight: 700,
-                color: deltaColor(key, kpi.vsBaselinePct),
-              }}
-            >
-              {signedPct(kpi.vsBaselinePct)} vs baseline
-            </span>
-          )}
-          <div>{kpi.baselineSource ?? 'jnport.gov.in ▸ Reports ▸ Operating Performance Profile'}</div>
-        </div>
-      ) : (
-        kpi.baselineSource && (
-          <div style={{ fontSize: 9, color: tokens.textMuted, lineHeight: 1.3 }}>
-            {kpi.baselineSource}
-          </div>
-        )
-      )}
+      {/* Spec UI-041 baseline-source is no longer rendered on the card face — its
+          content moved into the title info popup (`baselineInfo`). */}
     </div>
   );
 }

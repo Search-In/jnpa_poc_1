@@ -10,7 +10,8 @@
  * whole layer. Camera presets fly to framed demo viewpoints computed from real
  * terminal / channel geography. Survives ArcGIS token death via basemapFallback.
  */
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Map from '@arcgis/core/Map';
 import SceneView from '@arcgis/core/views/SceneView';
 import type FeatureLayer from '@arcgis/core/layers/FeatureLayer';
@@ -21,6 +22,7 @@ import Expand from '@arcgis/core/widgets/Expand';
 import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
 import { initialBasemap, installBasemapFallback, isOfflineRequested } from './basemapFallback';
 import { applyGraphics } from './applyGraphics';
+import { MapVesselPopup, type MapPopupField } from './MapVesselPopup';
 import {
   channelLayer,
   seaChannelLayer,
@@ -115,6 +117,48 @@ function resolveHit(res: { results: Array<unknown> }): string | null {
   return null;
 }
 
+/** '' / null / undefined → '—', everything else stringified as the Esri popup shows it. */
+function popupValue(v: unknown): string {
+  return v === undefined || v === null || v === '' ? '—' : String(v);
+}
+
+/**
+ * The clicked SIMULATED vessel's card, built from the graphic's OWN attributes —
+ * the exact same source and field set as the Esri vessel popupTemplate
+ * (src/map/scene3d.ts). Returns null when the hit is not a simulated vessel, so
+ * non-vessel assets keep only their existing Esri popup, unchanged.
+ */
+function vesselHit(res: {
+  results: Array<unknown>;
+}): { title: string; fields: MapPopupField[]; geometry: unknown } | null {
+  for (const r of res.results) {
+    const g = (r as { graphic?: { attributes?: Record<string, unknown>; geometry?: unknown } })
+      .graphic;
+    const a = (g?.attributes ?? {}) as Record<string, unknown>;
+    // A vessel graphic is the only one carrying `vesselId`; other assets use
+    // berthId/craneId/etc. (Live-AIS hulls also carry vesselId but are excluded by
+    // the caller via isLiveVesselId.) Missing display fields degrade to '—'.
+    if (a.vesselId != null) {
+      return {
+        title: popupValue(a.name),
+        fields: [
+          { label: 'MMSI', value: popupValue(a.vesselId) },
+          { label: 'Type', value: popupValue(a.type) },
+          { label: 'Nav status', value: popupValue(a.status) },
+          { label: 'Speed (kn)', value: popupValue(a.sog) },
+          { label: 'Course (°T)', value: popupValue(a.cog) },
+          { label: 'Heading (°T)', value: popupValue(a.heading) },
+          { label: 'Assigned berth', value: popupValue(a.berth) },
+          { label: 'ETA (IST)', value: popupValue(a.eta) },
+          { label: 'Source', value: popupValue(a.source) },
+        ],
+        geometry: g?.geometry ?? null,
+      };
+    }
+  }
+  return null;
+}
+
 export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
   function PortScene(props, ref) {
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -140,6 +184,21 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
     const lastSelectedRef = useRef<string | null>(null);
     const propsRef = useRef(props);
     propsRef.current = props;
+
+    // ── Additive on-map info card ─────────────────────────────────────────────
+    // A compact card showing the SAME attributes the Esri vessel popup shows for
+    // the clicked vessel. Purely presentational and additive: it does not alter
+    // selection, the Esri popup, the camera or the map. It is rendered through a
+    // PORTAL to document.body (position: fixed) so the ArcGIS SceneView's WebGL
+    // canvas / stacking context cannot hide or clip it — the reason the earlier
+    // in-container overlay was invisible. `x`/`y` are VIEWPORT (client) pixels.
+    const [mapPopup, setMapPopup] = useState<{
+      title: string;
+      fields: MapPopupField[];
+      x: number;
+      y: number;
+    } | null>(null);
+    const closeMapPopup = () => setMapPopup(null);
 
     // Tide & sea-state raster field (same feed the Tide tab + 2D map use, so all
     // three stay consistent). Rendered as an INCOIS-style interpolated heatmap;
@@ -464,6 +523,24 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
       const clickHandle = view.on('click', (event) => {
         void view.hitTest(event).then((res) => {
           const id = resolveHit(res);
+          // Additive on-map card: a simulated-vessel click shows its SAME attributes
+          // in a compact card at the click point; any other click (asset, live hull,
+          // empty water) closes it. This runs alongside — and never replaces — the
+          // native Esri popup and the selection logic below.
+          //
+          // Position in VIEWPORT (client) pixels so the portal card (position: fixed)
+          // sits exactly at the click. Prefer the native pointer event's client
+          // coords; fall back to the view container rect + event.x/y.
+          const vg = isLiveVesselId(id) ? null : vesselHit(res);
+          if (vg) {
+            const nat = (event as { native?: { clientX?: number; clientY?: number } }).native;
+            const rect = containerRef.current?.getBoundingClientRect();
+            const cx = nat?.clientX ?? (rect ? rect.left + event.x : event.x);
+            const cy = nat?.clientY ?? (rect ? rect.top + event.y : event.y);
+            setMapPopup({ title: vg.title, fields: vg.fields, x: cx, y: cy });
+          } else {
+            closeMapPopup();
+          }
           // A live-AIS hull is not a placed asset: ringing it (asset3dPosition) and
           // surfacing it to React would route it through the placement store, which
           // opens the "Move & rotate" editor instead of the info popup. The graphic
@@ -658,13 +735,52 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
       }
     }, [props.highlights]);
 
+    // Close the card on Esc, or on any pointer-down outside it. The card stops its
+    // own mousedowns, so this fires only for clicks elsewhere (map, other UI). A
+    // subsequent vessel click re-opens it via the SceneView click handler above.
+    useEffect(() => {
+      if (!mapPopup) return;
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') closeMapPopup();
+      };
+      // Close on any pointer-down outside the card. A click INSIDE the card (incl.
+      // ×) is ignored here via the data-attribute check, so it never self-closes.
+      const onDown = (e: MouseEvent) => {
+        const t = e.target as Element | null;
+        if (t && typeof t.closest === 'function' && t.closest('[data-map-popup]')) return;
+        closeMapPopup();
+      };
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('mousedown', onDown);
+      return () => {
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('mousedown', onDown);
+      };
+    }, [mapPopup]);
+
     return (
-      <div
-        ref={containerRef}
-        style={{ width: '100%', height: '100%', minHeight: 480, background: tokens.bg }}
-        aria-label="JNPA 3D sea-port scene"
-        role="application"
-      />
+      <>
+        {/* The SceneView owns this div's children — keep it clean for ArcGIS. */}
+        <div
+          ref={containerRef}
+          style={{ width: '100%', height: '100%', minHeight: 480, background: tokens.bg }}
+          aria-label="JNPA 3D sea-port scene"
+          role="application"
+        />
+        {/* Rendered through a portal to <body> (position: fixed) so the SceneView's
+            WebGL canvas / stacking context cannot hide or clip it. */}
+        {mapPopup &&
+          createPortal(
+            <MapVesselPopup
+              title={mapPopup.title}
+              fields={mapPopup.fields}
+              x={mapPopup.x}
+              y={mapPopup.y}
+              onClose={closeMapPopup}
+            />,
+            document.body
+          )}
+      </>
     );
   }
 );

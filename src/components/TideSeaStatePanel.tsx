@@ -12,7 +12,6 @@
 
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { CalciteNotice } from '@esri/calcite-components-react';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
 import { useSimStore } from '@/sim/simStore';
@@ -129,15 +128,16 @@ export function TideSeaStatePanel() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
-      <SourceBadge source="TIDE" />
-
-      <CalciteNotice open kind="info" icon="information" scale="s">
-        <div slot="message">
-          Interim live source: Open-Meteo Marine (real wave height + sea level → tide) per station.
-          Production source is INCOIS Ocean State Forecast (SAMUDRA) — pending a server-side proxy +
-          INCOIS data agreement (no free public CORS-enabled INCOIS API today). See docs/INCOIS.md.
-        </div>
-      </CalciteNotice>
+      <SourceBadge
+        source="TIDE"
+        info={
+          <>
+            Interim live source: Open-Meteo Marine (real wave height + sea level → tide) per station.
+            Production source is INCOIS Ocean State Forecast (SAMUDRA) — pending a server-side proxy +
+            INCOIS data agreement (no free public CORS-enabled INCOIS API today). See docs/INCOIS.md.
+          </>
+        }
+      />
 
       <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         <table style={TABLE}>

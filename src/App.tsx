@@ -31,6 +31,7 @@ import { DataSourceToggle } from '@/components/DataSourceToggle';
 import { DataModeChip } from '@/provenance/DataModeChip';
 import { useDataModeStore } from '@/provenance/useDataModeStore';
 import { RoleSwitcher } from '@/auth/RoleSwitcher';
+import { LogoutButton } from '@/auth/LogoutButton';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
@@ -303,6 +304,7 @@ export function App() {
                   Simulator
                 </CalciteButton>
                 <DataModeChip />
+                <LogoutButton />
               </>
             }
           />

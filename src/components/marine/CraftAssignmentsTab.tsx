@@ -23,6 +23,7 @@
 
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { CalciteButton, CalciteNotice } from '@esri/calcite-components-react';
+import { InfoPopover } from '@/components/common/InfoPopover';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { propagateMarineStateUpdate, useMarineStateVersion }
   from '@/data/uc3/marineStateBus';
@@ -153,14 +154,14 @@ export function CraftAssignmentsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, gap: tokens.space.sm }}>
-      <CalciteNotice open kind="brand" scale="s" icon="information">
-        <div slot="title">Fallback workflow — for movements with no imported craft roster</div>
-        <div slot="message">
-          Craft commitments are stored in the backend and drive Marine State, Vessel
-          Calls, the Timeline and the Fleet Register. The imported fleet register is never
-          altered. Only vessels that already have a pilot can be selected.
-        </div>
-      </CalciteNotice>
+      <InfoPopover
+        heading="Fallback workflow — for movements with no imported craft roster"
+        label="About this workflow"
+      >
+        Craft commitments are stored in the backend and drive Marine State, Vessel
+        Calls, the Timeline and the Fleet Register. The imported fleet register is never
+        altered. Only vessels that already have a pilot can be selected.
+      </InfoPopover>
 
       {actionError && (
         <CalciteNotice open kind="danger" scale="s" icon="exclamation-mark-triangle" closable>

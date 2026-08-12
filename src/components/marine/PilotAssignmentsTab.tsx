@@ -18,6 +18,7 @@
 
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { CalciteButton, CalciteInput, CalciteNotice } from '@esri/calcite-components-react';
+import { InfoPopover } from '@/components/common/InfoPopover';
 import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { fetchVesselCallsPage } from '@/data/uc3/marineCalls';
 import { fetchPilotagePage } from '@/data/uc3/pilotage';
@@ -207,15 +208,15 @@ export function PilotAssignmentsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, gap: tokens.space.sm }}>
-      <CalciteNotice open kind="brand" scale="s" icon="information">
-        <div slot="title">Fallback workflow — for vessels with no imported pilot data</div>
-        <div slot="message">
-          Assignments are stored in the backend and drive Vessel Calls, Port Craft, Marine
-          State and the Timeline. Imported pilot memos always take priority: a vessel
-          disappears from the picker once real pilot data exists, and any manual record
-          for it is retired automatically and kept below for audit.
-        </div>
-      </CalciteNotice>
+      <InfoPopover
+        heading="Fallback workflow — for vessels with no imported pilot data"
+        label="About this workflow"
+      >
+        Assignments are stored in the backend and drive Vessel Calls, Port Craft, Marine
+        State and the Timeline. Imported pilot memos always take priority: a vessel
+        disappears from the picker once real pilot data exists, and any manual record
+        for it is retired automatically and kept below for audit.
+      </InfoPopover>
 
       {error && (
         <CalciteNotice open kind="danger" scale="s" icon="exclamation-mark-triangle" closable>
