@@ -85,6 +85,14 @@ jobs:
           # TTL, below which a poll can only return identical rows.
           VITE_LIVE_AIS_POLL_MS: "300000"
           VITE_LDB_ENABLED: "true"
+          # Cross-twin scenario chain. The Monsoon disruption runs UC-1 -> UC-2 -> UC-3,
+          # and the hand-off button at the end of each scenario opens the next twin at
+          # the scenario that continues it. Pinned rather than left to the code default
+          # so a host change is a config edit, not a rebuild — and so this file records
+          # which twin this build links to.
+          VITE_UC1_APP_URL: "https://vessel-one.searchintech.in"
+          VITE_UC2_APP_URL: "https://logistics-two.searchintech.in"
+          VITE_UC3_APP_URL: "https://traffic-three.searchintech.in"
           # Gen-2 model panels (TAT / berth optimiser). Served same-origin at
           # /ml-api → uc1-ml:8100 on the compose network (never published).
           VITE_ML_ENABLED: "true"

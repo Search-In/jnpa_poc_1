@@ -9,6 +9,7 @@
  */
 import type { SimLevers } from './simStore';
 import { NEUTRAL_LEVERS } from './simStore';
+import type { LifecycleHandoff } from './lifecycleHandoff';
 
 export interface TourStep {
   /** Camera preset to fly to for this beat. */
@@ -34,6 +35,13 @@ export interface Scenario {
   /** Ordered causal-chain node ids (into causalGraph) this scenario lights up. */
   chain: string[];
   steps: TourStep[];
+  /**
+   * Where this disruption continues once UC-1 has told its part.
+   *
+   * Absent on a scenario whose consequences stay inside vessel traffic. Present only
+   * where the causal chain genuinely crosses into another twin — see lifecycleHandoff.
+   */
+  handoff?: LifecycleHandoff;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -45,6 +53,17 @@ export const SCENARIOS: Scenario[] = [
     rubric: 'C5 — what-if + reactive causality',
     levers: { weatherSeverity: 0.85 },
     chain: ['weather', 'windwave', 'pilotage', 'arrivalQueue', 'preBerthDelay', 'jit'],
+    // The hold does not end at the anchorage. Vessels that berth late discharge late,
+    // which is a cargo problem before it is a corridor one — so the chain runs
+    // UC-1 → UC-2 → UC-3, in the order the consequences actually arrive.
+    handoff: {
+      twin: 'UC2',
+      scenarioId: 'S7',
+      cta: 'Continue in UC-2 · Cargo & Logistics',
+      because:
+        'The four calls held at the anchorage still have to be discharged. They berth late '
+        + 'and in one block, so the next thing this monsoon touches is the yard.',
+    },
     steps: [
       { preset: 'anchorage', tab: 'scenarios', title: 'Weather front arrives', narrative: 'Sustained winds and wave height cross the pilotage limit. The twin suspends pilot transfers — no vessel boards a pilot until the hold clears.', highlights: ['ANCH-OUTER', 'PBG'] },
       { preset: 'pilot', tab: 'craft', title: 'Pilot boarding halts', narrative: 'With boarding suspended, inbound vessels hold at the anchorage. Pilots idle; the boarding ground is quiet.', highlights: ['PBG'] },
