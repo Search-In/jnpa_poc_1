@@ -55,6 +55,8 @@ import { istTime } from '@/util/format';
 import { CRAFT_SPRITES, GLYPHS, VESSEL_SPRITES, spriteForVesselType } from '@/assets/registry';
 import { buildPortAssets2dLayer, setPortAssets2dVisible } from '@/map/portAssets2d';
 import { initialBasemap, installBasemapFallback } from '@/map/basemapFallback';
+import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
+import { useEsriViewStylesheet } from '@/map/useEsriViewStylesheet';
 import { liveVesselLayer2d, renderLiveVessels2d } from '@/map/liveVesselLayer';
 import { useLiveVessels } from '@/map/useLiveVessels';
 import { SourceBadge } from '@/provenance/SourceBadge';
@@ -258,7 +260,37 @@ function selectionRing2d(lng: number, lat: number): Graphic {
 
 type LayerKey = 'vessels' | 'assets' | 'berths' | 'weather' | 'channel';
 
+
+/**
+ * Force the popup to stay ANCHORED to its feature instead of docking to an edge.
+ *
+ * `view.popup` is created LAZILY, so a `popup: {...}` object passed to the view
+ * constructor is applied to a widget that does not exist yet; the real Popup arrives
+ * later carrying stock defaults. Chief among those is
+ * `dockOptions.breakpoint = {width: 544, height: 544}` — under that size the popup docks
+ * itself, and this map lives in a panel narrower than 544px, so every click produced a
+ * slab beneath the map rather than a balloon on it.
+ *
+ * `reactiveUtils.watch` fires when the widget is finally created (and again if it is
+ * recreated), which is the only point at which these settings stick. Returns a handle
+ * for teardown. Mirrored in PortScene for the 3D scene.
+ */
+function pinPopupToFeature(view: { popup?: unknown }) {
+  return reactiveUtils.watch(
+    () => view.popup as __esri.Popup | undefined,
+    (popup) => {
+      if (!popup) return;
+      popup.dockEnabled = false;
+      popup.dockOptions = { buttonEnabled: false, breakpoint: false };
+    },
+    { initial: true },
+  );
+}
+
 export function AISMap() {
+  // Without this the view's own UI — attribution, widgets, and the POPUP — renders
+  // unstyled in document flow, which is what put vessel detail underneath the map.
+  useEsriViewStylesheet();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<MapView | null>(null);
   const vesselLayerRef = useRef<GraphicsLayer | null>(null);
@@ -341,21 +373,36 @@ export function AISMap() {
       map,
       center: [lon, lat],
       zoom: initialZoom,
-      // Vessel/berth detail shows in the Esri popup ANCHORED to the clicked
-      // feature, inside the map — docking off is disabled so it never floats to
-      // the side of the (narrow) map panel.
+      // Vessel/berth detail shows in the Esri popup ANCHORED to the clicked feature,
+      // inside the map.
+      // ANCHORED TO THE FEATURE, NEVER DOCKED.
+      //
+      // `dockOptions.breakpoint` defaults to {width: 544, height: 544}: below that the
+      // popup DOCKS itself to an edge of the view, which is how vessel detail ended up
+      // rendering as a slab under the map instead of a balloon on it — this map lives in
+      // a panel narrower than 544px, so the default fired on every click. `false` opts
+      // out of the responsive behaviour entirely.
+      //
+      // The block previously also passed `collision: 'reposition'` and
+      // `alignment: 'auto'`. NEITHER IS A POPUP PROPERTY — they appear nowhere in
+      // @arcgis/core's Popup interface — and the `as never` cast that used to sit here
+      // stopped the compiler saying so, which is how they survived. The typed cast below
+      // is deliberately narrow: it names the three fields that exist, so a future typo
+      // fails the build instead of silently disabling the popup config.
       popupEnabled: true,
       popup: {
         dockEnabled: false,
         dockOptions: { buttonEnabled: false, breakpoint: false },
-        collision: 'reposition',
-        alignment: 'auto',
-      } as never,
+      } satisfies __esri.PopupProperties,
     });
     viewRef.current = view;
 
     // Swap to the bundled offline base on real basemap failure (token death /
     // no CDN). Fires the warning once so the operator sees the degraded state.
+    // See pinPopupToFeature — constructor popup config lands on a widget that does
+    // not exist yet, so the dock settings must be (re)applied when it appears.
+    const popupPinHandle = pinPopupToFeature(view);
+
     const teardownFallback = installBasemapFallback(view, {
       onFallback: () => setMapWarning('Offline basemap engaged — external map tiles unavailable.'),
     });
@@ -433,6 +480,7 @@ export function AISMap() {
       liveLayerRef.current = null;
       tideLayerRef.current = null;
       bathymetryLayerRef.current = null;
+      popupPinHandle.remove();
       teardownFallback();
       view.destroy();
     };

@@ -14,11 +14,19 @@ export function Panel({
   children,
   minHeight = 120,
   height,
+  hideTitle = false,
 }: {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
   minHeight?: number;
+  /**
+   * Suppress the visible header bar while keeping `title` as the region's accessible
+   * name. For a panel whose enclosing tab already carries the same words — repeating
+   * them costs a row of vertical space and reads as a stutter — without making the
+   * landmark anonymous to a screen reader.
+   */
+  hideTitle?: boolean;
   /** Fixed panel height. When set, the body becomes a bounded scroll viewport. */
   height?: number;
 }) {
@@ -35,30 +43,36 @@ export function Panel({
         overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          padding: '8px 12px',
-          borderBottom: `1px solid ${tokens.border}`,
-          background: tokens.panelAlt,
-        }}
-      >
-        <h2
+      {/* `actions` keeps the bar alive even when the heading is suppressed — hiding a
+          title must not also hide the panel's controls. */}
+      {(!hideTitle || actions) && (
+        <div
           style={{
-            margin: 0,
-            fontSize: 12,
-            fontWeight: 600,
-            color: tokens.text,
-            letterSpacing: 0.3,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            padding: '8px 12px',
+            borderBottom: `1px solid ${tokens.border}`,
+            background: tokens.panelAlt,
           }}
         >
-          {title}
-        </h2>
-        {actions}
-      </div>
+          {hideTitle ? <span /> : (
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 12,
+                fontWeight: 600,
+                color: tokens.text,
+                letterSpacing: 0.3,
+              }}
+            >
+              {title}
+            </h2>
+          )}
+          {actions}
+        </div>
+      )}
       <div
         style={{
           flex: 1,

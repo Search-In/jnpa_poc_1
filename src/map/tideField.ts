@@ -88,12 +88,22 @@ export function viridis(t: number): [number, number, number] {
   ];
 }
 
+/**
+ * Stations that actually carry a reading for `v`. A station whose source did not
+ * return the measurement holds 0 (see TideStation.missing) — interpolating that
+ * 0 would drag a cold spot across the field that no model reported.
+ */
+export function stationsReporting(stations: TideStation[], v: FieldVar): TideStation[] {
+  return stations.filter((s) => !s.missing?.includes(v));
+}
+
 /** Min/max of a field across the stations, padded so a flat field still colours. */
 export function fieldRange(stations: TideStation[], v: FieldVar): [number, number] {
-  if (!stations.length) return [0, 1];
+  const reporting = stationsReporting(stations, v);
+  if (!reporting.length) return [0, 1];
   let lo = Infinity;
   let hi = -Infinity;
-  for (const s of stations) {
+  for (const s of reporting) {
     const val = s[v];
     if (val < lo) lo = val;
     if (val > hi) hi = val;
@@ -126,7 +136,7 @@ export function fieldLandAlpha(nx: number, ny: number): number {
 function idw(lon: number, lat: number, stations: TideStation[], v: FieldVar): number {
   let num = 0;
   let den = 0;
-  for (const s of stations) {
+  for (const s of stationsReporting(stations, v)) {
     const dx = lon - s.LON;
     const dy = lat - s.LAT;
     const d2 = dx * dx + dy * dy + 1e-9;
@@ -146,7 +156,9 @@ export function renderFieldCanvas(
   stations: TideStation[],
   v: FieldVar
 ): { canvas: HTMLCanvasElement; range: [number, number] } | null {
-  if (!stations.length || typeof document === 'undefined') return null;
+  // No station reports THIS variable → no field to draw, rather than a flat
+  // sheet interpolated from placeholder zeros.
+  if (!stationsReporting(stations, v).length || typeof document === 'undefined') return null;
   const [lo, hi] = fieldRange(stations, v);
   const span = hi - lo || 1;
 

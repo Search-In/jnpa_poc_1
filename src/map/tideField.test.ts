@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { viridis, fieldRange, FIELD_META, type FieldVar } from './tideField';
+import {
+  viridis,
+  fieldRange,
+  stationsReporting,
+  FIELD_META,
+  type FieldVar,
+} from './tideField';
 import type { TideStation } from '@/types/domain';
 
 const st = (over: Partial<TideStation>): TideStation => ({
@@ -61,5 +67,34 @@ describe('FIELD_META', () => {
       expect(FIELD_META[k].label).toBeTruthy();
       expect(FIELD_META[k].unit).toBeTruthy();
     });
+  });
+});
+
+describe('stationsReporting (placeholder zeros never enter the field)', () => {
+  it('drops a station that did not report the variable being drawn', () => {
+    const stations = [
+      st({ STATION_ID: 'A', seaStateM: 1.8 }),
+      // Source withheld the wave height; the row carries 0 as a placeholder.
+      st({ STATION_ID: 'B', seaStateM: 0, missing: ['seaStateM'] }),
+    ];
+    expect(stationsReporting(stations, 'seaStateM').map((s) => s.STATION_ID)).toEqual(['A']);
+    // The same station is still valid for a variable it DID report.
+    expect(stationsReporting(stations, 'tideM')).toHaveLength(2);
+  });
+
+  it('keeps the placeholder out of the colour range', () => {
+    const stations = [
+      st({ STATION_ID: 'A', seaStateM: 1.8 }),
+      st({ STATION_ID: 'B', seaStateM: 2.0 }),
+      st({ STATION_ID: 'C', seaStateM: 0, missing: ['seaStateM'] }),
+    ];
+    const [lo, hi] = fieldRange(stations, 'seaStateM');
+    expect(lo).toBe(1.8);
+    expect(hi).toBe(2.0);
+  });
+
+  it('falls back to a neutral range when nothing reports the variable', () => {
+    const stations = [st({ windKt: 0, missing: ['windKt'] })];
+    expect(fieldRange(stations, 'windKt')).toEqual([0, 1]);
   });
 });

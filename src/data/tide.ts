@@ -35,12 +35,55 @@ interface OpenMeteoCurrent {
   current?: Record<string, number | string | undefined>;
 }
 
-const num = (v: unknown, fallback = 0) => (typeof v === 'number' ? v : fallback);
+type Measurement = NonNullable<TideStation['missing']>[number];
 
-/** Classify tide trend from the MSL height's own reading vs the value 1h ago. */
-function tideTrend(now: number, prev: number | null): TideStation['tideTrend'] {
-  if (prev == null) return 'slack';
-  const d = now - prev;
+/**
+ * A measurement, or null when the source did not return one. Deliberately NOT
+ * `?? 0`: a missing wave height rendered as "0.0 m" is a calm sea the model
+ * never reported, and downstream (DUKC, pilotage limits) a fabricated zero is
+ * the most dangerous value in the set. Callers record the null in `missing`.
+ */
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** Round a real reading; keep null as null. */
+const fix = (v: number | null, dp: number): number | null =>
+  v === null ? null : Number(v.toFixed(dp));
+
+/**
+ * Classify tide trend by comparing the current height against the hourly sample
+ * ~1 h earlier.
+ *
+ * The sample must be located by TIME, not by position in the array: the hourly
+ * series covers the whole forecast day (00:00–23:00), so `series[length - 2]`
+ * is 22:00 — a value hours in the FUTURE for most of the day. Comparing against
+ * it made the arrow report "falling" every afternoon regardless of the tide.
+ */
+export function trendFromSeries(
+  nowMs: number,
+  times: string[],
+  heights: number[],
+  current: number | null,
+): TideStation['tideTrend'] {
+  if (current === null || times.length === 0) return 'slack';
+  const target = nowMs - 3_600_000;
+  let best = -1;
+  let bestGap = Infinity;
+  for (let i = 0; i < times.length && i < heights.length; i++) {
+    // Open-Meteo hourly stamps are UTC without a zone suffix.
+    const t = Date.parse(`${times[i]}Z`);
+    if (!Number.isFinite(t) || t > nowMs) continue;
+    const gap = Math.abs(t - target);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = i;
+    }
+  }
+  // No usable past sample (or the nearest one is >2 h off): say nothing rather
+  // than invent a direction.
+  if (best < 0 || bestGap > 2 * 3_600_000) return 'slack';
+  const prev = heights[best];
+  if (typeof prev !== 'number' || !Number.isFinite(prev)) return 'slack';
+  const d = current - prev;
   if (d > 0.05) return 'rising';
   if (d < -0.05) return 'falling';
   return 'slack';
@@ -65,28 +108,53 @@ async function fetchStation(
   ]);
 
   const m = mRes && mRes.ok ? ((await mRes.json()) as OpenMeteoCurrent & {
+    latitude?: number;
+    longitude?: number;
     hourly?: { time?: string[]; sea_level_height_msl?: number[] };
   }) : {};
   const f = fRes && fRes.ok ? ((await fRes.json()) as OpenMeteoCurrent) : {};
   const mc = m.current ?? {};
   const fc = f.current ?? {};
 
-  const tideM = Number(num(mc.sea_level_height_msl).toFixed(2));
-  // Trend: compare the current MSL against the hourly series' previous sample.
-  const series = m.hourly?.sea_level_height_msl ?? [];
-  const prev = series.length >= 2 ? series[series.length - 2] : null;
+  const tideM = fix(num(mc.sea_level_height_msl), 2);
+  const seaStateM = fix(num(mc.wave_height), 1);
+  const swellM = fix(num(mc.swell_wave_height), 1);
+  const windKt = fix(num(fc.wind_speed_10m), 1);
+  const windDir = num(fc.wind_direction_10m);
+
+  const missing: Measurement[] = [];
+  if (tideM === null) missing.push('tideM');
+  if (seaStateM === null) missing.push('seaStateM');
+  if (swellM === null) missing.push('swellM');
+  if (windKt === null) missing.push('windKt');
+
+  // The grid cell the model resolved, which is generally NOT s.LAT/s.LON — the
+  // marine grid has no cell over the terminals, so requests snap to open water
+  // several km away and neighbouring stations can land in the SAME cell.
+  const cell =
+    typeof m.latitude === 'number' && typeof m.longitude === 'number'
+      ? { LAT: m.latitude, LON: m.longitude }
+      : undefined;
 
   return {
     STATION_ID: s.STATION_ID,
     NAME: s.NAME,
     LAT: s.LAT,
     LON: s.LON,
-    tideM,
-    tideTrend: tideTrend(tideM, prev),
-    seaStateM: Number(num(mc.wave_height).toFixed(1)),
-    swellM: Number(num(mc.swell_wave_height).toFixed(1)),
-    windKt: Number(num(fc.wind_speed_10m).toFixed(1)),
-    windDir: Math.round(num(fc.wind_direction_10m)),
+    // 0 keeps the field maths total; `missing` is what makes it non-reportable.
+    tideM: tideM ?? 0,
+    tideTrend: trendFromSeries(
+      ts,
+      m.hourly?.time ?? [],
+      m.hourly?.sea_level_height_msl ?? [],
+      tideM,
+    ),
+    seaStateM: seaStateM ?? 0,
+    swellM: swellM ?? 0,
+    windKt: windKt ?? 0,
+    windDir: windDir === null ? 0 : Math.round(windDir),
+    ...(missing.length ? { missing } : {}),
+    ...(cell ? { cell } : {}),
     TS: ts,
   };
 }

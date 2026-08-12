@@ -196,6 +196,21 @@ export interface TideStation {
   windKt: number;
   /** Wind direction, degrees true. */
   windDir: number;
+  /**
+   * Measurements the source did NOT return for this station. Those fields carry
+   * 0 so the map/3D field maths stay total, but 0 is NOT a reading: anything
+   * user-facing must render "—" for a key listed here. Absent/empty = all
+   * measurements are real.
+   */
+  missing?: ReadonlyArray<'tideM' | 'seaStateM' | 'swellM' | 'windKt'>;
+  /**
+   * The grid cell the upstream model actually resolved this station to, which
+   * is NOT the station's own coordinate: Open-Meteo's marine grid is coarse and
+   * has no cell over the terminals, so several stations can share one cell and
+   * report identical numbers. Carrying it lets the UI say so instead of
+   * implying five independent sensors. Absent when the source is per-station.
+   */
+  cell?: { LAT: number; LON: number };
   /** Reading time (epoch ms). */
   TS: number;
 }

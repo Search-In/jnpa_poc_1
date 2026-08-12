@@ -136,6 +136,31 @@ let inflight: Promise<LiveVessel[]> | null = null;
  *         (401 after a re-login, or 502 `marinetraffic_fetch_failed` when the
  *         upstream scrape fails).
  */
+/**
+ * Is this row something the operator is tracking as TRAFFIC?
+ *
+ * The gateway labels anything outside its ship-type table 'Other'
+ * (`marine_live_vessels.py::_ship_type_label`), and on a real 314-row poll that bucket
+ * held 152 rows — nearly half the feed — which on inspection are largely not vessels at
+ * all: names like `N2 LAT RED`, `N5 LAT GR` (lateral navigation marks), `SAR 111221131`
+ * at 127 knots (a search-and-rescue aircraft), and 135 of the 152 stationary.
+ *
+ * Drawn as ship hulls they scattered the port with static markers and buried the traffic
+ * among them. Excluding them is therefore not cosmetic decluttering: a container-ship
+ * silhouette on a channel buoy was simply wrong.
+ *
+ * Applied ONCE, where the poll lands (map/liveVesselStore), so the map, the AIS Feed
+ * table and every count agree on what the feed contains. The connector itself stays
+ * faithful to the wire — nothing is dropped before this point, so restoring them is a
+ * one-line change here rather than an unpicking.
+ *
+ * 'Unknown' (AIS code 0, ~10 rows) is deliberately KEPT: that is a vessel which has not
+ * transmitted a static report yet, not a non-vessel.
+ */
+export function isTrackedVessel(v: LiveVessel): boolean {
+  return v.shipTypeLabel.trim().toLowerCase() !== 'other';
+}
+
 export function fetchLiveVessels(): Promise<LiveVessel[]> {
   if (inflight) return inflight;
   inflight = http<unknown>(LIVE_VESSELS_PATH)

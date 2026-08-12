@@ -66,6 +66,11 @@ jobs:
           VITE_DATA_MODE: mock
           VITE_UC3_ENABLED: "true"
           VITE_UC3_API_BASE: "/api"
+          # Vessels on the map/feed come from the UC-3 corpus, placed by berth,
+          # anchorage and channel geometry (badged DERIVED, never claimed as AIS).
+          # "false" would swap them for the mock fleet — a visible change, so it is
+          # pinned rather than inherited from the config default.
+          VITE_UC3_DERIVED_VESSELS: "true"
           # Turns on the sign-in gate. Users authenticate against the UC-3
           # gateway's POST /api/auth/login with their own DTCCC account, so there
           # are no VITE_UC3_USERNAME / VITE_UC3_PASSWORD secrets any more — Vite
@@ -73,6 +78,12 @@ jobs:
           # read them. Delete both from the repository secrets; nothing reads them.
           VITE_AUTH_ENABLED: "true"
           VITE_LIVE_AIS_ENABLED: "true"
+          # Poll period for the live-AIS feed. ONE poller serves the map overlay and
+          # the Vessels > AIS Feed > Live table together (src/map/liveVesselStore.ts),
+          # so this is the build's TOTAL live-AIS request rate, not the rate per
+          # surface. Clamped to a 60 s floor in config.ts — the gateway's own cache
+          # TTL, below which a poll can only return identical rows.
+          VITE_LIVE_AIS_POLL_MS: "300000"
           VITE_LDB_ENABLED: "true"
           # Gen-2 model panels (TAT / berth optimiser). Served same-origin at
           # /ml-api → uc1-ml:8100 on the compose network (never published).

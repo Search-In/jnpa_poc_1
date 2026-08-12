@@ -306,9 +306,11 @@ export const env: AppEnv = {
   },
   liveAis: {
     enabled: str(import.meta.env.VITE_LIVE_AIS_ENABLED, 'true') !== 'false',
-    // Floor of 60 s — the gateway's own cache TTL. A smaller value is clamped
-    // rather than honoured, so a mis-set env can't hammer the shared backend.
-    pollMs: Math.max(60_000, num(import.meta.env.VITE_LIVE_AIS_POLL_MS, 60_000)),
+    // Default 5 min. Floor of 60 s — the gateway's own cache TTL, below which a poll
+    // can only return rows identical to the last one — so a mis-set env cannot hammer
+    // the shared backend. One poller serves every consumer (map/liveVesselStore), so
+    // this is the app's TOTAL request rate for live AIS, not the rate per surface.
+    pollMs: Math.max(60_000, num(import.meta.env.VITE_LIVE_AIS_POLL_MS, 300_000)),
   },
   ldb: {
     enabled: str(import.meta.env.VITE_LDB_ENABLED, 'true') !== 'false',

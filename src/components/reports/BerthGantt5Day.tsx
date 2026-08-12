@@ -361,6 +361,69 @@ export function BerthGantt5Day() {
         </label>
       </div>
 
+      {/* W-4: rejected move — names the violated constraint */}
+      {rejected && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 10,
+            padding: '8px 12px',
+            background: `${tokens.bad}18`,
+            border: `1px solid ${tokens.bad}`,
+            borderRadius: tokens.radius.sm,
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: tokens.text,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+          }}
+        >
+          <span aria-hidden style={{ color: tokens.bad, fontWeight: 700 }}>⛔</span>
+          <span>
+            <span style={{ color: tokens.bad, fontWeight: 700 }}>
+              {rejected.code.replace(/_/g, ' ')}
+            </span>{' '}
+            — {rejected.message}
+          </span>
+        </div>
+      )}
+
+      {/* replan delta caption (simulated) */}
+      {caption && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: '8px 12px',
+            background: tokens.panelAlt,
+            border: `1px solid ${tokens.border}`,
+            borderRadius: tokens.radius.sm,
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          <div style={{ color: tokens.textMuted, fontWeight: 600, marginBottom: 2 }}>
+            Simulated replan — do-nothing vs replanned
+          </div>
+          <div>
+            <span style={{ color: tokens.text, fontWeight: 600 }}>{caption.entry.VESSEL_NAME}</span>{' '}
+            shifted{' '}
+            <span style={{ color: tokens.text, fontWeight: 600 }}>
+              {caption.shiftH >= 0 ? '+' : '−'}
+              {durationFromHours(Math.abs(caption.shiftH))}
+            </span>{' '}
+            (do-nothing {istDateTime(caption.entry.PLANNED_START)} → replanned {istDateTime(caption.newStart)}).
+          </div>
+          <div>
+            New slot lands in a{' '}
+            <span style={{ color: captionColor, fontWeight: 700 }}>{caption.ukc.status.toUpperCase()}</span>{' '}
+            tidal window — simulated UKC{' '}
+            <span style={{ color: captionColor, fontWeight: 600 }}>{caption.ukc.ukcM.toFixed(2)} m</span> under the
+            stated tide/depth assumptions.
+          </div>
+        </div>
+      )}
+
       <div style={{ overflowX: 'auto' }}>
         <svg
           ref={svgRef}
@@ -581,69 +644,6 @@ export function BerthGantt5Day() {
           out of service
         </span>
       </div>
-
-      {/* W-4: rejected move — names the violated constraint */}
-      {rejected && (
-        <div
-          role="alert"
-          style={{
-            marginTop: 10,
-            padding: '8px 12px',
-            background: `${tokens.bad}18`,
-            border: `1px solid ${tokens.bad}`,
-            borderRadius: tokens.radius.sm,
-            fontSize: 12,
-            lineHeight: 1.5,
-            color: tokens.text,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 8,
-          }}
-        >
-          <span aria-hidden style={{ color: tokens.bad, fontWeight: 700 }}>⛔</span>
-          <span>
-            <span style={{ color: tokens.bad, fontWeight: 700 }}>
-              {rejected.code.replace(/_/g, ' ')}
-            </span>{' '}
-            — {rejected.message}
-          </span>
-        </div>
-      )}
-
-      {/* replan delta caption (simulated) */}
-      {caption && (
-        <div
-          style={{
-            marginTop: 10,
-            padding: '8px 12px',
-            background: tokens.panelAlt,
-            border: `1px solid ${tokens.border}`,
-            borderRadius: tokens.radius.sm,
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
-        >
-          <div style={{ color: tokens.textMuted, fontWeight: 600, marginBottom: 2 }}>
-            Simulated replan — do-nothing vs replanned
-          </div>
-          <div>
-            <span style={{ color: tokens.text, fontWeight: 600 }}>{caption.entry.VESSEL_NAME}</span>{' '}
-            shifted{' '}
-            <span style={{ color: tokens.text, fontWeight: 600 }}>
-              {caption.shiftH >= 0 ? '+' : '−'}
-              {durationFromHours(Math.abs(caption.shiftH))}
-            </span>{' '}
-            (do-nothing {istDateTime(caption.entry.PLANNED_START)} → replanned {istDateTime(caption.newStart)}).
-          </div>
-          <div>
-            New slot lands in a{' '}
-            <span style={{ color: captionColor, fontWeight: 700 }}>{caption.ukc.status.toUpperCase()}</span>{' '}
-            tidal window — simulated UKC{' '}
-            <span style={{ color: captionColor, fontWeight: 600 }}>{caption.ukc.ukcM.toFixed(2)} m</span> under the
-            stated tide/depth assumptions.
-          </div>
-        </div>
-      )}
     </div>
   );
 }

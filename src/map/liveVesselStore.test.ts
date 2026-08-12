@@ -1,46 +1,70 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useLiveVesselStore } from './liveVesselStore';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  acquireLiveFeed,
+  liveFeedSubscriberCount,
+  resetLiveFeed,
+  useLiveVesselStore,
+} from './liveVesselStore';
+import { resetLiveVesselsInflight } from '@/data/uc3/liveVessels';
+import type { LiveVessel } from '@/types/domain';
 
-const reset = () => useLiveVesselStore.getState().setEnabled(false);
+const vessel = (mmsi: string): LiveVessel => ({
+  mmsi,
+  vesselName: `V-${mmsi}`,
+  imoNo: null,
+  lat: 18.9,
+  lon: 72.9,
+  speedKnots: 8,
+  course: 90,
+  heading: 90,
+  shipTypeCode: 70,
+  shipTypeLabel: 'Cargo',
+  destination: 'JNPT',
+  flag: 'IN',
+  length: 200,
+  elapsedSeconds: 12,
+});
 
-beforeEach(reset);
+beforeEach(() => {
+  resetLiveFeed();
+  resetLiveVesselsInflight();
+  useLiveVesselStore.getState().setEnabled(false);
+  vi.unstubAllGlobals();
+});
 
-describe('live-AIS toggle default', () => {
+afterEach(() => {
+  resetLiveFeed();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe('the overlay toggle', () => {
   /**
-   * The overlay must start OFF on every load, in BOTH renderers. Two reasons it
-   * is asserted rather than assumed: a default of on would make the first paint
-   * depend on a gateway call, and the app's other UI stores (roleStore,
-   * planStore, simStore) persist to sessionStorage — this one deliberately does
-   * not, so a reload never resurrects a live session.
+   * The toggle is the MAP's own concern. It decides whether the overlay draws, and no
+   * longer whether the feed runs — the Live table can be reading the same feed with the
+   * overlay off, which is why the polling is subscriber-driven instead.
    */
-  it('is off before anything touches it', () => {
+  it('is inert until something sets it, so App owns the session default', () => {
     expect(useLiveVesselStore.getState().enabled).toBe(false);
-  });
-
-  it('reports no vessels, no error and no timestamp while off', () => {
-    const s = useLiveVesselStore.getState();
-    expect(s.count).toBe(0);
-    expect(s.error).toBeNull();
-    expect(s.lastUpdated).toBeNull();
-    expect(s.loading).toBe(false);
   });
 
   it('is shared, so a 2D↔3D flip keeps ONE state rather than two defaults', () => {
     useLiveVesselStore.getState().toggle();
     expect(useLiveVesselStore.getState().enabled).toBe(true);
-    // Whichever renderer mounts next reads the same store.
     expect(useLiveVesselStore.getState().enabled).toBe(true);
   });
 
-  it('turning it off clears the status so no stale count outlives the layer', () => {
+  it('turning it off no longer discards the picture', () => {
+    // It used to, when the overlay was the only consumer. Clearing here would now blank
+    // a table that is still subscribed and still being polled for.
     useLiveVesselStore.getState().setEnabled(true);
-    useLiveVesselStore.getState().setResult(42, 1_700_000_000_000);
+    useLiveVesselStore.getState().setResult([vessel('1'), vessel('2')], 1_700_000_000_000);
     useLiveVesselStore.getState().toggle();
 
     const s = useLiveVesselStore.getState();
     expect(s.enabled).toBe(false);
-    expect(s.count).toBe(0);
-    expect(s.lastUpdated).toBeNull();
+    expect(s.count).toBe(2);
+    expect(s.lastUpdated).toBe(1_700_000_000_000);
   });
 
   it('a failed poll leaves the overlay on, with the error surfaced', () => {
@@ -51,5 +75,105 @@ describe('live-AIS toggle default', () => {
     expect(s.enabled).toBe(true);
     expect(s.loading).toBe(false);
     expect(s.error).toMatch(/502/);
+  });
+});
+
+describe('the shared poller', () => {
+  /** Stub the transport so acquiring the feed performs a real (fake) fetch. */
+  const stubFetch = (rows: LiveVessel[]) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        ({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () =>
+            String(url).endsWith('/auth/login')
+              ? { access_token: 'T', role: 'DTCCC_ADMIN', auth_enabled: true }
+              : rows.map((v) => ({
+                  mmsi: v.mmsi, vessel_name: v.vesselName, imo_no: v.imoNo,
+                  lat: v.lat, lon: v.lon, speed_knots: v.speedKnots, course: v.course,
+                  heading: v.heading, ship_type_code: v.shipTypeCode,
+                  ship_type_label: v.shipTypeLabel, destination: v.destination,
+                  flag: v.flag, length: v.length, elapsed_seconds: v.elapsedSeconds,
+                })),
+        }) as unknown as Response,
+      ),
+    );
+
+  it('counts subscribers rather than starting a timer per consumer', () => {
+    stubFetch([]);
+    const releaseMap = acquireLiveFeed();
+    const releaseTable = acquireLiveFeed();
+    expect(liveFeedSubscriberCount()).toBe(2);
+
+    releaseMap();
+    expect(liveFeedSubscriberCount()).toBe(1);
+    releaseTable();
+    expect(liveFeedSubscriberCount()).toBe(0);
+  });
+
+  it('fetches ONCE for two consumers — the bug that motivated the shared poller', async () => {
+    stubFetch([vessel('1')]);
+    const releaseA = acquireLiveFeed();
+    const releaseB = acquireLiveFeed();
+    await vi.waitFor(() => expect(useLiveVesselStore.getState().count).toBe(1));
+
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(([u]) => !String(u).endsWith('/auth/login'));
+    expect(calls).toHaveLength(1);
+
+    releaseA();
+    releaseB();
+  });
+
+  it('fetches immediately on the first subscribe, not after a full interval', async () => {
+    stubFetch([vessel('1'), vessel('2')]);
+    const release = acquireLiveFeed();
+    await vi.waitFor(() => expect(useLiveVesselStore.getState().vessels).toHaveLength(2));
+    expect(useLiveVesselStore.getState().lastUpdated).not.toBeNull();
+    release();
+  });
+
+  it('keeps polling while ANY subscriber remains — the table outliving the overlay', async () => {
+    stubFetch([vessel('1')]);
+    const releaseMap = acquireLiveFeed();
+    const releaseTable = acquireLiveFeed();
+    await vi.waitFor(() => expect(useLiveVesselStore.getState().count).toBe(1));
+
+    releaseMap();                       // operator switches the overlay off
+    expect(liveFeedSubscriberCount()).toBe(1);
+    expect(useLiveVesselStore.getState().count).toBe(1);   // table still has its data
+
+    releaseTable();
+    expect(useLiveVesselStore.getState().count).toBe(0);   // now the feed is gone
+  });
+
+  it('clears the picture when the LAST subscriber leaves', async () => {
+    stubFetch([vessel('1')]);
+    const release = acquireLiveFeed();
+    await vi.waitFor(() => expect(useLiveVesselStore.getState().count).toBe(1));
+
+    release();
+    const s = useLiveVesselStore.getState();
+    expect(s.vessels).toEqual([]);
+    expect(s.lastUpdated).toBeNull();
+    expect(s.error).toBeNull();
+  });
+
+  it('reports a failure through the store rather than throwing at the subscriber', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      ({
+        ok: String(url).endsWith('/auth/login'),
+        status: String(url).endsWith('/auth/login') ? 200 : 502,
+        statusText: 'Bad Gateway',
+        json: async () => ({ access_token: 'T', role: 'DTCCC_ADMIN', auth_enabled: true }),
+      }) as unknown as Response));
+
+    const release = acquireLiveFeed();
+    await vi.waitFor(() => expect(useLiveVesselStore.getState().error).not.toBeNull());
+    expect(useLiveVesselStore.getState().loading).toBe(false);
+    release();
   });
 });
