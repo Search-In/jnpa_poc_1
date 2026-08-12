@@ -4,9 +4,11 @@
  * rung, colour-coded. In SIM/REPLAY mode it appends "· Simulated" so a viewer
  * always knows the data behind this panel is not a live JNPA feed.
  */
+import type { ReactNode } from 'react';
 import { CalciteIcon } from '@esri/calcite-components-react';
 import { type SourceId, SOURCE_BY_ID, rungLabel } from './sources';
 import { useDataModeStore } from './useDataModeStore';
+import { InfoPopover } from '@/components/common/InfoPopover';
 import { tokens } from '@/theme/tokens';
 
 const RUNG_COLOR: Record<string, string> = {
@@ -17,7 +19,7 @@ const RUNG_COLOR: Record<string, string> = {
   OFFLINE: tokens.mode.OFFLINE,
 };
 
-export function SourceBadge({ source }: { source: SourceId }) {
+export function SourceBadge({ source, info }: { source: SourceId; info?: ReactNode }) {
   const meta = SOURCE_BY_ID[source];
   const runtime = useDataModeStore((s) => s.sources[source]);
   const mode = useDataModeStore((s) => s.mode);
@@ -46,7 +48,12 @@ export function SourceBadge({ source }: { source: SourceId }) {
           boxShadow: state === 'LIVE' ? `0 0 0 3px ${tokens.mode.LIVE}22` : 'none',
         }}
       />
-      <CalciteIcon icon="information" scale="s" />
+      {info ? (
+        // Reuse the badge's own info glyph as the reveal trigger — one icon, not two.
+        <InfoPopover label="Source details">{info}</InfoPopover>
+      ) : (
+        <CalciteIcon icon="information" scale="s" />
+      )}
       <span>
         Source: {meta.label} · {state}
         {sim ? ' · Simulated' : ''}
