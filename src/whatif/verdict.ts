@@ -31,7 +31,7 @@ export interface VerdictInput {
   // Booleans are part of this contract: channel-closure reports
   // `berth_lock_reached` and modal-shift `gate_absorbs_load` as figures.
   figures: Record<string, number | string | boolean | null>;
-  result: Record<string, any>;
+  result: Record<string, unknown>;
   data_available: boolean;
   notes: string[];
 }
@@ -94,13 +94,35 @@ const verb = (count: unknown, singular: string, plural_: string): string =>
 
 /* ---------------------------------------------------------------- verdicts */
 
+/* ------------------------------------------------------------------ payload narrowing */
+
+/**
+ * `result` is the ENGINE'S OPEN PAYLOAD — its shape differs per scenario and is set by the
+ * backend, so it is typed `Record<string, unknown>` rather than `any`. These two guards are
+ * how a verdict reaches into it without either lying about the type or littering casts.
+ *
+ * `any` would have compiled every access below unchecked, including the ones that are
+ * genuinely optional (`transporter_exposure` is absent whenever the scenario has no
+ * transporter dimension). Narrowing here means an absent branch reads as `undefined` and
+ * the existing `?.` chains handle it, which is what they were already written to do.
+ */
+function obj(v: unknown): Record<string, unknown> | undefined {
+  return typeof v === "object" && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : undefined;
+}
+
+function arr(v: unknown): unknown[] | undefined {
+  return Array.isArray(v) ? v : undefined;
+}
+
 function vesselBunching(f: VerdictInput["figures"], r: VerdictInput["result"]): Verdict {
   const ordering = String(f.recommended_ordering ?? "");
   const gain = num(f.improvement_vs_baseline) ?? 0;
   // The catalogue description carries a parenthetical weighting note
   // ("(+0.5 per berth reassignment)") that belongs in the assumptions, not in a
   // sentence someone reads once.
-  const objective = String(r?.objective?.description ?? "the stated objective")
+  const objective = String(obj(r?.objective)?.description ?? "the stated objective")
     .replace(/\s*\([^)]*\)/g, "")
     .trim();
   const contending = f.vessels_contending;
@@ -148,9 +170,9 @@ function berthCascade(f: VerdictInput["figures"]): Verdict {
 function modalShift(f: VerdictInput["figures"], r: VerdictInput["result"]): Verdict {
   const absorbs = r?.gate_absorbs_load;
   const extra = req(f.additional_truck_trips, "additional_truck_trips");
-  const c = r?.first_constraint;
+  const c = obj(r?.first_constraint);
   const constraint = c?.constraint ? String(c.constraint).replace(/_/g, " ").toLowerCase() : null;
-  const hour = c?.hour ? new Date(c.hour).toISOString().slice(11, 16) : null;
+  const hour = c?.hour ? new Date(String(c.hour)).toISOString().slice(11, 16) : null;
 
   if (absorbs === true) {
     return {
@@ -166,7 +188,7 @@ function modalShift(f: VerdictInput["figures"], r: VerdictInput["result"]): Verd
 }
 
 function craneProductivity(f: VerdictInput["figures"], r: VerdictInput["result"]): Verdict {
-  const vessel = r?.target_call?.vessel_name ?? "the call";
+  const vessel = obj(r?.target_call)?.vessel_name ?? "the call";
   const own = req(f.turnaround_increase_hours, "turnaround_increase_hours");
   const displaced = num(f.calls_displaced) ?? 0;
   const behind = f.cumulative_berth_delay_hours;
@@ -178,7 +200,7 @@ function craneProductivity(f: VerdictInput["figures"], r: VerdictInput["result"]
 }
 
 function gateSlotting(f: VerdictInput["figures"], r: VerdictInput["result"]): Verdict {
-  const shape = String(r?.arrival_pattern?.shape ?? "").toLowerCase();
+  const shape = String(obj(r?.arrival_pattern)?.shape ?? "").toLowerCase();
   const peak = req(f.observed_peak, "observed_peak");
   const rate = req(f.sustained_rate_per_hour, "sustained_rate_per_hour");
   const saturated = num(f.saturated_hours) ?? 0;
@@ -205,8 +227,8 @@ function gateSlotting(f: VerdictInput["figures"], r: VerdictInput["result"]): Ve
 function driverShortage(f: VerdictInput["figures"], r: VerdictInput["result"]): Verdict {
   const loss = req(f.throughput_loss_pct, "throughput_loss_pct");
   const lost = f.trips_lost;
-  const top = r?.transporter_exposure?.by_absolute_loss?.[0];
-  const flow = r?.cargo_flow_exposure?.[0];
+  const top = obj(arr(obj(r?.transporter_exposure)?.by_absolute_loss)?.[0]);
+  const flow = obj(arr(r?.cargo_flow_exposure)?.[0]);
   return {
     headline: `Cutting each vehicle's daily trips by a third removes ${plural(lost, "trip")} and ${n(loss)}% of evacuation throughput.`,
     detail: [
@@ -321,8 +343,8 @@ export function shouldChip(source: SimAssumptionSource): boolean {
 }
 
 /** Coverage banner text, when the answer rests on a projected day. */
-export function coverageNotice(result: Record<string, any>): string | null {
-  const c = result?.coverage;
+export function coverageNotice(result: Record<string, unknown>): string | null {
+  const c = obj(result?.coverage);
   if (!c || c.basis !== "PROJECTED") return null;
   const asked = String(c.requested ?? "").slice(0, 10);
   const through = String(c.measured_through ?? "").slice(0, 10);
