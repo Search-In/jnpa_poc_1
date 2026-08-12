@@ -25,7 +25,8 @@
  *    CSV still returns HTTP 200 with `status: 'REJECTED'`; only transport/auth
  *    failures throw. Check `status`, never just the absence of an exception.
  *
- * SCOPE: CSV only in this release — the backend rejects other formats.
+ * SCOPE: format-agnostic multipart upload — the backend detects CSV / XLSX /
+ * PDF / XML / ZIP / JSON by content (and optional `document_type`).
  */
 
 import type { MarineUploadFile, MarineUploadRowError } from '@/types/domain';
@@ -237,11 +238,31 @@ export function marineUploadsQuery(
  *
  * `override` is appended ONLY when true, so a normal import posts exactly the body it
  * always did — the gateway's own default is false.
+ *
+ * `documentType` is additive: when set (e.g. `BATHYMETRY`), the gateway routes
+ * explicitly instead of sniffing. Omitted for vessel/pilot/port-craft/sea-channel
+ * uploads so content-detection stays unchanged.
+ *
+ * Second arg accepts either a boolean (legacy `override`) or an options object.
  */
-export function buildUploadForm(file: File, override = false): FormData {
+export interface MarineUploadFormOptions {
+  override?: boolean;
+  documentType?: string;
+}
+
+export function buildUploadForm(
+  file: File,
+  overrideOrOptions: boolean | MarineUploadFormOptions = false,
+): FormData {
+  const options: MarineUploadFormOptions =
+    typeof overrideOrOptions === 'boolean'
+      ? { override: overrideOrOptions }
+      : (overrideOrOptions ?? {});
   const fd = new FormData();
   fd.append(UPLOAD_FIELD, file);
-  if (override) fd.append('override', 'true');
+  if (options.override) fd.append('override', 'true');
+  const dt = options.documentType?.trim();
+  if (dt) fd.append('document_type', dt);
   return fd;
 }
 
@@ -250,8 +271,14 @@ export function buildUploadForm(file: File, override = false): FormData {
  * re-picks a file. A structurally invalid file resolves with
  * `status: 'REJECTED'`; it does NOT reject the promise.
  */
-export async function validateMarineCsv(file: File): Promise<MarineValidateResult> {
-  return postForm<MarineValidateResult>(MARINE_VALIDATE_PATH, buildUploadForm(file));
+export async function validateMarineCsv(
+  file: File,
+  options: MarineUploadOptions = {},
+): Promise<MarineValidateResult> {
+  return postForm<MarineValidateResult>(
+    MARINE_VALIDATE_PATH,
+    buildUploadForm(file, { documentType: options.documentType }),
+  );
 }
 
 export interface MarineUploadOptions {
@@ -260,6 +287,11 @@ export interface MarineUploadOptions {
    * SKIPPED_DUPLICATE. Gateway form field; default false.
    */
   override?: boolean;
+  /**
+   * Explicit gateway `document_type` (e.g. `BATHYMETRY`). When omitted the
+   * backend sniffs content; PDF defaults to PORT_CRAFT without this.
+   */
+  documentType?: string;
 }
 
 /**
@@ -270,11 +302,14 @@ export interface MarineUploadOptions {
  */
 export async function importMarineCsv(
   file: File,
-  options: MarineUploadOptions = {}
+  options: MarineUploadOptions = {},
 ): Promise<MarineImportResult> {
   return postForm<MarineImportResult>(
     MARINE_UPLOAD_PATH,
-    buildUploadForm(file, options?.override ?? false)
+    buildUploadForm(file, {
+      override: options.override ?? false,
+      documentType: options.documentType,
+    }),
   );
 }
 
@@ -286,8 +321,14 @@ export async function importMarineCsv(
  * projection re-runs, and the file keeps its original ledger id. Same endpoint, same
  * response shape — only the `override` field differs.
  */
-export async function overrideImportMarineCsv(file: File): Promise<MarineImportResult> {
-  return postForm<MarineImportResult>(MARINE_UPLOAD_PATH, buildUploadForm(file, true));
+export async function overrideImportMarineCsv(
+  file: File,
+  options: Pick<MarineUploadOptions, 'documentType'> = {},
+): Promise<MarineImportResult> {
+  return postForm<MarineImportResult>(
+    MARINE_UPLOAD_PATH,
+    buildUploadForm(file, { override: true, documentType: options.documentType }),
+  );
 }
 
 /** Fetch the import ledger, newest first. */

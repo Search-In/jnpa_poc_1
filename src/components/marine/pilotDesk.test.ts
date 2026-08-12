@@ -2,9 +2,16 @@ import { describe, it, expect } from 'vitest';
 import {
   buildCallPilotView,
   callLabel,
+  defaultMovement,
   indexImportedByCall,
   indexManualByCall,
   isCallIdentifiable,
+  movementLabel,
+  MOVEMENTS,
+  berthRequirement,
+  defaultBerthId,
+  allowedMovements,
+  legalMovements,
 } from '@/components/marine/pilotDesk';
 import type { ManualPilotAssignment } from '@/data/uc3/manualPilot';
 import type { CallLifecycle, Pilotage, VesselCall } from '@/types/domain';
@@ -27,7 +34,8 @@ const call = (over: Partial<VesselCall> = {}): VesselCall => ({
 const manual = (over: Partial<ManualPilotAssignment> = {}): ManualPilotAssignment => ({
   id: 1, callId: 12, vcn: '', viaNo: '', imoNo: '', vesselName: '', pilotCode: 'JP91',
   pilotName: 'J PATEL', status: 'Assigned', assignedAt: 1000, boardedAt: 0, releasedAt: 0,
-  createdBy: 'operator', active: true, supersededAt: 0,
+  movementType: 'INWARD', berthId: null, createdBy: 'operator', active: true,
+  supersededAt: 0,
   ...over,
 });
 
@@ -181,5 +189,151 @@ describe('callLabel / isCallIdentifiable', () => {
   it('accepts a call carrying no identifier but a call id — the backend needs only that', () => {
     expect(isCallIdentifiable(call({ vesselName: '', vcn: '', viaNo: '' }))).toBe(true);
     expect(isCallIdentifiable(call({ callId: 0 }))).toBe(false);
+  });
+});
+
+describe('movement legs', () => {
+  it('offers exactly the gateway vocabulary — anything else fails the 0054 CHECK', () => {
+    expect(MOVEMENTS.map((m) => m.value)).toEqual(['INWARD', 'OUTWARD', 'SHIFTING']);
+  });
+
+  it('defaults a vessel already alongside to OUTWARD — she is taking a pilot to leave', () => {
+    // isAtBerth implies isInPort and a completed arrival: the engine derives
+    // `is_in_port = (arrived or berthed) and not departed`, so a berthed-but-not-in-port
+    // vessel is a state it cannot produce. The fixture has to be coherent for the
+    // legality rules to mean anything.
+    const c = call({ lifecycle: lifecycle({ isAtBerth: true, isInPort: true,
+                                            arrivalState: 'Completed' }) });
+    expect(defaultMovement(c)).toBe('OUTWARD');
+  });
+
+  it('defaults everything else to INWARD, including a call with no lifecycle', () => {
+    expect(defaultMovement(call())).toBe('INWARD');
+    expect(defaultMovement(call({ lifecycle: null }))).toBe('INWARD');
+  });
+
+  it('labels a stored leg, and returns blank for one never declared', () => {
+    expect(movementLabel('OUTWARD')).toBe('Outward — departing');
+    expect(movementLabel('outward')).toBe('Outward — departing');
+    expect(movementLabel('')).toBe('');
+    expect(movementLabel('INBOUND')).toBe('');
+  });
+
+  it('carries the declared leg onto the cell, so Release can say what it will complete', () => {
+    const v = buildCallPilotView(
+      call(),
+      indexManualByCall([manual({ status: 'Onboard', movementType: 'OUTWARD' })]),
+      new Map(),
+    );
+    expect(v.action).toBe('release');
+    expect(v.movementType).toBe('OUTWARD');
+  });
+
+  it('leaves the leg blank on an imported row — that record declares its own movement', () => {
+    const v = buildCallPilotView(
+      call(), new Map(), indexImportedByCall([pilotage({ pilotBoardedAt: 500 })]));
+    expect(v.movementType).toBe('');
+  });
+
+  it('leaves it blank on a pre-0054 assignment, so the UI can warn nothing will advance', () => {
+    const v = buildCallPilotView(
+      call(), indexManualByCall([manual({ status: 'Onboard', movementType: '' })]), new Map());
+    expect(v.movementType).toBe('');
+  });
+});
+
+describe('destination berth', () => {
+  it('requires one for a SHIFT — a shift IS its destination', () => {
+    expect(berthRequirement('SHIFTING')).toBe('required');
+  });
+
+  it('offers one for INWARD, so a call BERALT never berthed can still be berthed', () => {
+    expect(berthRequirement('INWARD')).toBe('optional');
+  });
+
+  it('asks for none on OUTWARD — she is leaving, not taking a berth', () => {
+    expect(berthRequirement('OUTWARD')).toBe('none');
+  });
+
+  it('asks for none when the leg is unknown, so no picker appears on a legacy row', () => {
+    expect(berthRequirement('')).toBe('none');
+    expect(berthRequirement('INBOUND')).toBe('none');
+  });
+
+  it('seeds from the berth the call already holds, so INWARD confirms rather than retypes', () => {
+    expect(defaultBerthId(call({ berthId: 19 }))).toBe(19);
+    expect(defaultBerthId(call({ berthId: null }))).toBeNull();
+  });
+
+  it('carries the declared berth onto the cell so Release can name where she goes', () => {
+    const v = buildCallPilotView(
+      call(),
+      indexManualByCall([manual({ status: 'Onboard', movementType: 'SHIFTING', berthId: 40 })]),
+      new Map(),
+    );
+    expect(v.action).toBe('release');
+    expect(v.berthId).toBe(40);
+  });
+
+  it('is null on an imported row and on a pre-0055 assignment', () => {
+    const imported = buildCallPilotView(
+      call(), new Map(), indexImportedByCall([pilotage({ pilotBoardedAt: 500 })]));
+    expect(imported.berthId).toBeNull();
+
+    const legacy = buildCallPilotView(
+      call(), indexManualByCall([manual({ berthId: null })]), new Map());
+    expect(legacy.berthId).toBeNull();
+  });
+});
+
+describe('movement legality — where she is decides what she can do', () => {
+  const atSea = call({ lifecycle: lifecycle({ arrivalState: 'Pending', isAtBerth: false, isInPort: false }) });
+  const alongside = call({ lifecycle: lifecycle({ arrivalState: 'Completed', isAtBerth: true, isInPort: true }) });
+  const inPortNotBerthed = call({ lifecycle: lifecycle({ arrivalState: 'Completed', isAtBerth: false, isInPort: true }) });
+
+  it('offers ONLY inward to a vessel that has not arrived', () => {
+    // 1080 of 1505 assignable calls are in this state. They could previously be sent
+    // shifting from a berth they were not at, or sailed without ever arriving.
+    expect(allowedMovements(atSea)).toEqual(['INWARD']);
+  });
+
+  it('offers shifting and outward to a vessel alongside, but not inward', () => {
+    expect(allowedMovements(alongside).sort()).toEqual(['OUTWARD', 'SHIFTING']);
+  });
+
+  it('lets an arrived-but-unberthed vessel sail, but not shift', () => {
+    expect(allowedMovements(inPortNotBerthed)).toEqual(['OUTWARD']);
+  });
+
+  it('allows nothing when the projection has no opinion about where she is', () => {
+    expect(allowedMovements(call({ lifecycle: null }))).toEqual([]);
+  });
+
+  it('explains every refusal, so a missing option is never silent', () => {
+    const byValue = Object.fromEntries(legalMovements(atSea).map((m) => [m.value, m]));
+    expect(byValue.SHIFTING.legal).toBe(false);
+    expect(byValue.SHIFTING.why).toContain('Not at a berth');
+    expect(byValue.OUTWARD.why).toContain('cannot depart before she arrives');
+    expect(byValue.INWARD.why).toBe('');
+  });
+
+  it('defaults to a leg that is actually legal, never merely preferred', () => {
+    // The old default was `isAtBerth ? OUTWARD : INWARD` with no legality check.
+    expect(defaultMovement(atSea)).toBe('INWARD');
+    expect(defaultMovement(alongside)).toBe('OUTWARD');
+    expect(defaultMovement(inPortNotBerthed)).toBe('OUTWARD');
+  });
+
+  it('offers no Assign at all when no movement is possible from where she is', () => {
+    // Eligible for a pilot by pilot_state, but the projection places her nowhere.
+    const nowhere = call({ lifecycle: lifecycle({ pilotState: 'Pending', arrivalState: 'Completed',
+                                                  isAtBerth: false, isInPort: false }) });
+    const v = buildCallPilotView(nowhere, new Map(), new Map());
+    expect(v.action).toBeNull();
+    expect(v.reason).toContain('No movement is possible');
+  });
+
+  it('still offers Assign where a leg IS possible', () => {
+    expect(buildCallPilotView(atSea, new Map(), new Map()).action).toBe('assign');
   });
 });

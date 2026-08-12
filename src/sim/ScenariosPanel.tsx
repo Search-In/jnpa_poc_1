@@ -24,6 +24,7 @@ import { useAdapterQuery } from '@/hooks/useAdapterQuery';
 import { getAdapter } from '@/data';
 import type { Berth } from '@/types/domain';
 import { tokens } from '@/theme/tokens';
+import { AuditedAnswer } from '../whatif/AuditedAnswer';
 
 /** A free-parameter lever control, either a scaled slider or a stepped counter. */
 interface LeverSpec {
@@ -351,6 +352,10 @@ export function Scenarios(_props: { onResult?: (r: unknown) => void }) {
                 : 'Simulated: synthesised conditions are within the pilot-transfer limit under these levers.'}
           </div>
         </CalciteNotice>
+
+        {/* The audited figures for the two scenarios the JNPA Notice dates.
+            Fetched on request so the walkthrough stays offline. */}
+        <AuditedAnswer scenarioId={scenarioId} />
       </section>
     </div>
   );

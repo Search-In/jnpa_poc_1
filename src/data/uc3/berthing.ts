@@ -321,6 +321,95 @@ export async function importBerthing(file: File, terminal?: string): Promise<Ber
   return postForm<BerthingImportResult>(BERTHING_UPLOAD_PATH, buildBerthingUploadForm(file, terminal));
 }
 
+/** One ledger row from `GET /berthing/uploads`. */
+export interface BerthingUploadFileWire {
+  id: number | null;
+  filename: string | null;
+  file_hash: string | null;
+  terminal: string | null;
+  physical_format: string | null;
+  uploaded_by: string | null;
+  status: string | null;
+  total_rows: number | null;
+  success_rows: number | null;
+  failed_rows: number | null;
+  duplicate_rows: number | null;
+  source: string | null;
+  error_detail: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BerthingUploadFile {
+  id: number;
+  filename: string;
+  terminal: string;
+  physicalFormat: string;
+  uploadedBy: string;
+  status: string;
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+  duplicateRows: number;
+  source: string;
+  errorDetail: string;
+  createdAt: number;
+}
+
+export interface BerthingUploadFilters {
+  terminal?: string;
+  status?: string;
+  source?: string;
+}
+
+export function mapBerthingUploadFile(w: BerthingUploadFileWire): BerthingUploadFile | null {
+  const id = Number(w?.id ?? NaN);
+  if (!Number.isFinite(id)) return null;
+  return {
+    id,
+    filename: str(w.filename),
+    terminal: str(w.terminal),
+    physicalFormat: str(w.physical_format),
+    uploadedBy: str(w.uploaded_by),
+    status: str(w.status),
+    totalRows: num(w.total_rows),
+    successRows: num(w.success_rows),
+    failedRows: num(w.failed_rows),
+    duplicateRows: num(w.duplicate_rows),
+    source: str(w.source),
+    errorDetail: str(w.error_detail),
+    createdAt: toEpochMs(w.created_at),
+  };
+}
+
+export function berthingUploadsQuery(
+  filters: BerthingUploadFilters = {},
+  limit = 25,
+  offset = 0,
+): string {
+  const q = new URLSearchParams();
+  if (filters.terminal?.trim()) q.set('terminal', filters.terminal.trim());
+  if (filters.status?.trim()) q.set('status', filters.status.trim());
+  if (filters.source?.trim()) q.set('source', filters.source.trim());
+  q.set('limit', String(limit));
+  q.set('offset', String(offset));
+  return `${BERTHING_UPLOADS_PATH}?${q.toString()}`;
+}
+
+/** Fetch the berthing import ledger (newest first). */
+export async function fetchBerthingUploads(
+  filters: BerthingUploadFilters = {},
+  limit = 25,
+  offset = 0,
+): Promise<BerthingUploadFile[]> {
+  const page = await http<{ items?: BerthingUploadFileWire[] }>(
+    berthingUploadsQuery(filters, limit, offset),
+  );
+  return (page.items ?? [])
+    .map(mapBerthingUploadFile)
+    .filter((f): f is BerthingUploadFile => f !== null);
+}
+
 /** List verbatim berthing-report documents (full-extract ledger). */
 export async function fetchBerthingDocuments(limit = 200): Promise<
   { id: number; file_name: string; terminal: string }[]

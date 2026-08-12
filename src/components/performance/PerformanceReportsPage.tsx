@@ -33,18 +33,21 @@ import {
 import { Panel } from '@/components/common/Panel';
 import { PerformanceOverview } from '@/components/performance/PerformanceOverview';
 import { PerformanceTrafficTable } from '@/components/performance/PerformanceTrafficTable';
+import { PerformanceUploadPanel } from '@/components/performance/PerformanceUploadPanel';
 import { ReportsOperational } from '@/components/performance/ReportsOperational';
 
-export type PerformanceSubTab = 'overview' | 'traffic' | 'operational';
+export type PerformanceSubTab = 'overview' | 'traffic' | 'upload' | 'operational';
 
 const TABS: { id: PerformanceSubTab; tab: string; label: string }[] = [
   { id: 'overview', tab: 'pr-overview', label: 'Overview' },
   { id: 'traffic', tab: 'pr-traffic', label: 'Daily Traffic' },
+  { id: 'upload', tab: 'pr-upload', label: 'Data Upload' },
   { id: 'operational', tab: 'pr-operational', label: 'Operational' },
 ];
 
 export function PerformanceReportsPage() {
   const [subTab, setSubTab] = useState<PerformanceSubTab>('overview');
+  const [overviewKey, setOverviewKey] = useState(0);
 
   return (
     <CalciteTabs layout="inline">
@@ -64,14 +67,18 @@ export function PerformanceReportsPage() {
       {/* Reported daily actuals — UC-3 backend, read-only. */}
       <CalciteTab tab="pr-overview" selected={subTab === 'overview'}>
         <Panel title="Performance — daily report headline (UC-3 backend, core.perf_*)" minHeight={220}>
-          <PerformanceOverview />
+          <PerformanceOverview key={overviewKey} />
         </Panel>
       </CalciteTab>
 
       <CalciteTab tab="pr-traffic" selected={subTab === 'traffic'}>
         <Panel title="Daily traffic — container TEUs + rail (core.perf_daily_traffic)" height={560}>
-          <PerformanceTrafficTable />
+          <PerformanceTrafficTable key={overviewKey} />
         </Panel>
+      </CalciteTab>
+
+      <CalciteTab tab="pr-upload" selected={subTab === 'upload'}>
+        <PerformanceUploadPanel onImported={() => setOverviewKey((k) => k + 1)} />
       </CalciteTab>
 
       {/* The original Reports tab content, unchanged. */}

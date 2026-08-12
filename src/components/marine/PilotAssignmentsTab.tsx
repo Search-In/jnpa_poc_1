@@ -31,7 +31,10 @@ import { StatusChip } from '@/components/shipping/dataTable';
 import { lifecycleTone } from '@/components/marine/lifecycleTone';
 import { buildPilotRegister, isPilotAssignable }
   from '@/components/marine/pilotLifecycle';
-import { callLabel, isCallIdentifiable } from '@/components/marine/pilotDesk';
+import { allowedMovements, berthRequirement, callLabel, defaultBerthId, defaultMovement,
+  isCallIdentifiable, legalMovements, movementLabel, type MovementValue }
+  from '@/components/marine/pilotDesk';
+import { fetchBerthCodes } from '@/data/uc3/portCraftState';
 import { matchesIdentity } from '@/components/marine/identitySearch';
 import { propagateMarineStateUpdate, useMarineStateVersion }
   from '@/data/uc3/marineStateBus';
@@ -88,6 +91,14 @@ export function PilotAssignmentsTab() {
   const [vesselQ, setVesselQ] = useState('');
   const [callId, setCallId] = useState('');
   const [pilotId, setPilotId] = useState('');
+  // The leg this pilot will run. It decides which VISIT milestone Release records —
+  // without it a released assignment advanced nothing and the call stuck at
+  // 'Pilot Boarded'. Defaulted from the chosen call below, overridable here.
+  const [movement, setMovement] = useState('');
+  // Destination berth for the movement. Required for a shift — see berthRequirement.
+  const [berthId, setBerthId] = useState<number | null>(null);
+  const berthQ = useAdapterQuery(() => fetchBerthCodes(), []);
+  const berths = berthQ.data ?? new Map<number, string>();
 
   const rows = useMemo(() => assignments.data?.items ?? [], [assignments.data]);
   const live = rows.filter((a) => a.active);
@@ -136,6 +147,18 @@ export function PilotAssignmentsTab() {
   const available = registry.filter((r) => r.status !== 'Busy' && !engaged.has(r.pilotId));
 
   const chosenCall = candidates.find((c) => String(c.callId) === callId);
+  // Validated against THIS vessel, not just remembered: switching from a berthed vessel to
+  // one still at sea must not carry 'Outward' across and let the operator confirm a
+  // movement she cannot make.
+  const allowed = chosenCall ? allowedMovements(chosenCall) : [];
+  const effectiveMovement =
+    movement && allowed.includes(movement as MovementValue)
+      ? movement
+      : chosenCall ? defaultMovement(chosenCall) : 'INWARD';
+  const needsBerth = berthRequirement(effectiveMovement);
+  const effectiveBerthId = berthId ?? (chosenCall ? defaultBerthId(chosenCall) : null);
+  // A shift with no destination writes a no-op movement, so the button waits for one.
+  const berthOk = needsBerth !== 'required' || effectiveBerthId !== null;
   const chosenPilot = available.find((r) => r.pilotId === pilotId);
 
   /** Run a mutation, then invalidate. Errors surface verbatim — 409 is a real answer. */
@@ -170,9 +193,13 @@ export function PilotAssignmentsTab() {
         imoNo: chosenCall.imoNo || undefined,
         vesselName: chosenCall.vesselName || callLabel(chosenCall),
         createdBy: 'operator',
+        movementType: effectiveMovement,
+        berthId: effectiveBerthId,
       });
       setCallId('');
       setPilotId('');
+      setMovement('');
+      setBerthId(null);
     });
   };
 
@@ -211,7 +238,13 @@ export function PilotAssignmentsTab() {
           onCalciteInputInput={(e) => setVesselQ((e.target as unknown as { value: string }).value)}
         />
         <select
-          value={callId} onChange={(e) => setCallId(e.target.value)}
+          value={callId}
+          onChange={(e) => {
+            // A destination berth chosen for one vessel means nothing for another.
+            setBerthId(null);
+            setMovement('');
+            setCallId(e.target.value);
+          }}
           style={SELECT} aria-label="Select vessel awaiting a pilot"
         >
           <option value="">Select vessel ({candidates.length} awaiting)</option>
@@ -225,6 +258,32 @@ export function PilotAssignmentsTab() {
           ))}
         </select>
         <select
+          value={effectiveMovement} onChange={(e) => setMovement(e.target.value)}
+          style={{ ...SELECT, maxWidth: 170 }} aria-label="Select the movement leg"
+        >
+          {/* Only the legs possible from where THIS vessel is. Disabled rather than
+              hidden so the reason is readable — see legalMovements. */}
+          {(chosenCall ? legalMovements(chosenCall) : []).map((m) => (
+            <option key={m.value} value={m.value} disabled={!m.legal} title={m.why}>
+              {m.label}{m.legal ? '' : ' — not possible'}
+            </option>
+          ))}
+        </select>
+        {needsBerth !== 'none' && (
+          <select
+            value={effectiveBerthId === null ? '' : String(effectiveBerthId)}
+            onChange={(e) => setBerthId(e.target.value ? Number(e.target.value) : null)}
+            style={{ ...SELECT, maxWidth: 130 }} aria-label="Select the destination berth"
+          >
+            <option value="">
+              {needsBerth === 'required' ? 'Destination berth…' : 'No berth'}
+            </option>
+            {[...berths.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([id, code]) => (
+              <option key={id} value={id}>{code}</option>
+            ))}
+          </select>
+        )}
+        <select
           value={pilotId} onChange={(e) => setPilotId(e.target.value)}
           style={SELECT} aria-label="Select an available pilot"
         >
@@ -235,7 +294,8 @@ export function PilotAssignmentsTab() {
         </select>
         <CalciteButton
           scale="s" iconStart="plus"
-          disabled={!chosenCall || !chosenPilot || busy || undefined}
+          disabled={!chosenCall || !chosenPilot || !berthOk || busy || undefined}
+          title={berthOk ? undefined : 'Choose the berth she is shifting to'}
           onClick={onAssign}
         >
           Assign pilot
@@ -256,8 +316,8 @@ export function PilotAssignmentsTab() {
           <table style={TABLE}>
             <thead>
               <tr>
-                {['Vessel', 'VIA', 'VCN', 'Pilot', 'Status', 'Assigned', 'Boarded',
-                  'Released', 'Action'].map((h) => <th key={h} style={TH}>{h}</th>)}
+                {['Vessel', 'VIA', 'VCN', 'Pilot', 'Movement', 'Status', 'Assigned',
+                  'Boarded', 'Released', 'Action'].map((h) => <th key={h} style={TH}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -267,6 +327,13 @@ export function PilotAssignmentsTab() {
                   <td style={TD}>{a.viaNo || '—'}</td>
                   <td style={TD}>{a.vcn || '—'}</td>
                   <td style={TD}>{a.pilotName || a.pilotCode}</td>
+                  {/* '—' means the assignment predates the movement field, so its
+                      release advanced the pilot but not the visit. */}
+                  <td style={TD}>
+                    {movementLabel(a.movementType) || '—'}
+                    {a.berthId !== null && berths.get(a.berthId)
+                      ? ` → ${berths.get(a.berthId)}` : ''}
+                  </td>
                   <td style={TD}>
                     {a.active
                       ? <StatusChip label={a.status} tone={tone(a.status)} />
@@ -283,6 +350,9 @@ export function PilotAssignmentsTab() {
                           onClick={() => void mutate(() => boardPilot(a.id))}>Board pilot</CalciteButton>
                       ) : a.status === 'Onboard' ? (
                         <CalciteButton scale="s" appearance="outline" disabled={busy || undefined}
+                          title={a.movementType
+                            ? `Release the pilot and complete the movement (${movementLabel(a.movementType)})`
+                            : 'Release the pilot. No leg was declared, so the visit will not advance.'}
                           onClick={() => void mutate(() => releasePilot(a.id))}>Release</CalciteButton>
                       ) : <span style={{ color: tokens.textMuted }}>—</span>}
                   </td>
