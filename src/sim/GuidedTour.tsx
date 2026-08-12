@@ -18,6 +18,7 @@ import { useEffect } from 'react';
 import { CalciteButton, CalciteIcon } from '@esri/calcite-components-react';
 import { useSimStore } from '@/sim/simStore';
 import { SCENARIO_BY_ID } from '@/sim/scenarios';
+import { handoffUrl, TWIN_LABEL } from './lifecycleHandoff';
 import { tokens } from '@/theme/tokens';
 
 /** How long each beat holds before auto-advancing (ms). */
@@ -144,6 +145,49 @@ export function GuidedTour(props: GuidedTourProps) {
           />
         ))}
       </div>
+
+      {/* THE CHAIN DOES NOT END HERE.
+          A monsoon that suspends pilot transfer lands vessels late, which lands cargo
+          late, which puts a surge on the corridor — three twins, one event. Offered as a
+          link on the LAST step rather than an automatic redirect: the operator finishes
+          reading the conclusion first, the new tab opens on a real click (so the browser
+          does not block it), and a twin that is not running costs a dead tab rather than
+          derailing the scenario being watched. */}
+      {atLast && scenario.handoff && (
+        <div
+          style={{
+            marginTop: tokens.space.xs,
+            padding: tokens.space.sm,
+            borderRadius: tokens.radius.sm,
+            border: `1px solid ${tokens.border}`,
+            background: tokens.panelAlt,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: tokens.space.xs,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.3, color: tokens.text }}>
+            This is not the end of the cycle
+          </div>
+          <div style={{ fontSize: 12, color: tokens.textMuted, lineHeight: 1.5 }}>
+            {scenario.handoff.because}
+          </div>
+          <CalciteButton
+            scale="s"
+            kind="brand"
+            iconEnd="launch"
+            width="full"
+            title={`Opens ${TWIN_LABEL[scenario.handoff.twin]} in a new tab, at the scenario that continues this one`}
+            onClick={() => {
+              const h = scenario.handoff!;
+              // noopener: the opened twin gets no handle back on this window.
+              window.open(handoffUrl(h), '_blank', 'noopener,noreferrer');
+            }}
+          >
+            {scenario.handoff.cta}
+          </CalciteButton>
+        </div>
+      )}
 
       <div
         style={{

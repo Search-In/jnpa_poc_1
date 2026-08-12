@@ -3,6 +3,7 @@ import {
   LIVE_VESSELS_PATH,
   fetchLiveVessels,
   mapLiveVessel,
+  isTrackedVessel,
   parseLiveVessels,
   resetLiveVesselsInflight,
   type LiveVesselWire,
@@ -182,5 +183,45 @@ describe('fetchLiveVessels', () => {
     );
     await expect(fetchLiveVessels()).rejects.toThrow();
     await expect(fetchLiveVessels()).resolves.toHaveLength(1);
+  });
+});
+
+describe('isTrackedVessel', () => {
+  /**
+   * The gateway labels anything outside its ship-type table 'Other'. On a real 314-row
+   * poll that bucket held 152 rows — names like `N2 LAT RED` / `N5 LAT GR` (lateral
+   * navigation marks), `SAR 111221131` at 127 knots (an aircraft), 135 of them
+   * stationary. Drawn as ship hulls they scattered the port with static markers.
+   */
+  const v = (over: Partial<LiveVesselWire>) => mapLiveVessel({ ...ROW, ...over })!;
+
+  it('drops the Other bucket — largely navigation marks, not traffic', () => {
+    expect(isTrackedVessel(v({ ship_type_code: 3, ship_type_label: 'Other' }))).toBe(false);
+  });
+
+  it('KEEPS Unknown — a vessel that has not sent a static report is still a vessel', () => {
+    expect(isTrackedVessel(v({ ship_type_code: 0, ship_type_label: 'Unknown' }))).toBe(true);
+  });
+
+  it('keeps every real class', () => {
+    for (const label of ['Cargo', 'Cargo (HSC)', 'Tanker', 'Passenger', 'Passenger (HSC)',
+                         'Tug', 'Military', 'SAR', 'Port tender', 'Local vessel']) {
+      expect(isTrackedVessel(v({ ship_type_label: label }))).toBe(true);
+    }
+  });
+
+  it('matches case-insensitively and ignores stray whitespace', () => {
+    expect(isTrackedVessel(v({ ship_type_label: ' other ' }))).toBe(false);
+    expect(isTrackedVessel(v({ ship_type_label: 'OTHER' }))).toBe(false);
+  });
+
+  it('does NOT filter at the connector — the wire stays faithful', () => {
+    // The policy is applied once where the poll lands (map/liveVesselStore), so nothing
+    // is lost before an app-level decision is made about it.
+    const rows = parseLiveVessels([
+      { ...ROW, ship_type_label: 'Other' },
+      { ...ROW, mmsi: '2', ship_type_label: 'Cargo' },
+    ]);
+    expect(rows).toHaveLength(2);
   });
 });

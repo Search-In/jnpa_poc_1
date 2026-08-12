@@ -179,17 +179,25 @@ function StatusCell({ status }: { status: NavStatus }) {
   );
 }
 
-export function VesselTable() {
-  const vessels = useAppStore((s) => s.vessels);
+export function VesselTable({ source }: { source?: Vessel['SOURCE'] } = {}) {
+  const all = useAppStore((s) => s.vessels);
+  // When the caller has already split the feed by provenance (the AIS Feed tabs), this
+  // table shows one class only and the counts strip is suppressed — the tab labels carry
+  // the counts, and repeating them under a filtered view would report the whole fleet
+  // beside rows that are a subset of it.
+  const vessels = useMemo(
+    () => (source ? all.filter((v) => (v.SOURCE ?? 'mock') === source) : all),
+    [all, source],
+  );
   const [sortKey, setSortKey] = useState<SortKey>('NAV_STATUS');
   const [asc, setAsc] = useState(true);
 
   const counts = useMemo(() => {
-    const live = vessels.filter((v) => v.SOURCE === 'live').length;
-    const derived = vessels.filter((v) => v.SOURCE === 'derived').length;
-    const mock = vessels.length - live - derived;
-    return { total: vessels.length, live, derived, mock };
-  }, [vessels]);
+    const live = all.filter((v) => v.SOURCE === 'live').length;
+    const derived = all.filter((v) => v.SOURCE === 'derived').length;
+    const mock = all.length - live - derived;
+    return { total: all.length, live, derived, mock };
+  }, [all]);
 
   const rows = useMemo(() => {
     const sorted = [...vessels].sort((a, b) => {
@@ -215,13 +223,25 @@ export function VesselTable() {
   };
 
   if (vessels.length === 0) {
-    return <PanelEmpty message="No vessels in the current traffic picture." />;
+    return (
+      <PanelEmpty
+        message={
+          source === 'derived'
+            ? 'No derived vessels. These come from the UC-3 corpus — positions synthesised from berth, anchorage and channel geometry — so this is empty unless VITE_UC3_DERIVED_VESSELS is on.'
+            : source === 'mock'
+              ? 'No simulated vessels in the current traffic picture.'
+              : 'No vessels in the current traffic picture.'
+        }
+      />
+    );
   }
 
   const arrow = (key: SortKey) => (key === sortKey ? (asc ? ' ▲' : ' ▼') : '');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Whole-fleet provenance counts. Hidden under a filtered view — see `source`. */}
+      {!source && (
       <div
         style={{
           display: 'flex',
@@ -247,6 +267,7 @@ export function VesselTable() {
           <strong style={{ color: tokens.text }}>{counts.mock}</strong> simulated
         </span>
       </div>
+      )}
 
       <div style={{ flex: 1, overflow: 'auto', minHeight: 0, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius.sm }}>
         <table style={TABLE}>

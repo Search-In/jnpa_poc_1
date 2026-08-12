@@ -34,7 +34,7 @@ import { RoleSwitcher } from '@/auth/RoleSwitcher';
 import { IntegrationConsole } from '@/console/IntegrationConsole';
 import { KpiStrip } from '@/components/KpiStrip';
 import { AISMap } from '@/components/AISMap';
-import { VesselTable } from '@/components/VesselTable';
+import { AisFeedPanel } from '@/components/AisFeedPanel';
 import { VesselCallsPanel } from '@/components/marine/VesselCallsPanel';
 import { PilotagePage } from '@/components/marine/PilotagePage';
 import { VesselRegisterTable } from '@/components/marine/VesselRegisterTable';
@@ -121,32 +121,13 @@ export function App() {
   useSimReactivity();
 
   // UC1-004: a corpus pin means REPLAY — banner + header clock share that era.
-  // UC1-011: corpus positions are geometry-derived (no AIS) — AIS rung = IMPUTED
-  // so the SourceBadge never claims LIVE while markers show DERIVED rings.
   useEffect(() => {
     if (env.uc3.asOfMs > 0) {
       useDataModeStore.getState().setMode('REPLAY');
     }
-    if (env.uc3.enabled) {
-      useDataModeStore
-        .getState()
-        .setSourceState(
-          'AIS',
-          'IMPUTED',
-          'Corpus has no AIS — positions synthesised from berth/anchorage/channel geometry (SOURCE: derived)',
-        );
-    }
   }, []);
 
-  // The live-AIS overlay starts OFF on every load, so first paint never depends
-  // on a gateway call and no session ever comes up claiming to show real traffic
-  // the operator didn't ask for. The store already defaults to false and is not
-  // persisted; this mount-time reset additionally covers Vite HMR in dev, where
-  // module state SURVIVES a hot update and would otherwise leave the overlay on
-  // across what looks like a fresh start.
-  useEffect(() => {
-    useLiveVesselStore.getState().setEnabled(false);
-  }, []);
+
 
   // Suite deep-link: `?scenario=<id>` opens straight into a what-if (parity with
   // UC-2/UC-3), so the Suite DTCCC console can drive UC-1 as part of the
@@ -190,7 +171,68 @@ export function App() {
   const liveAisCount = useLiveVesselStore((s) => s.count);
   const liveAisError = useLiveVesselStore((s) => s.error);
   const liveAisLoading = useLiveVesselStore((s) => s.loading);
+  /** Epoch ms of the last SUCCESSFUL poll; null until one lands. */
+  const liveAisAt = useLiveVesselStore((s) => s.lastUpdated);
   const liveAisAvailable = env.liveAis.enabled && env.uc3.enabled;
+
+  // UC1-011: the AIS rung reports WHAT IS ON THE MAP RIGHT NOW.
+  //
+  // It used to be set once at mount from `uc3.enabled` — wrong twice over. That flag is
+  // about the gateway, which serves marine calls, berthing and pilotage quite
+  // independently of where vessel POSITIONS come from, so a build showing real
+  // MarineTraffic tracks still reported IMPUTED. And being mount-only, the rung then
+  // never moved when the operator toggled the live overlay, so the console kept
+  // asserting a provenance the map had since contradicted.
+  //
+  // The honest signal is the OVERLAY's own runtime state:
+  //   • overlay on and flowing  -> LIVE      real MarineTraffic positions
+  //   • overlay on but erroring -> DEGRADED  last-known-good still drawn
+  //   • overlay off, derived    -> IMPUTED   synthesised from berth/channel geometry
+  //   • otherwise               -> LIVE      the simulated fleet is not an AIS claim
+  //
+  // setSourceState early-returns on an unchanged rung, so this re-runs freely and each
+  // real transition lands exactly one audit entry — which is the console's whole job.
+  useEffect(() => {
+    const store = useDataModeStore.getState();
+    if (liveAisOn && liveAisError) {
+      store.setSourceState('AIS', 'DEGRADED',
+        `Live AIS feed erroring — last-known-good positions retained. ${liveAisError}`);
+      return;
+    }
+    // `liveAisAt` — not merely `liveAisOn`. Between enabling the overlay and the first
+    // poll landing there is nothing live on the map yet; it is still drawing derived
+    // hulls. Reporting LIVE on the toggle alone would claim real positions during exactly
+    // the window where none have arrived, and on a dead gateway that claim would stand
+    // until the request timed out.
+    if (liveAisOn && liveAisAt !== null) {
+      store.setSourceState('AIS', 'LIVE',
+        'Real MarineTraffic positions via the shared JNPA gateway');
+      return;
+    }
+    if (env.uc3.enabled && env.uc3.derivedVessels) {
+      store.setSourceState('AIS', 'IMPUTED',
+        'Corpus has no AIS — positions synthesised from berth/anchorage/channel geometry (SOURCE: derived)');
+    }
+  }, [liveAisOn, liveAisError, liveAisAt]);
+
+  // The live-AIS overlay comes up ON wherever the feed is configured, so a session opens
+  // showing REAL traffic rather than a simulated fleet the operator then has to notice and
+  // replace. It used to start off on every load for two reasons; only one still holds.
+  //
+  //   * "no session claims real traffic the operator didn't ask for" — no longer the
+  //     concern it was. The overlay is now labelled everywhere it appears (the AIS Feed
+  //     tabs, the Integration Console rung, the map button), so what is on screen is
+  //     named rather than assumed.
+  //   * "first paint never depends on a gateway call" — still true, and still honoured:
+  //     the fetch is async and the map renders the derived/simulated fleet immediately,
+  //     with live positions replacing them only once a poll lands.
+  //
+  // Written explicitly in BOTH directions rather than left to the store default, because
+  // Vite HMR preserves module state in dev: without the else-branch a build that later
+  // disables the feed would keep a stale overlay on across what looks like a fresh start.
+  useEffect(() => {
+    useLiveVesselStore.getState().setEnabled(liveAisAvailable);
+  }, [liveAisAvailable]);
   const [activeTab, setActiveTab] = useState<TabId>('kpis');
   // Vessels tab sub-view. 'live' (the existing AIS feed) is the default so the tab
   // opens exactly as before; 'calls'/'upload' are the new UC-3 Marine surfaces.
@@ -555,7 +597,7 @@ export function App() {
                     selected={vesselSubTab === 'live'}
                     onCalciteTabsActivate={() => setVesselSubTab('live')}
                   >
-                    Live AIS Feed
+                    AIS Feed
                   </CalciteTabTitle>
                   <CalciteTabTitle
                     tab="v-calls"
@@ -596,8 +638,11 @@ export function App() {
 
                 {/* Existing AIS feed — unchanged, and the DEFAULT sub-tab. */}
                 <CalciteTab tab="v-live" selected={vesselSubTab === 'live'}>
-                  <Panel title="All vessels — live AIS feed" height={640}>
-                    <VesselTable />
+                  {/* One panel, three provenance tabs — see AisFeedPanel. The heading is
+                      suppressed because the enclosing sub-tab already reads 'AIS Feed';
+                      the title stays as the region's accessible name. */}
+                  <Panel title="AIS Feed" height={640} hideTitle>
+                    <AisFeedPanel />
                   </Panel>
                 </CalciteTab>
 

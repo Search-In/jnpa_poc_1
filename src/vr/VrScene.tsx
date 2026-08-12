@@ -27,11 +27,7 @@ import { useEffect, useMemo, useRef } from 'react';
 // inside an eye box), so it must ask for the stylesheet itself; without it the
 // view collapses to its intrinsic canvas height instead of filling the eye box.
 //
-// Imported as a URL and injected at mount rather than `import '…css'`, because a
-// plain CSS import is GLOBAL: `main.tsx` statically imports this module, so the
-// stylesheet would load on the dashboard route too and restyle a scene this
-// feature is not supposed to touch.
-import esriViewCssUrl from '@arcgis/core/assets/esri/themes/light/main.css?url';
+import { useEsriViewStylesheet } from '@/map/useEsriViewStylesheet';
 import Map from '@arcgis/core/Map';
 import SceneView from '@arcgis/core/views/SceneView';
 import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
@@ -68,35 +64,6 @@ interface VrSceneProps {
 /** Lighting date — fixed so a rehearsed run always looks identical. */
 const SUN_DATE = new Date('2026-06-16T06:30:00Z');
 
-const ESRI_CSS_ID = 'vr-esri-view-css';
-
-/**
- * Add the Esri view stylesheet for as long as the walkthrough is mounted, and
- * take it away again on exit — so navigating back to the dashboard leaves its
- * styling exactly as it was. Reference-counted for the stereo case, where two
- * views mount against one document.
- */
-function useEsriViewStylesheet(): void {
-  useEffect(() => {
-    let link = document.getElementById(ESRI_CSS_ID) as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement('link');
-      link.id = ESRI_CSS_ID;
-      link.rel = 'stylesheet';
-      link.href = esriViewCssUrl;
-      link.dataset.refs = '0';
-      document.head.appendChild(link);
-    }
-    link.dataset.refs = String(Number(link.dataset.refs ?? '0') + 1);
-    return () => {
-      const el = document.getElementById(ESRI_CSS_ID) as HTMLLinkElement | null;
-      if (!el) return;
-      const refs = Number(el.dataset.refs ?? '1') - 1;
-      el.dataset.refs = String(refs);
-      if (refs <= 0) el.remove();
-    };
-  }, []);
-}
 
 export function VrScene({ berths, vessels, model }: VrSceneProps) {
   useEsriViewStylesheet();

@@ -714,7 +714,15 @@ export class Uc3Adapter implements DataAdapter {
       // station shows the same corpus height; wind/wave stay per-station (Open-Meteo).
       return {
         TS: anchor,
-        stations: base.stations.map((s) => ({ ...s, tideM: nearest.heightM, tideTrend: trend, TS: anchor })),
+        stations: base.stations.map((s) => ({
+          ...s,
+          tideM: nearest.heightM,
+          tideTrend: trend,
+          // The corpus tide table supplied a real height, so tideM is no longer
+          // an unreported measurement even if Open-Meteo withheld one.
+          missing: s.missing?.filter((k) => k !== 'tideM'),
+          TS: anchor,
+        })),
       };
     } catch {
       return base;

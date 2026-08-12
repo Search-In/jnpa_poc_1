@@ -46,7 +46,7 @@ export interface EngineQuery {
 export interface EngineResult {
   scenario: string;
   method: string;
-  result: Record<string, any>;
+  result: Record<string, unknown>;
   // Booleans are part of this contract: channel-closure reports
   // `berth_lock_reached` and modal-shift `gate_absorbs_load` as figures.
   figures: Record<string, number | string | boolean | null>;

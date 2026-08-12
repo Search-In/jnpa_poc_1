@@ -19,6 +19,7 @@ import LayerList from '@arcgis/core/widgets/LayerList';
 import Legend from '@arcgis/core/widgets/Legend';
 import Expand from '@arcgis/core/widgets/Expand';
 import * as reactiveUtils from '@arcgis/core/core/reactiveUtils';
+import { useEsriViewStylesheet } from './useEsriViewStylesheet';
 import { initialBasemap, installBasemapFallback, isOfflineRequested } from './basemapFallback';
 import { applyGraphics } from './applyGraphics';
 import {
@@ -115,8 +116,39 @@ function resolveHit(res: { results: Array<unknown> }): string | null {
   return null;
 }
 
+
+/**
+ * Force the popup to stay ANCHORED to its feature instead of docking to an edge.
+ *
+ * Why this is imperative and not just constructor config. `view.popup` is created
+ * LAZILY — the same fact the popup-actions binding below already works around — so a
+ * `popup: {...}` object passed to the view constructor is applied to a widget that does
+ * not exist yet, and the real Popup arrives later carrying stock defaults. Chief among
+ * those is `dockOptions.breakpoint = {width: 544, height: 544}`: under that size the
+ * popup docks itself, and both of these maps live in panels narrower than 544px, so
+ * every click produced a slab beneath the map rather than a balloon on it.
+ *
+ * `reactiveUtils.watch` on `() => view.popup` fires when the widget is finally created
+ * (and again if it is recreated), which is the only point at which these settings stick.
+ * Returns a handle for teardown.
+ */
+function pinPopupToFeature(view: { popup?: unknown }) {
+  return reactiveUtils.watch(
+    () => view.popup as __esri.Popup | undefined,
+    (popup) => {
+      if (!popup) return;
+      popup.dockEnabled = false;
+      popup.dockOptions = { buttonEnabled: false, breakpoint: false };
+    },
+    { initial: true },
+  );
+}
+
 export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
   function PortScene(props, ref) {
+    // Without this the view's own UI — attribution, widgets, and the POPUP — renders
+    // unstyled in document flow, which is what put asset detail underneath the scene.
+    useEsriViewStylesheet();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<SceneView | null>(null);
     const layersRef = useRef<{
@@ -130,7 +162,9 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
       vesselStatus: FeatureLayer;
     } | null>(null);
     const selectionRef = useRef<GraphicsLayer | null>(null);
-    const liveVesselRef = useRef<GraphicsLayer | null>(null);
+    // FeatureLayer, not GraphicsLayer: the live hulls are drawn by ONE instanced
+    // renderer — see liveVesselLayer3d for why that mattered for scene performance.
+    const liveVesselRef = useRef<FeatureLayer | null>(null);
     /** Berthed hero ships + harbour tug — decorative hulls, hidden while live AIS is on. */
     const dummyVesselLayersRef = useRef<FeatureLayer[]>([]);
     const tideFieldRef = useRef<MediaLayer | null>(null);
@@ -374,23 +408,38 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
           },
         } as never,
         ui: { components: ['zoom', 'compass', 'navigation-toggle', 'attribution'] },
-        // Asset detail shows in the Esri popup ANCHORED to the clicked feature,
-        // inside the map. Docking is disabled so it never floats off to the side of
-        // the (narrow) map panel; collision keeps the balloon within the view.
+        // Asset detail shows in the Esri popup ANCHORED to the clicked feature, inside
+        // the scene.
+          // ANCHORED TO THE FEATURE, NEVER DOCKED.
+        //
+        // `dockOptions.breakpoint` defaults to {width: 544, height: 544}: below that the
+        // popup DOCKS itself to an edge of the view, which is how vessel detail ended up
+        // rendering as a slab under the map instead of a balloon on it — this map lives in
+        // a panel narrower than 544px, so the default fired on every click. `false` opts
+        // out of the responsive behaviour entirely.
+        //
+        // The block previously also passed `collision: 'reposition'` and
+        // `alignment: 'auto'`. NEITHER IS A POPUP PROPERTY — they appear nowhere in
+        // @arcgis/core's Popup interface — and the `as never` cast that used to sit here
+        // stopped the compiler saying so, which is how they survived. The typed cast below
+        // is deliberately narrow: it names the three fields that exist, so a future typo
+        // fails the build instead of silently disabling the popup config.
         popupEnabled: true,
         popup: {
           dockEnabled: false,
           dockOptions: { buttonEnabled: false, breakpoint: false },
-          collision: 'reposition',
-          alignment: 'auto',
           visibleElements: { collapseButton: false },
-        } as never,
+        } satisfies __esri.PopupProperties,
       });
       viewRef.current = view;
 
       const teardownFallback = installBasemapFallback(view, {
         onFallback: () => propsRef.current.onOfflineBasemap?.(),
       });
+
+      // See pinPopupToFeature — constructor popup config lands on a widget that does
+      // not exist yet, so the dock settings have to be (re)applied when it appears.
+      const popupPinHandle = pinPopupToFeature(view);
 
       view.when(() => {
         // Legend + Layers stack at bottom-left; top-right is left clear for the
@@ -505,6 +554,7 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
         viewRef.current = null;
         layersRef.current = null;
         selectionRef.current = null;
+        popupPinHandle.remove();
         liveVesselRef.current = null;
         dummyVesselLayersRef.current = [];
         tideFieldRef.current = null;
@@ -551,7 +601,10 @@ export const PortScene = forwardRef<PortSceneHandle, PortSceneProps>(
       for (const l of dummyVesselLayersRef.current) l.visible = showDummies;
       if (!liveActive) {
         live.visible = false;
-        live.removeAll();
+        // Reconcile to empty rather than removeAll(): this is a FeatureLayer now, and
+        // leaving stale features behind would let a re-enable flash the previous
+        // picture before the first poll of the new session lands.
+        renderLiveVessels3d(live, []);
         return;
       }
       live.visible = true;

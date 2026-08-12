@@ -87,15 +87,56 @@ const COLUMNS: Column[] = [
   { key: 'windKt', label: 'Wind (kn)', numeric: true },
 ];
 
+/** True when the source never reported this measurement (placeholder 0 in the row). */
+function unreported(s: TideStation, key: SortKey): boolean {
+  return key !== 'NAME' && key !== 'tideTrend' && (s.missing?.includes(key) ?? false);
+}
+
 function cmp(a: TideStation, b: TideStation, key: SortKey): number {
   switch (key) {
     case 'NAME':
       return a.NAME.localeCompare(b.NAME);
     case 'tideTrend':
       return a.tideTrend.localeCompare(b.tideTrend);
-    default:
+    default: {
+      // Unreported rows sort last in both directions — their 0 is a placeholder,
+      // not the calmest sea in the port.
+      const au = unreported(a, key);
+      const bu = unreported(b, key);
+      if (au !== bu) return au ? 1 : -1;
+      if (au && bu) return 0;
       return a[key] - b[key];
+    }
   }
+}
+
+/**
+ * Whether another station resolved to the SAME upstream grid cell. Open-Meteo's
+ * marine grid is coarser than the port, so several JNPA stations snap to one
+ * cell and return byte-identical numbers; flagging that is the difference
+ * between "five monitoring points" and "one model cell shown five times".
+ */
+function sharedCell(s: TideStation, all: TideStation[]): boolean {
+  if (!s.cell) return false;
+  return all.some(
+    (o) =>
+      o.STATION_ID !== s.STATION_ID &&
+      o.cell &&
+      o.cell.LAT === s.cell!.LAT &&
+      o.cell.LON === s.cell!.LON,
+  );
+}
+
+/** A measurement cell: the reading, or an em-dash when the source withheld it. */
+function Reading({ station, field, dp }: { station: TideStation; field: SortKey; dp: number }) {
+  if (unreported(station, field)) {
+    return (
+      <span style={{ color: tokens.textMuted }} title="Source returned no value for this station">
+        —
+      </span>
+    );
+  }
+  return <>{(station[field] as number).toFixed(dp)}</>;
 }
 
 export function TideSeaStatePanel() {
@@ -114,6 +155,13 @@ export function TideSeaStatePanel() {
     s.sort((a, b) => (asc ? 1 : -1) * cmp(a, b, sortKey));
     return s;
   }, [data, sortKey, asc]);
+
+  // How many distinct upstream grid cells the rows actually came from — the
+  // honest count of independent readings behind the station list.
+  const cellCount = useMemo(
+    () => new Set(rows.filter((r) => r.cell).map((r) => `${r.cell!.LAT},${r.cell!.LON}`)).size,
+    [rows],
+  );
 
   const clickSort = (k: SortKey) => {
     if (k === sortKey) setAsc((v) => !v);
@@ -159,16 +207,42 @@ export function TideSeaStatePanel() {
           <tbody>
             {rows.map((s) => (
               <tr key={s.STATION_ID}>
-                <td style={TD}>{s.NAME}</td>
-                <td style={TD_NUM}>{s.tideM.toFixed(2)}</td>
+                <td style={TD}>
+                  {s.NAME}
+                  {sharedCell(s, rows) && (
+                    <span
+                      style={{ color: tokens.textMuted, marginLeft: 6, fontSize: 11 }}
+                      title={
+                        `The forecast model resolved this station to grid cell ` +
+                        `${s.cell?.LAT.toFixed(3)}, ${s.cell?.LON.toFixed(3)} — shared with ` +
+                        `another station, so both rows carry the same values. Not two sensors.`
+                      }
+                    >
+                      shared cell
+                    </span>
+                  )}
+                </td>
+                <td style={TD_NUM}>
+                  <Reading station={s} field="tideM" dp={2} />
+                </td>
                 <td style={{ ...TD, color: TREND_COLOR[s.tideTrend] }}>
                   {TREND_GLYPH[s.tideTrend]} {s.tideTrend}
                 </td>
-                <td style={{ ...TD_NUM, color: seaStateColor(s.seaStateM), fontWeight: 600 }}>
-                  {s.seaStateM.toFixed(1)}
+                <td
+                  style={{
+                    ...TD_NUM,
+                    color: unreported(s, 'seaStateM') ? tokens.textMuted : seaStateColor(s.seaStateM),
+                    fontWeight: 600,
+                  }}
+                >
+                  <Reading station={s} field="seaStateM" dp={1} />
                 </td>
-                <td style={TD_NUM}>{s.swellM.toFixed(1)}</td>
-                <td style={TD_NUM}>{s.windKt.toFixed(1)}</td>
+                <td style={TD_NUM}>
+                  <Reading station={s} field="swellM" dp={1} />
+                </td>
+                <td style={TD_NUM}>
+                  <Reading station={s} field="windKt" dp={1} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -177,7 +251,15 @@ export function TideSeaStatePanel() {
 
       {data && (
         <div style={{ fontSize: 11, color: tokens.textMuted }}>
-          {rows.length} stations · updated {istDateTime(data.TS)} IST · tide heights above chart datum
+          {rows.length} stations · {cellCount} distinct model grid {cellCount === 1 ? 'cell' : 'cells'} ·
+          updated {istDateTime(data.TS)} IST · tide heights above chart datum
+          {cellCount > 0 && cellCount < rows.length && (
+            <>
+              {' '}
+              · rows marked <em>shared cell</em> come from the same forecast cell as another station —
+              the marine grid is coarser than the port, so those values are identical by construction.
+            </>
+          )}
         </div>
       )}
     </div>
