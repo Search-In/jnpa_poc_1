@@ -22,6 +22,7 @@ import { tokens } from '@/theme/tokens';
 import { navigate } from '@/sim/useHashRoute';
 import { PlacePicker } from './PlacePicker';
 import { VrScene } from './VrScene';
+import { GlVrScene } from './gl/GlVrScene';
 import { useVrData } from './useVrData';
 import { defaultVantages, useVrStore, type VrMode } from './vrStore';
 import { walk, groundDistanceM, bearingTo, type ViewerPose } from './stereo';
@@ -579,13 +580,23 @@ function Immersive({
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
-      <VrScene
-        key={mode}
-        berths={berths}
-        vessels={vessels}
-        model={model}
-        onReadyChange={({ ready }) => setSceneReady(ready)}
-      />
+      {useEsriRenderer() ? (
+        <VrScene
+          key={mode}
+          berths={berths}
+          vessels={vessels}
+          model={model}
+          onReadyChange={({ ready }) => setSceneReady(ready)}
+        />
+      ) : (
+        <GlVrScene
+          key={mode}
+          berths={berths}
+          vessels={vessels}
+          model={model}
+          onReadyChange={({ ready }) => setSceneReady(ready)}
+        />
+      )}
 
       {/* Control strip — mirrored into both eye boxes would be unreadable, so it
           sits above the split as a single thin bar. */}
@@ -889,6 +900,31 @@ function useNarrowViewport(breakpointPx = 760): boolean {
     };
   }, [breakpointPx]);
   return narrow;
+}
+
+/**
+ * Which renderer draws the immersive scene.
+ *
+ * The WebGL path is the default: one canvas, one scene, two viewport passes.
+ * `?renderer=esri` puts the two-SceneView path back, because when a device
+ * misbehaves the fastest way to find out whether the renderer is responsible is
+ * to swap it in the URL and look — no rebuild, no redeploy.
+ */
+function useEsriRenderer(): boolean {
+  return useMemo(() => {
+    try {
+      // Accepted BEFORE the hash (`/?renderer=esri#/vr`) and inside it
+      // (`#/vr?renderer=esri`). The app is hash-routed, so the natural thing to
+      // type is the second form — and that one never reaches
+      // `location.search`, which is exactly the trap this avoids.
+      if (new URLSearchParams(window.location.search).get('renderer') === 'esri') return true;
+      const q = window.location.hash.indexOf('?');
+      if (q < 0) return false;
+      return new URLSearchParams(window.location.hash.slice(q + 1)).get('renderer') === 'esri';
+    } catch {
+      return false;
+    }
+  }, []);
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

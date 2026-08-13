@@ -82,8 +82,12 @@ left.
 
 | Mode | What it is |
 | --- | --- |
-| **3D** | One `SceneView`, full screen. Drag to look, arrow keys / WASD to walk (hold Shift to stride), `Esc` to exit. |
-| **VR** | **Two** `SceneView`s side by side sharing one `Map`, cameras separated by the interpupillary distance, driven by `deviceorientation`. This is the phone-in-a-cardboard-holder presentation; it also works fullscreen in a headset's own browser. |
+| **3D** | Full screen, one camera. Drag to look, arrow keys / WASD to walk (hold Shift to stride), `Esc` to exit. |
+| **VR** | Side-by-side stereo — two viewport passes over ONE canvas, cameras separated by the interpupillary distance, driven by `deviceorientation`. This is the phone-in-a-cardboard-holder presentation; it also works fullscreen in a headset's own browser. |
+
+Both are drawn by the WebGL renderer described under **The renderer** below.
+The Esri two-`SceneView` implementation is still in the tree behind
+`?renderer=esri`.
 
 ### Field of view — why it used to look "zoomed in"
 
@@ -320,6 +324,73 @@ builds its own scene from the same pure layer builders. The only edits outside
   browser refuses it silently — which is why the view never went fullscreen.
   Landscape is locked at the same moment for stereo, and a screen wake lock
   keeps the phone from dimming inside a holder nobody can reach into.
+
+---
+
+## The renderer
+
+The immersive view is drawn by **one WebGL canvas** (`src/vr/gl/`), not by Esri
+SceneViews. `?renderer=esri` — before the hash or inside it — puts the old path
+back for an instant A/B on a real device.
+
+### Why it was changed
+
+Stereo on two `SceneView`s means two WebGL contexts, two copies of every mesh
+and texture, two tile pyramids and two render loops. Measured on an emulated
+iQOO Neo 7 (8 cores, 8 GB, dpr 3, 800×360 landscape) with 6× CPU throttling,
+in VR mode:
+
+| | Esri · two SceneViews | WebGL · one canvas |
+| --- | --- | --- |
+| mean frame rate | **2.6 fps** | **118.8 fps** |
+| median frame | 392 ms | 8.3 ms |
+| frames over 100 ms | **97.3%** | **0%** |
+| WebGL contexts | 2 | 1 |
+| draw calls / frame | — | 20 |
+| JS heap, in scene | ~157 MB | **~51 MB** |
+
+That first column is the freezing. It is not a tuning problem — the architecture
+spends the whole budget twice.
+
+### What makes it cheap
+
+1. **One canvas, two viewport passes.** Stereo is a scissor rect and a second
+   `render()` inside the same frame: a little under 2× the fragment cost and
+   *nothing* extra in memory, uploads or state. The two eyes are the same
+   instant of the same world, so left/right desync is not fixed — it is
+   impossible.
+2. **One ground image, not a tile pyramid.** The whole port is a single
+   `export` request (~730 KB, measured) painted on one plane. One round trip
+   instead of dozens, and no LOD machinery paging tiles as the camera moves.
+3. **Merged, instanced geometry.** The crane asset is ~60 separate meshes; 22 of
+   them cloned is ~1,300 objects and **796 draw calls**. Merged into one
+   geometry and instanced, the whole crane fleet is *one* draw call, with
+   per-instance colour so a blocked crane still turns red. Same for hulls and
+   the yard. Total: **20 draw calls**. Draw calls, not triangles, are what binds
+   a mobile GPU — the scene is only ~475k triangles.
+4. **A local metric frame.** 12 km of port in flat local metres needs none of
+   the ECEF, origin-rebasing or horizon culling a globe renderer carries. At
+   this scale it is also *more* accurate: flat-earth error is under a metre.
+
+### What is shared with the Esri path
+
+Everything above the renderer: the same `impactModel`, `liveWorld`, `cinematic`,
+`vrStore`, `useGyro`, `sceneBudget` and `useVrData`. This swaps a renderer, not
+a feature — which is why the walkthrough still cannot contradict the dashboard.
+The port geometry comes from the same `portGeometry.ts` and `positions.json`, so
+there is no second model of JNPA.
+
+### Two traps worth remembering
+
+- **`BufferGeometry.scale()` rewrites the cached bounding box.** It routes
+  through `applyMatrix4`, which recomputes `boundingBox` when one exists. Read
+  `min.y` out *before* scaling; holding the reference and reading afterwards
+  applies the scale twice and floats the model. That put the hulls 900 m over
+  the port and the yard 470 m up, visible as specks in the sky.
+- **Two rotation conventions, a quarter turn apart.** `headingToYaw` turns a
+  −Z-facing glTF model to a bearing; `headingToYawAlongX` turns a `BoxGeometry`
+  whose long axis is +X. A quay is the second kind. Using the first laid every
+  wharf across the water at right angles to where it belongs.
 
 ---
 
