@@ -86,7 +86,9 @@ describe('startWindAnimation', () => {
   it('respects prefers-reduced-motion with a static paint + stoppable handle', () => {
     const canvas = document.createElement('canvas');
     const ctx = mockCtx(canvas);
-    vi.spyOn(canvas, 'getContext').mockReturnValue(ctx);
+    // `as never`: installing @types/three pulls in @webgpu/types, which adds a
+    // GPUCanvasContext overload to getContext and makes a 2D mock ambiguous.
+    vi.spyOn(canvas, 'getContext').mockReturnValue(ctx as never);
     const onFrame = vi.fn();
     const handle = startWindAnimation(canvas, fixtureGrid(), {
       onFrame,
