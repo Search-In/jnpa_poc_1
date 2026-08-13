@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TERMINALS, TERMINAL_QUAYS } from '@/map/portGeometry';
 import { defaultVantages, useVrStore } from './vrStore';
 import { bearingTo, groundDistanceM, normalizeHeading } from './stereo';
+import { FOV_MAX_DEG, FOV_MIN_DEG } from './sceneBudget';
 
 /** Smallest signed angle between two bearings, degrees. */
 function angleDelta(a: number, b: number): number {
@@ -93,5 +94,26 @@ describe('useVrStore', () => {
     expect(useVrStore.getState().entered).toBe(false);
     // Exiting must drop the gyro so re-entering re-prompts for motion access.
     expect(useVrStore.getState().gyroActive).toBe(false);
+  });
+});
+
+describe('field of view', () => {
+  it('starts on the derived default rather than a hard-coded number', () => {
+    // null means "work it out from the mode and the eye box" — a stored number
+    // would be wrong the moment the phone is a different shape.
+    useVrStore.getState().setFov(null);
+    expect(useVrStore.getState().fovDeg).toBeNull();
+  });
+
+  it('clamps an operator’s trim to a usable range', () => {
+    const { setFov } = useVrStore.getState();
+    setFov(500);
+    expect(useVrStore.getState().fovDeg).toBe(FOV_MAX_DEG);
+    setFov(1);
+    expect(useVrStore.getState().fovDeg).toBe(FOV_MIN_DEG);
+    setFov(97);
+    expect(useVrStore.getState().fovDeg).toBe(97);
+    setFov(null);
+    expect(useVrStore.getState().fovDeg).toBeNull();
   });
 });

@@ -195,3 +195,24 @@ describe('bearingTo / groundDistanceM', () => {
     expect(bearingTo(72.945, 18.945, 72.945, 18.945)).toBe(0);
   });
 });
+
+describe('eyeCameras — field of view', () => {
+  it('leaves the camera’s own FOV alone when none is asked for', () => {
+    const { left, right } = eyeCameras(POSE);
+    expect(left.fov).toBeUndefined();
+    expect(right.fov).toBeUndefined();
+  });
+
+  it('gives BOTH eyes the same field of view', () => {
+    const { left, right } = eyeCameras(POSE, DEFAULT_IPD_M, 97);
+    // A mismatch here is not a subtle rendering difference — it is two
+    // different projections of one scene, which the brain cannot fuse.
+    expect(left.fov).toBe(97);
+    expect(right.fov).toBe(97);
+  });
+
+  it('ignores a nonsense value rather than blanking the projection', () => {
+    const { left } = eyeCameras(POSE, DEFAULT_IPD_M, Number.NaN);
+    expect(left.fov).toBeUndefined();
+  });
+});

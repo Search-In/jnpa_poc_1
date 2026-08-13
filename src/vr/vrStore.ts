@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import { PORT_CENTER, TERMINAL_QUAYS, offsetMeters } from '@/map/portGeometry';
 import { DEFAULT_IPD_M, bearingTo, clampTilt, normalizeHeading } from './stereo';
+import { clampFov } from './sceneBudget';
 
 /** How the scene is presented. */
 export type VrMode =
@@ -106,6 +107,17 @@ interface VrState {
   tilt: number;
   /** Stereo baseline, metres — adjustable because phones/viewers differ. */
   ipdM: number;
+  /**
+   * Diagonal field of view override, degrees, or null to derive it from the
+   * mode and the eye box's aspect ratio.
+   *
+   * ArcGIS defaults to 55°, which is a mild telephoto — right for a map you look
+   * AT, badly wrong for a scene you look THROUGH, and the reason the walkthrough
+   * read as "zoomed in". The derived default matches what a cardboard lens
+   * actually presents (~97°); this override exists because viewers differ and
+   * because an operator in the room is a better judge than a spec sheet.
+   */
+  fovDeg: number | null;
   /** Gyro look-around is live (VR mode, permission granted). */
   gyroActive: boolean;
   /** Set when the device orientation feed could not be used. */
@@ -133,6 +145,8 @@ interface VrState {
   setHeading: (heading: number) => void;
   setMode: (mode: VrMode) => void;
   setIpd: (m: number) => void;
+  /** Set the field of view, or pass null to go back to the derived default. */
+  setFov: (deg: number | null) => void;
   setGyro: (active: boolean, error?: string | null) => void;
   toggleLabels: () => void;
   toggleEdges: () => void;
@@ -170,6 +184,7 @@ export const useVrStore = create<VrState>((set) => ({
   heading: OPENING?.heading ?? 225,
   tilt: 90,
   ipdM: DEFAULT_IPD_M,
+  fovDeg: null,
   gyroActive: false,
   gyroError: null,
   showLabels: true,
@@ -185,6 +200,7 @@ export const useVrStore = create<VrState>((set) => ({
   setHeading: (heading) => set({ heading: normalizeHeading(heading) }),
   setMode: (mode) => set({ mode }),
   setIpd: (m) => set({ ipdM: Math.min(0.09, Math.max(0.045, m)) }),
+  setFov: (deg) => set({ fovDeg: deg == null ? null : clampFov(deg) }),
   setGyro: (gyroActive, gyroError = null) => set({ gyroActive, gyroError }),
   toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
   toggleEdges: () => set((s) => ({ showEdges: !s.showEdges })),

@@ -67,6 +67,15 @@ never fighting the director for the camera. `▶/⏸ Auto-tour` toggles it.
 Under `prefers-reduced-motion` the tour cuts between beats instead of flying, and
 every animated asset holds still (the state colouring still reads).
 
+**The arc flattens when your head is tracked** — 90 m on a monitor, 22 m in a
+viewer (`sceneBudget.tourArcM`), and the idle drift on a held shot scales with
+it. With the head tracked the inner ear reports standing still while the eyes
+report a 90 m climb, and that disagreement is what makes people take a cardboard
+headset off. The tour also **does not start until the scene has been revealed**:
+a director flying the camera over a port that has not arrived is pointless, and
+it keeps the basemap permanently streaming tiles for viewpoints it has already
+left.
+
 ---
 
 ## Modes
@@ -76,9 +85,48 @@ every animated asset holds still (the state colouring still reads).
 | **3D** | One `SceneView`, full screen. Drag to look, arrow keys / WASD to walk (hold Shift to stride), `Esc` to exit. |
 | **VR** | **Two** `SceneView`s side by side sharing one `Map`, cameras separated by the interpupillary distance, driven by `deviceorientation`. This is the phone-in-a-cardboard-holder presentation; it also works fullscreen in a headset's own browser. |
 
-### Head tracking (`useGyro.ts`)
+### Field of view — why it used to look "zoomed in"
 
-Four things the naive `addEventListener('deviceorientation')` gets wrong, all
+`Camera.fov` in ArcGIS is the **diagonal** field of view and defaults to
+**55°** (verified in `@arcgis/core/Camera.js`; the diagonal→horizontal
+conversion is `views/3d/webgl-engine/lib/fov.js`,
+`fovd2fovx(d,w,h) = 2·atan(w·tan(d/2)/√(w²+h²))`).
+
+55° diagonal is right for a map you look **at**. It is badly wrong for a scene
+you look **through**. A cardboard viewer's lens presents roughly 80° of
+horizontal field to each eye, so rendering at 55° hands the eye a world
+magnified about 2× with none of the peripheral context the brain uses to accept
+a stereo pair as a place — felt as "everything is zoomed in", and a documented
+cause of viewer discomfort.
+
+So the FOV is derived from the optics instead (`sceneBudget.stereoFovDeg`):
+
+```
+tan(diag/2) = √( tan(halfX)² + (tan(halfX)/aspect)² )      halfX = 40°
+```
+
+On a 20:9 handset held landscape each eye box is 1200 × 1080, giving **≈97°
+diagonal** — which is what the lens is actually showing. Mono 3D uses 80°: wider
+than the ArcGIS default because a first-person view needs the peripheral cues,
+narrower than cardboard because a monitor at desk distance subtends far less
+than a lens 40 mm from your eye.
+
+Two consequences worth knowing:
+
+- **The FOV must be written on every camera assignment.** `view.camera = {…}`
+  *replaces* the camera object, so omitting `fov` silently restores 55° and the
+  world snaps back to telephoto on the next head movement.
+- **Both eyes must carry the same FOV.** A mismatch is not a subtle rendering
+  difference; it is two different projections of one scene, which the brain
+  cannot fuse.
+
+The control strip carries a live `−  97° FOV  +` trim (click the number to
+return to the derived default) because viewers differ and an operator with the
+thing on their face is a better judge than a spec sheet.
+
+### Head tracking (`useGyro.ts`, `headTracking.ts`, `oneEuro.ts`)
+
+Five things the naive `addEventListener('deviceorientation')` gets wrong, all
 handled here — and the first one is usually the whole problem:
 
 1. **Secure context.** Motion sensors are only exposed over HTTPS (or
@@ -97,8 +145,48 @@ handled here — and the first one is usually the whole problem:
    `DeviceOrientationEvent.requestPermission()`, which must be called from a user
    gesture — hence the "Enable look-around" button.
 
-A watchdog covers the last case: permission granted, listener attached, still no
+5. **Rate-independent smoothing.** This is the one that made tracking feel
+   "odd". The old filter blended each reading in at a fixed weight, which forces
+   one compromise between two opposite requirements — heavy enough to kill the
+   sensor's ±0.6° tremble at rest, light enough not to lag a head turn — and it
+   cannot satisfy both. Worse, a fixed weight is applied *per event*, and
+   `deviceorientation` fires anywhere between 15 Hz and 60 Hz depending on the
+   handset, the battery saver and how busy the main thread is. The same setting
+   therefore produced different smoothing on different phones, and different
+   smoothing second to second on one phone under thermal throttling.
+
+   It is replaced by a **1€ filter** (Casiez, Roussel & Vogel, CHI 2012), which
+   estimates the signal's speed and widens its own cutoff with it — heavy when
+   you hold still, nearly transparent when you turn — over the *measured*
+   interval, so the behaviour is the same at 15 Hz and 60 Hz. Heading is
+   unwrapped before filtering and re-wrapped after, so 359° → 1° is a 2° move
+   rather than a −358° lurch. A capped, motion-gated one-frame prediction
+   cancels the render pipeline's own lag.
+
+   Measured against a synthetic phone (`gyroTrack.test.ts`), 0.6° of sensor
+   noise:
+
+   | | now | before |
+   | --- | --- | --- |
+   | residual jitter, head still | **0.035°** | 0.097° |
+   | lag at 90°/s, sampling 60 Hz | **1.13°** | 1.2° |
+   | lag at 90°/s, sampling 20 Hz | **1.08°** | 3.5° |
+   | lag at 25°/s, sampling 60 Hz | **1.29°** | — |
+
+   The last row of the middle two is the point: the lag no longer depends on how
+   fast the phone happens to be sampling.
+
+A watchdog covers the permission case: granted, listener attached, still no
 readings. Rather than a frozen horizon you get a message saying so.
+
+**Readings are published once per animation frame.** The sensor fires up to 60
+times a second; the scene draws 20–30 in stereo on a phone. Applying a camera
+per reading queued two or three pose changes for every frame actually drawn, all
+but the last discarded, paid for out of the same main-thread budget the renderer
+was already short of. Filtering happens at sensor rate (the filter wants every
+sample); publishing is coalesced to `requestAnimationFrame`
+(`frameCoalesce.ts`), which also guarantees both eyes are written from one pose
+in one task.
 
 **The tour and your head do not fight.** With tracking live the tour is demoted
 to moving you *between* beats while your head owns heading and tilt
@@ -172,7 +260,15 @@ scenario started in the dashboard is already running when you walk in.
 | `src/vr/impactModel.ts` | Pure: levers + clock + berths → impacted assets, labels, causal edges, environment |
 | `src/vr/liveWorld.ts` | Pure: weather choice, water level, hold state, crane states, hull motion, seakeeping |
 | `src/vr/cinematic.ts` | Pure: shot list from the causal chain, framing, easing, playback |
-| `src/vr/stereo.ts` | Pure: IPD eye split, `deviceorientation` → heading/tilt, smoothing, walk, range/bearing |
+| `src/vr/stereo.ts` | Pure: IPD eye split, `deviceorientation` → heading/tilt, walk, range/bearing |
+| `src/vr/oneEuro.ts` | Pure: 1€ adaptive filter, wrap-aware angle filter, motion-gated prediction |
+| `src/vr/headTracking.ts` | Pure: one `deviceorientation` reading → a filtered look direction |
+| `src/vr/sceneBudget.ts` | Pure: device + link profile → every quality, scenery, tile and FOV decision |
+| `src/vr/warmup.ts` | Pure + fetch: the model catalogue, its byte cost, and the priority-ordered prefetch |
+| `src/vr/vrBasemap.ts` | Imagery over a bundled ground underlay — one tile service, never a white world |
+| `src/vr/viewReady.ts` | The reveal gate: waits on the asset layer views, with a deadline |
+| `src/vr/sceneBoot.ts` | Pure: the eye-startup ordering (sequential on a thin link, parallel otherwise) |
+| `src/vr/frameCoalesce.ts` | One camera write per drawn frame, from two independent producers |
 | `src/vr/sceneAnim.ts` | The `requestAnimationFrame` loop: mutates the animated layers, applies weather |
 | `src/vr/impactLayers.ts` | Esri `GraphicsLayer`s for rings, floating labels, mechanism-labelled edges |
 | `src/vr/VrScene.tsx` | Mounts one or two `SceneView`s; drives cameras; pushes the impact model in |
@@ -189,13 +285,13 @@ builds its own scene from the same pure layer builders. The only edits outside
 
 ## Notes & limits
 
-- **The ArcGIS view stylesheet is imported by `VrScene.tsx`.** The rest of the app
-  receives it as a side effect of instantiating Esri widgets (zoom, Legend,
-  LayerList); this view has none (`ui.components: []`, so nothing floats inside
-  an eye box), so it imports
-  `@arcgis/core/assets/esri/themes/light/main.css` itself. Without it
-  `.esri-view-root` is unstyled and the view collapses to its intrinsic canvas
-  height instead of filling the eye box.
+- **The ArcGIS view stylesheet is injected by `useEsriViewStylesheet`.** The rest
+  of the app receives it as a side effect of instantiating Esri widgets (zoom,
+  Legend, LayerList); this view has none (`ui.components: []`, so nothing floats
+  inside an eye box), so it asks for the stylesheet itself — as a ref-counted
+  `<link>`, not a module import, which would go global and restyle the
+  dashboard. Without it `.esri-view-root` is unstyled and the view collapses to
+  its intrinsic canvas height instead of filling the eye box.
 - **Stereo drops one quality tier** (`qualityProfile: 'medium'`, shadows off)
   because two views double the draw cost — the 45+ fps budget is per frame, not
   per view.
@@ -210,10 +306,10 @@ builds its own scene from the same pure layer builders. The only edits outside
 - **No ArcGIS API key is required**, here or anywhere else in the app. Esri's
   World_Imagery tiles and the Terrain3D elevation service both answer
   anonymously (verified: HTTP 200 with real tile bytes, no token), which is why
-  the dashboard's 3D scene has always worked without one. The basemap and ground
-  setup here is deliberately identical to `PortScene`'s. A blank ground in this
+  the dashboard's 3D scene has always worked without one. A blank ground in this
   view means tiles have not been fetched yet — most often because the tab is
-  hidden and the render loop is stalled — not an auth failure.
+  hidden and the render loop is stalled — not an auth failure. Since the ground
+  underlay was added there should be no white-ground state at all.
 - **Tour shots sit near the horizon (80–88° tilt), not top-down.** A steep shot
   fills the frame with ground and reads as a map rather than a place.
 - **Gyro look-around needs a secure context.** `VITE_DEV_HTTPS=true` serves the
@@ -224,6 +320,93 @@ builds its own scene from the same pure layer builders. The only edits outside
   browser refuses it silently — which is why the view never went fullscreen.
   Landscape is locked at the same moment for stereo, and a screen wake lock
   keeps the phone from dimming inside a holder nobody can reach into.
+
+---
+
+## Performance and the network
+
+Every quality, scenery, tile and camera decision is made in one pure function,
+`sceneBudget(profile, stereo)`, from a measured `DeviceProfile` (pointer type,
+cores, `deviceMemory`, `navigator.connection.effectiveType`, `saveData`). That
+is what makes it testable — `sceneBudget.test.ts` walks the whole device ×
+network matrix — rather than scattered through `VrScene`.
+
+There are **two independent bottlenecks** and they need different levers.
+
+### The frame budget
+
+Stereo renders the whole port twice, on a phone, at `devicePixelRatio` 3.
+
+| Lever | Where it bites |
+| --- | --- |
+| **Render scale** — the SceneView gets a 0.6-size container, CSS-scaled back up | 36% of the pixels. The biggest single win. Aspect ratio is preserved, because the FOV is derived from it. |
+| **Yard thinning** — `definitionExpression: 'tier <= 0'` | 60 blocks × 2–5 tiers ≈ **210 glTF instances → 60**, and in stereo every one was loaded and drawn twice. |
+| **Truck queues dropped** | 25 more instances, 50 in stereo, carrying no what-if state. |
+| **Shadows off** as soon as a second view exists | The most expensive lighting option. |
+| **20 Hz animation / 20 Hz tour** on a handset | Nothing here — a gantry crane at walking pace, a hull at 9 knots, a tide — needs 60 updates a second. |
+| **One camera write per drawn frame** | The head tracker and the tour director both move the camera; coalescing to `rAF` removes two thirds of the writes and keeps the eyes in step. |
+
+**Never** on that list: `atmosphereEnabled`. In a global SceneView the
+atmosphere *is* the sky — switching it off does not buy a cheaper sky, it buys
+the black of space, and `starsEnabled` defaults on, which is what once turned
+the walkthrough into night on mobile.
+
+### The link
+
+On 3G a phone gets roughly 40–60 KB/s with a 200 ms round trip, and the scene
+wants ~1.2 MB of glTF before it reads as JNPA — `sts-crane.glb` alone is 542 KB.
+
+- **A bundled ground underlay** (`vrBasemap.ts`) — one flat estuarine-toned
+  polygon as the first base layer, so the ground is a plausible colour from the
+  first frame and the imagery paints over it as it streams. Zero requests. It is
+  not a substitute for imagery; it is what stops the *absence* of imagery
+  reading as a broken view.
+- **One tile service.** The dashboard's `'hybrid'` adds a reference service for
+  place names, and `ground: 'world-elevation'` adds Terrain3D — three services,
+  each fetched by each eye. The label overlay is dropped unconditionally (labels
+  are screen-space, so in a first-person scene they hang in the sky, and through
+  a lens they are unreadable); Terrain3D is dropped on a constrained link, JNPA
+  being tidal flats with ~0 m of relief.
+- **Model warm-up during setup** (`warmup.ts`). The setup screen is dead time —
+  a dropdown and two buttons — so the models are fetched then, in priority order
+  (cranes and hulls, the assets a scenario *changes*, before the scenery), one
+  at a time.
+- **Sequential eye startup** (`sceneBoot.ts`). Two SceneViews resolve their own
+  meshes and share only the HTTP cache. Started together on a thin pipe they
+  interleave requests for the *same* bytes, both finish late, and they finish at
+  *different times* — which is exactly "the left side renders later than the
+  right". Starting the second once the first has drawn makes its fetches cache
+  hits.
+- **A reveal gate.** Neither eye is shown until both have their assets, so the
+  viewer never watches the port assemble itself at two different rates. It waits
+  on the asset **layer views**, not on `view.updating` — that is permanently
+  true here, because the animator rewrites geometry 20×/s and the tour keeps the
+  camera moving. There is always a deadline; a walkthrough that refuses to start
+  with the phone already in the holder is worse than one that starts
+  half-textured, and a badge says which happened.
+
+Modelled on a fair-share 3G link over the real byte counts
+(`slowNetwork.test.ts`):
+
+| | before | now |
+| --- | --- | --- |
+| bytes over the link, stereo cold start | 2.4 MB (fetched twice) | **1.2 MB** |
+| wait after pressing Enter, warm | ~48 s | **~0 s** (warmed during setup) |
+| wait after pressing Enter, cold | ~48 s | **~26 s** |
+| crane mesh arrives at | ~24 s | **~11 s** |
+
+**Concurrency is 1 on a constrained link, and that is deliberate.** Everything
+in flight shares the same bytes per second, so N parallel fetches all finish
+together — late — and the priority order stops meaning anything. Measured: at
+*two* in flight the 542 KB crane was requested first and still arrived after the
+26 KB gate mesh. Serialising costs one round trip per asset, about 5% of the
+total, to halve the wait for the asset the viewer is there to see.
+
+**Deployment note.** `deploy/nginx.conf` now caches `*.glb` for 30 days. Without
+it the meshes are served uncacheable and the whole 1.2 MB is re-fetched on every
+entry into the immersive view. Not `immutable`, unlike the content-hashed
+bundles: these keep their filenames across builds. The service worker also holds
+them (same-origin, cache-first), so the *second* run opens instantly.
 
 ---
 

@@ -6,9 +6,21 @@
  * probes let the scene pick a budget instead of shipping desktop settings to a
  * handset and calling the result "laggy".
  *
- * Deliberately capability-based (pointer type, memory, core count) rather than
- * user-agent sniffing, which is both unreliable and ages badly.
+ * Deliberately capability-based (pointer type, memory, core count, the Network
+ * Information API) rather than user-agent sniffing, which is both unreliable and
+ * ages badly.
+ *
+ * These are the thin live-reading wrappers. Everything that turns a reading into
+ * a DECISION — quality, render scale, which layers, which tile services, field
+ * of view — lives in `sceneBudget.ts`, where it is a pure function and can be
+ * tested against a simulated handset on a simulated 3G link.
  */
+import {
+  isLowPowerProfile,
+  readDeviceProfile,
+  sceneBudget,
+  type NetworkClass,
+} from './sceneBudget';
 
 /** A touch-first device: phone or tablet, i.e. the cardboard case. */
 export function isCoarsePointer(): boolean {
@@ -23,11 +35,12 @@ export function isCoarsePointer(): boolean {
  * on a machine that might cope.
  */
 export function isLowPowerDevice(): boolean {
-  if (!isCoarsePointer()) return false;
-  const nav = navigator as Navigator & { deviceMemory?: number };
-  const cores = navigator.hardwareConcurrency ?? 8;
-  const memory = nav.deviceMemory ?? 8;
-  return cores <= 8 || memory <= 8;
+  return isLowPowerProfile(readDeviceProfile());
+}
+
+/** How much bandwidth the link looks like it has right now. */
+export function networkClass(): NetworkClass {
+  return readDeviceProfile().network;
 }
 
 /**
@@ -35,20 +48,23 @@ export function isLowPowerDevice(): boolean {
  * it — the "render scale" every game exposes.
  *
  * A phone at devicePixelRatio 3 asks for nine device pixels per CSS pixel, and
- * stereo asks for two of those buffers. Rendering at 62% linear is 38% of the
+ * stereo asks for two of those buffers. Rendering at 60% linear is 36% of the
  * pixels: the single biggest lever available, and through a cardboard lens
  * (which is itself soft and magnified) the softening is close to invisible.
  */
 export function renderScale(stereo: boolean): number {
-  if (!isLowPowerDevice()) return 1;
-  return stereo ? 0.62 : 0.8;
+  return sceneBudget(readDeviceProfile(), stereo).renderScale;
 }
 
 /** Frames per second the scene animator should target on this device. */
 export function animationHz(stereo: boolean): number {
-  if (!isCoarsePointer()) return 30;
-  // Two views on a phone: update the world at 20 Hz and leave the rest of the
-  // budget to the renderer. Nothing here — a crane at walking pace, a hull at
-  // 9 knots, a tide — is fast enough for the difference to be visible.
-  return stereo ? 20 : 24;
+  return sceneBudget(readDeviceProfile(), stereo).animationHz;
+}
+
+/** The full budget for the current device, for the scene to build against. */
+export function currentBudget(
+  stereo: boolean,
+  opts: { headTracked?: boolean; eyeBox?: { width: number; height: number } } = {}
+): ReturnType<typeof sceneBudget> {
+  return sceneBudget(readDeviceProfile(), stereo, opts);
 }
