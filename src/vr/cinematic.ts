@@ -163,8 +163,23 @@ export function easeInOut(t: number): number {
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 }
 
+/**
+ * How high the camera arcs over the port mid-flight, metres.
+ *
+ * Cinematic on a monitor. Provocative in a viewer: with the head tracked, the
+ * inner ear reports that you are standing still while the eyes report a 90 m
+ * climb, and that disagreement is what makes people take a cardboard headset
+ * off. `sceneBudget.tourArcM` picks the right one for the presentation.
+ */
+export const DEFAULT_TOUR_ARC_M = 90;
+
 /** Interpolate two poses, taking the short way around the compass. */
-export function lerpPose(a: ViewerPose, b: ViewerPose, t: number): ViewerPose {
+export function lerpPose(
+  a: ViewerPose,
+  b: ViewerPose,
+  t: number,
+  arcM: number = DEFAULT_TOUR_ARC_M
+): ViewerPose {
   const k = easeInOut(t);
   let dh = normalizeHeading(b.heading - a.heading);
   if (dh > 180) dh -= 360;
@@ -173,7 +188,7 @@ export function lerpPose(a: ViewerPose, b: ViewerPose, t: number): ViewerPose {
     latitude: a.latitude + (b.latitude - a.latitude) * k,
     // Arc upward through the middle of the flight so the camera clears the
     // cranes and container stacks instead of ploughing through them.
-    z: a.z + (b.z - a.z) * k + Math.sin(k * Math.PI) * 90,
+    z: a.z + (b.z - a.z) * k + Math.sin(k * Math.PI) * arcM,
     heading: normalizeHeading(a.heading + dh * k),
     tilt: a.tilt + (b.tilt - a.tilt) * k,
   };
@@ -200,9 +215,16 @@ export function tourFrame(
   shots: Shot[],
   from: ViewerPose,
   elapsedMs: number,
-  reducedMotion = false
+  reducedMotion = false,
+  opts: { arcM?: number } = {}
 ): TourFrame | null {
   if (!shots.length) return null;
+  const arcM = opts.arcM ?? DEFAULT_TOUR_ARC_M;
+  // The idle drift that keeps a held beat feeling alive is scaled with the arc:
+  // both are "how much the camera moves on its own", and in a viewer the answer
+  // for both is "much less". Below ~half the default arc the drift is dropped
+  // to a token amount rather than removed, so the shot never looks frozen.
+  const driftScale = Math.min(1, Math.max(0.18, arcM / DEFAULT_TOUR_ARC_M));
 
   if (reducedMotion) {
     // No flying: cut straight to each beat and hold it.
@@ -216,18 +238,24 @@ export function tourFrame(
     const shot = shots[i];
     const start = i === 0 ? from : shots[i - 1].pose;
     if (t < FLIGHT_MS) {
-      return { pose: lerpPose(start, shot.pose, t / FLIGHT_MS), index: i, arrived: false, shot };
+      return {
+        pose: lerpPose(start, shot.pose, t / FLIGHT_MS, arcM),
+        index: i,
+        arrived: false,
+        shot,
+      };
     }
     t -= FLIGHT_MS;
     if (t < shot.dwellMs) {
       // Slow inward drift while held — a few degrees of heading and a metre or
       // two of height, enough to read as a live camera.
       const k = t / shot.dwellMs;
+      const swing = Math.sin(k * Math.PI) * driftScale;
       return {
         pose: {
           ...shot.pose,
-          heading: normalizeHeading(shot.pose.heading + Math.sin(k * Math.PI) * 5),
-          z: shot.pose.z - Math.sin(k * Math.PI) * Math.min(12, shot.pose.z * 0.08),
+          heading: normalizeHeading(shot.pose.heading + swing * 5),
+          z: shot.pose.z - swing * Math.min(12, shot.pose.z * 0.08),
         },
         index: i,
         arrived: true,

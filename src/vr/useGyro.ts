@@ -24,11 +24,17 @@
  *     `DeviceOrientationEvent.requestPermission()`, which must be called from a
  *     user gesture — hence `request()` rather than auto-starting.
  *
+ *  5. **Rate-independent smoothing.** The sensor is noisy at rest and the event
+ *     rate varies by handset, so a fixed blend weight is either jittery or
+ *     laggy and is never the same twice. `HeadTracker` applies a 1€ filter over
+ *     the MEASURED interval instead — see `headTracking.ts`.
+ *
  * A watchdog covers the remaining case: permission granted, listener attached,
  * and still no events (some desktop browsers, some locked-down devices).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { normalizeHeading, orientationToLook, smoothLook } from './stereo';
+import { HeadTracker, type Look } from './headTracking';
+import { coalesceToFrame } from './frameCoalesce';
 
 export type GyroStatus =
   /** Not requested yet. */
@@ -119,9 +125,26 @@ export function useGyro(enabled: boolean, onLook: (heading: number, tilt: number
   useEffect(() => {
     if (!enabled || !armed) return;
 
-    let last: { heading: number; tilt: number } | null = null;
+    const tracker = new HeadTracker();
     let gotAbsolute = false;
     let gotAny = false;
+
+    /**
+     * The sensor fires up to 60 times a second; the scene renders at 20–30 in
+     * stereo on a phone. Writing a camera per EVENT queued two or three pose
+     * changes for every frame the renderer actually drew — work that could only
+     * ever be discarded, taken out of the same main-thread budget the renderer
+     * was already short of. So readings are filtered as they arrive (the filter
+     * wants every sample it can get) and only the newest is published, once per
+     * animation frame.
+     */
+    let pending: Look | null = null;
+    const publisher = coalesceToFrame(() => {
+      if (!pending) return;
+      const { heading, tilt } = pending;
+      pending = null;
+      onLookRef.current(heading, tilt);
+    });
 
     const handle = (e: DeviceOrientationEvent, absolute: boolean) => {
       // Once the absolute feed is alive, ignore the relative one so the two
@@ -129,22 +152,22 @@ export function useGyro(enabled: boolean, onLook: (heading: number, tilt: number
       if (absolute) gotAbsolute = true;
       else if (gotAbsolute) return;
 
-      const look = orientationToLook(e.alpha, e.beta, e.gamma);
+      const look = tracker.update({
+        alpha: e.alpha,
+        beta: e.beta,
+        gamma: e.gamma,
+        compassHeading: (e as CompassEvent).webkitCompassHeading,
+        timeStampMs: e.timeStamp,
+      });
       if (!look) return;
 
-      // iOS: prefer the real compass over the derived alpha.
-      const compass = (e as CompassEvent).webkitCompassHeading;
-      const heading =
-        typeof compass === 'number' && Number.isFinite(compass)
-          ? normalizeHeading(compass)
-          : look.heading;
-
-      last = smoothLook(last, { heading, tilt: look.tilt });
       if (!gotAny) {
         gotAny = true;
         setStatus('live');
       }
-      onLookRef.current(last.heading, last.tilt);
+
+      pending = look;
+      publisher.schedule();
     };
 
     const onAbs = (e: DeviceOrientationEvent) => handle(e, true);
@@ -161,8 +184,10 @@ export function useGyro(enabled: boolean, onLook: (heading: number, tilt: number
 
     return () => {
       window.clearTimeout(watchdog);
+      publisher.cancel();
       window.removeEventListener('deviceorientationabsolute', onAbs, true);
       window.removeEventListener('deviceorientation', onRel, true);
+      tracker.reset();
     };
   }, [enabled, armed]);
 

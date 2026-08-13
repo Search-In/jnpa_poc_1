@@ -42,6 +42,12 @@ export interface EyeCamera {
   position: { longitude: number; latitude: number; z: number };
   heading: number;
   tilt: number;
+  /**
+   * DIAGONAL field of view, degrees. Omitted leaves the ArcGIS default of 55°,
+   * which is a mild telephoto and completely wrong behind a cardboard lens —
+   * see `sceneBudget.stereoFovDeg` for the derivation of the right number.
+   */
+  fov?: number;
 }
 
 /** Metres per degree of latitude (WGS84 mean) — constant enough at port scale. */
@@ -93,7 +99,11 @@ export function offsetByBearing(
  * cardboard-style viewers expect and what avoids the eye strain that
  * convergence-angle stereo introduces at long focal distances like a port.
  */
-export function eyeCameras(pose: ViewerPose, ipdM: number = DEFAULT_IPD_M): {
+export function eyeCameras(
+  pose: ViewerPose,
+  ipdM: number = DEFAULT_IPD_M,
+  fovDeg?: number
+): {
   left: EyeCamera;
   right: EyeCamera;
 } {
@@ -101,13 +111,27 @@ export function eyeCameras(pose: ViewerPose, ipdM: number = DEFAULT_IPD_M): {
   const rightBearing = normalizeHeading(pose.heading + 90);
   const heading = normalizeHeading(pose.heading);
   const tilt = clampTilt(pose.tilt);
+  // Both eyes MUST carry the same FOV. A mismatch is not a subtle rendering
+  // difference — it is two different projections of the same scene, which the
+  // brain cannot fuse and reads as eye strain within seconds.
+  const fov = fovDeg != null && Number.isFinite(fovDeg) ? { fov: fovDeg } : {};
 
   const l = offsetByBearing(pose.longitude, pose.latitude, rightBearing, -half);
   const r = offsetByBearing(pose.longitude, pose.latitude, rightBearing, half);
 
   return {
-    left: { position: { longitude: l.longitude, latitude: l.latitude, z: pose.z }, heading, tilt },
-    right: { position: { longitude: r.longitude, latitude: r.latitude, z: pose.z }, heading, tilt },
+    left: {
+      position: { longitude: l.longitude, latitude: l.latitude, z: pose.z },
+      heading,
+      tilt,
+      ...fov,
+    },
+    right: {
+      position: { longitude: r.longitude, latitude: r.latitude, z: pose.z },
+      heading,
+      tilt,
+      ...fov,
+    },
   };
 }
 
@@ -168,10 +192,19 @@ export function orientationToLook(
 }
 
 /**
- * Blend the previous look toward a new one. `deviceorientation` is noisy at rest
- * and a raw feed makes the horizon jitter; a light exponential filter removes
- * that without adding perceptible lag. Heading is blended the short way around
- * the circle so 359° → 1° does not spin the world.
+ * Blend the previous look toward a new one, at a fixed weight. Heading is
+ * blended the short way around the circle so 359° → 1° does not spin the world.
+ *
+ * SUPERSEDED for head tracking by the 1€ filter in `oneEuro.ts`. A fixed weight
+ * has to pick one compromise between "steady when still" and "prompt when
+ * moving" and cannot be good at both, and because the weight is applied per
+ * EVENT rather than per unit time, the amount of smoothing it delivers changes
+ * with the phone's sample rate — which is why tracking felt different on
+ * different handsets.
+ *
+ * Kept, and still exported, because `gyroTrack.test.ts` measures the new tracker
+ * against it: a claim that the replacement is smoother is worth nothing unless
+ * the thing it replaced is measured on the same stream.
  */
 export function smoothLook(
   prev: { heading: number; tilt: number } | null,

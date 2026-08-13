@@ -28,6 +28,9 @@ import { walk, groundDistanceM, bearingTo, type ViewerPose } from './stereo';
 import { overallSeverity } from './impactModel';
 import { buildShots, tourDurationMs, tourFrame } from './cinematic';
 import { useGyro } from './useGyro';
+import { currentBudget } from './device';
+import { clampFov, defaultFovDeg, FOV_MAX_DEG, FOV_MIN_DEG } from './sceneBudget';
+import { modelsFor, transferSeconds, warmModels, type WarmupProgress } from './warmup';
 import { asset3dPosition } from '@/map/scene3d';
 import { PORT_CENTER } from '@/map/portGeometry';
 import { resolveImpactPosition } from './impactLayers';
@@ -92,6 +95,7 @@ function Setup({
   const setHeading = useVrStore((s) => s.setHeading);
   const applyVantage = useVrStore((s) => s.applyVantage);
 
+  const narrow = useNarrowViewport();
   const [xrSupported, setXrSupported] = useState<boolean | null>(null);
   useEffect(() => {
     const xr = (navigator as unknown as { xr?: { isSessionSupported(m: string): Promise<boolean> } }).xr;
@@ -101,6 +105,33 @@ function Setup({
     }
     xr.isSessionSupported('immersive-vr').then(setXrSupported).catch(() => setXrSupported(false));
   }, []);
+
+  /**
+   * Pull the port's 3D models down while the operator is still choosing a
+   * scenario.
+   *
+   * This screen is dead time — a dropdown and two buttons — and the scene behind
+   * it needs ~1.2 MB of glTF before it reads as JNPA, which on 3G is around
+   * twenty seconds of a viewer standing in an empty world. Spending that time
+   * here instead means the walkthrough opens onto a finished port, and in stereo
+   * it means the second eye's fetches are cache hits rather than a race with the
+   * first for the same pipe.
+   */
+  const budget = useMemo(() => currentBudget(false), []);
+  const [warm, setWarm] = useState<WarmupProgress | null>(null);
+  useEffect(() => {
+    if (!budget.prefetchModels) return;
+    const models = modelsFor(budget);
+    const handle = warmModels(models, {
+      concurrency: budget.prefetchConcurrency,
+      onProgress: setWarm,
+    });
+    return () => handle.cancel();
+  }, [budget]);
+  const warmSeconds = useMemo(
+    () => Math.round(transferSeconds(modelsFor(budget), budget.network)),
+    [budget]
+  );
 
   /**
    * Enter the immersive view.
@@ -138,7 +169,14 @@ function Setup({
         position: 'fixed',
         inset: 0,
         display: 'grid',
-        gridTemplateColumns: 'minmax(320px, 380px) 1fr',
+        // The walkthrough is set up ON the phone that is about to go into the
+        // holder, so the setup screen has to work at 393 px as well as on a
+        // laptop. Side by side, a 320 px minimum sidebar would leave the map
+        // 70 px wide and the whole thing unusable; stacked, the controls come
+        // first and the place-picker map sits under them.
+        ...(narrow
+          ? { gridTemplateRows: 'auto minmax(280px, 45vh)', overflowY: 'auto' }
+          : { gridTemplateColumns: 'minmax(320px, 380px) 1fr' }),
         background: tokens.bg,
         color: tokens.text,
         fontFamily: 'Avenir Next, Segoe UI, sans-serif',
@@ -147,8 +185,10 @@ function Setup({
       <aside
         style={{
           overflowY: 'auto',
-          padding: tokens.space.lg,
-          borderRight: `1px solid ${tokens.border}`,
+          padding: narrow ? tokens.space.md : tokens.space.lg,
+          ...(narrow
+            ? { borderBottom: `1px solid ${tokens.border}` }
+            : { borderRight: `1px solid ${tokens.border}` }),
           background: tokens.panel,
         }}
       >
@@ -262,6 +302,7 @@ function Setup({
                 ? 'A WebXR headset is present. This build renders stereo through the ArcGIS scene engine rather than opening an immersive-vr session — see the note below.'
                 : 'No WebXR headset detected — stereo mode is the phone/cardboard presentation.'}
           </p>
+          <ReadinessLine warm={warm} network={budget.network} estimateS={warmSeconds} />
         </Section>
 
         <p style={{ ...hint, borderTop: `1px solid ${tokens.border}`, paddingTop: tokens.space.sm }}>
@@ -301,6 +342,14 @@ function Immersive({
   const toggleLabels = useVrStore((s) => s.toggleLabels);
   const toggleEdges = useVrStore((s) => s.toggleEdges);
   const [hudOpen, setHudOpen] = useState(true);
+  /**
+   * The scene holds this back until both eyes have their 3D assets. The tour is
+   * gated on it because a director flying the camera over a port that has not
+   * arrived is not just pointless — it keeps the basemap permanently streaming
+   * tiles for viewpoints it has already left, which is the thing making the
+   * arrival slow in the first place.
+   */
+  const [sceneReady, setSceneReady] = useState(false);
 
   // ---- desktop look + walk --------------------------------------------------
   useEffect(() => {
@@ -433,8 +482,16 @@ function Immersive({
   // moving the viewer between beats.
   const headTracked = mode === 'vr' && gyro.live;
 
+  // Recomputed when head tracking comes up, because that is what decides how
+  // far the camera may fling itself: a 90 m arc is cinematic on a monitor and
+  // nauseating with your head in a holder.
+  const budget = useMemo(
+    () => currentBudget(mode === 'vr', { headTracked }),
+    [mode, headTracked]
+  );
+
   useEffect(() => {
-    if (!autoTour || shots.length === 0) {
+    if (!autoTour || shots.length === 0 || !sceneReady) {
       setCaption(null);
       return;
     }
@@ -453,10 +510,11 @@ function Immersive({
     let t0 = 0;
     let lastIndex = -1;
 
-    // Match the scene animator's 30 Hz. Every pose write pushes a new camera
-    // into the SceneView and notifies every store subscriber; at display rate
-    // that is double the work for motion no one can see the difference in.
-    const MIN_STEP_MS = 1000 / 30;
+    // Match the scene animator's rate — 30 Hz on a desktop, 20 in stereo on a
+    // handset. Every pose write notifies every store subscriber and marks the
+    // camera dirty; running that at display rate is double the work for motion
+    // no one can see the difference in.
+    const MIN_STEP_MS = 1000 / budget.tourHz;
     let lastStep = -Infinity;
 
     const step = (ts: number) => {
@@ -466,7 +524,7 @@ function Immersive({
       if (!t0) t0 = ts;
       // Loop the tour so an unattended demo keeps cycling the story.
       const elapsed = (ts - t0) % Math.max(1, total);
-      const f = tourFrame(shots, from, elapsed, reduced);
+      const f = tourFrame(shots, from, elapsed, reduced, { arcM: budget.tourArcM });
       if (!f) return;
       // With head tracking live the viewer owns heading/tilt; the tour only
       // carries them to the next vantage point.
@@ -483,7 +541,7 @@ function Immersive({
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [autoTour, shots, headTracked]);
+  }, [autoTour, shots, headTracked, budget, sceneReady]);
 
   // Distance/bearing from the viewer to each impacted asset — "which way do I
   // turn to see this" is the first question in a first-person view.
@@ -521,7 +579,13 @@ function Immersive({
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
-      <VrScene key={mode} berths={berths} vessels={vessels} model={model} />
+      <VrScene
+        key={mode}
+        berths={berths}
+        vessels={vessels}
+        model={model}
+        onReadyChange={({ ready }) => setSceneReady(ready)}
+      />
 
       {/* Control strip — mirrored into both eye boxes would be unreadable, so it
           sits above the split as a single thin bar. */}
@@ -580,6 +644,7 @@ function Immersive({
         <button onClick={toggleEdges} style={linkBtn}>
           {showEdges ? 'Hide' : 'Show'} causal edges
         </button>
+        <FovControl mode={mode} />
         {mode === 'vr' && !gyro.live ? (
           <button onClick={() => void gyro.request()} style={primaryBtnSm}>
             Enable look-around
@@ -722,6 +787,109 @@ function Immersive({
 // ---------------------------------------------------------------------------
 // Small presentational helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Field-of-view trim, in the immersive control strip.
+ *
+ * The derived default matches what a cardboard lens presents (~97° diagonal for
+ * a 20:9 handset held landscape), against ArcGIS's 55° default, which is a mild
+ * telephoto and is what made the walkthrough read as "zoomed in". But viewers
+ * differ — a Jio VR box, a Cardboard v2 and a headset browser all sit at
+ * different distances from the screen — and an operator with the thing on their
+ * face is a better judge than any spec sheet, so the trim is live and reversible.
+ */
+function FovControl({ mode }: { mode: VrMode }) {
+  const fovDeg = useVrStore((s) => s.fovDeg);
+  const setFov = useVrStore((s) => s.setFov);
+  const effective = fovDeg ?? defaultFovDeg(mode === 'vr');
+  const nudge = (delta: number) => setFov(clampFov(effective + delta));
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <button
+        onClick={() => nudge(-6)}
+        disabled={effective <= FOV_MIN_DEG}
+        style={linkBtn}
+        title="Narrower field of view (more magnified)"
+      >
+        −
+      </button>
+      <button
+        onClick={() => setFov(null)}
+        style={{ ...linkBtn, color: fovDeg == null ? tokens.textMuted : tokens.accent }}
+        title={
+          fovDeg == null
+            ? 'Field of view — matched to the viewer optics. Click to reset once changed.'
+            : 'Reset the field of view to the viewer-matched default'
+        }
+      >
+        {Math.round(effective)}° FOV
+      </button>
+      <button
+        onClick={() => nudge(6)}
+        disabled={effective >= FOV_MAX_DEG}
+        style={linkBtn}
+        title="Wider field of view (more of the port in shot)"
+      >
+        +
+      </button>
+    </span>
+  );
+}
+
+/**
+ * "Is the port downloaded yet?" on the setup screen.
+ *
+ * Worth a line of UI because on a slow link it is the difference between an
+ * operator hitting Enter into a half-built world and waiting ten more seconds
+ * for one that is finished — and they can only make that choice if they can see
+ * it happening.
+ */
+function ReadinessLine({
+  warm,
+  network,
+  estimateS,
+}: {
+  warm: WarmupProgress | null;
+  network: 'fast' | 'moderate' | 'slow';
+  estimateS: number;
+}) {
+  if (!warm) return null;
+  const done = warm.done >= warm.total;
+  const pct = warm.total ? Math.round((warm.done / warm.total) * 100) : 100;
+  const slow = network !== 'fast';
+  return (
+    <p style={{ ...hint, color: done ? tokens.good : tokens.textMuted }}>
+      {done
+        ? `Port models ready (${warm.total} assets, ${Math.round(warm.totalBytes / 1024)} KB) — the walkthrough will open on a finished scene.`
+        : `Loading port models — ${pct}%${slow ? ` (about ${estimateS}s on this connection)` : ''}. You can enter now; the scene fills in as it arrives.`}
+    </p>
+  );
+}
+
+/**
+ * True on a screen too narrow for a sidebar beside the map.
+ *
+ * Watched rather than read once: the setup screen is where the phone is still
+ * in the operator's hand, so it gets rotated, and the immersive view locks
+ * landscape on the way in.
+ */
+function useNarrowViewport(breakpointPx = 760): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < breakpointPx
+  );
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < breakpointPx);
+    onResize();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, [breakpointPx]);
+  return narrow;
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

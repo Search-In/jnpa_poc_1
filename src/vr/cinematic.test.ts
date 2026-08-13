@@ -5,6 +5,7 @@ import { NEUTRAL_LEVERS } from '@/sim/simStore';
 import { SCENARIOS, scenarioLevers } from '@/sim/scenarios';
 import { computeImpacts } from './impactModel';
 import {
+  DEFAULT_TOUR_ARC_M,
   DWELL_MS,
   FLIGHT_MS,
   buildShots,
@@ -227,5 +228,57 @@ describe('tourFrame', () => {
       shots.reduce((s, x) => s + FLIGHT_MS + x.dwellMs, 0)
     );
     expect(tourDurationMs(shots)).toBeGreaterThanOrEqual(shots.length * (FLIGHT_MS + DWELL_MS));
+  });
+});
+
+describe('tour arc — how violently the camera moves', () => {
+  const A: ViewerPose = { longitude: 72.9, latitude: 18.9, z: 20, heading: 0, tilt: 80 };
+  const B: ViewerPose = { longitude: 72.95, latitude: 18.95, z: 20, heading: 0, tilt: 80 };
+  const POSE_FROM: ViewerPose = {
+    longitude: PORT_CENTER[0],
+    latitude: PORT_CENTER[1],
+    z: 14,
+    heading: 0,
+    tilt: 90,
+  };
+
+  it('flies flat when asked to', () => {
+    // With the head tracked the inner ear reports standing still while the eyes
+    // report a 90 m climb; that disagreement is what makes people take a
+    // cardboard viewer off.
+    const cinematic = lerpPose(A, B, 0.5).z;
+    const gentle = lerpPose(A, B, 0.5, 20).z;
+    expect(gentle).toBeLessThan(cinematic);
+    expect(gentle - A.z).toBeCloseTo(20, 6);
+  });
+
+  it('still lands exactly on the destination, whatever the arc', () => {
+    for (const arc of [0, 20, 90, 300]) {
+      expect(lerpPose(A, B, 1, arc).z).toBeCloseTo(B.z, 6);
+      expect(lerpPose(A, B, 0, arc).z).toBeCloseTo(A.z, 6);
+    }
+  });
+
+  it('scales the held-shot drift with the arc', () => {
+    const shots = buildShots(modelFor('M1'), BERTHS, PORT_CENTER);
+    const held = FLIGHT_MS + shots[0].dwellMs / 2;
+    const big = tourFrame(shots, POSE_FROM, held, false, { arcM: 90 })!;
+    const small = tourFrame(shots, POSE_FROM, held, false, { arcM: 20 })!;
+    // Both are the same beat, framed from the same place…
+    expect(small.index).toBe(big.index);
+    // …but the camera wanders less on its own when the viewer's head is the
+    // thing that is supposed to be moving.
+    const wander = (f: typeof big) => Math.abs(f.pose.heading - shots[0].pose.heading);
+    expect(wander(small)).toBeLessThan(wander(big));
+    expect(wander(small)).toBeGreaterThan(0);
+  });
+
+  it('defaults to the cinematic arc when nothing is asked for', () => {
+    const shots = buildShots(modelFor('M1'), BERTHS, PORT_CENTER);
+    const mid = tourFrame(shots, POSE_FROM, FLIGHT_MS / 2)!;
+    const explicit = tourFrame(shots, POSE_FROM, FLIGHT_MS / 2, false, {
+      arcM: DEFAULT_TOUR_ARC_M,
+    })!;
+    expect(mid.pose.z).toBeCloseTo(explicit.pose.z, 9);
   });
 });

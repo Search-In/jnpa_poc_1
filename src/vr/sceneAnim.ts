@@ -52,7 +52,8 @@ import {
   type WeatherVisual,
 } from './liveWorld';
 import { bearingTo, normalizeHeading } from './stereo';
-import { animationHz, isLowPowerDevice } from './device';
+import { currentBudget } from './device';
+import type { SceneBudget } from './sceneBudget';
 
 /** Matches `portAssets3d` — the glTF assets are served from the site root. */
 const MODELS = '/models';
@@ -345,14 +346,19 @@ export interface AnimInput {
  * @param layers the animated layers, already added to the map
  * @param get    supplies the latest model/berths/vessels each frame
  * @param views  every SceneView to apply weather to (two in stereo)
+ * @param budget the scene's budget. Passed in rather than re-probed here because
+ *   the loop starts BEFORE the views exist (they are created asynchronously so
+ *   the second eye can wait for the first), so `views().length` cannot be used
+ *   to work out whether this is a stereo run — it is zero at that moment.
  * @returns a teardown that cancels the frame loop
  */
 export function startSceneAnimation(
   layers: AnimLayers,
   get: () => AnimInput,
-  views: () => SceneView[]
+  views: () => SceneView[],
+  budget: SceneBudget = currentBudget(false)
 ): () => void {
-  const lowPower = isLowPowerDevice();
+  const lowPower = budget.lowPower;
   const reducedMotion =
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -612,7 +618,7 @@ export function startSceneAnimation(
    * and every frame not spent here is a frame the renderer keeps — which is what
    * the 45+ fps target is actually measuring.
    */
-  const MIN_STEP_MS = 1000 / animationHz(views().length > 1);
+  const MIN_STEP_MS = 1000 / budget.animationHz;
   let lastRenderTs = -Infinity;
 
   const frame = (ts: number): void => {
