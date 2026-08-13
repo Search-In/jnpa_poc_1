@@ -281,6 +281,7 @@ export function VrScene({ berths, vessels, model, onReadyChange }: VrSceneProps)
 
     let cancelled = false;
     const teardownFallback: Array<() => void> = [];
+    const pendingWaits: Array<{ cancel: () => void }> = [];
 
     viewsRef.current = [];
     // A 3D ↔ VR flip rebuilds the scene from scratch, so the page must stop
@@ -321,7 +322,15 @@ export function VrScene({ berths, vessels, model, onReadyChange }: VrSceneProps)
         // Waits on the glTF port assets, NOT on `view.updating` — the animator
         // and the auto-tour both keep that permanently true, so a gate hung on
         // it would never open by itself. See `viewReady.ts`.
-        waitDrawn: (view) => whenAssetsDrawn(view, [berthsL, ...scenery], budget.readyTimeoutMs),
+        //
+        // Tracked so teardown can cancel it: otherwise a mode flip leaves a live
+        // watch and a timer of up to 25 s holding the layer views of a SceneView
+        // that has already been destroyed.
+        waitDrawn: (view) => {
+          const w = whenAssetsDrawn(view, [berthsL, ...scenery], budget.readyTimeoutMs);
+          pendingWaits.push(w);
+          return w;
+        },
         isCancelled: () => cancelled,
         onFirstEye: () => setReadiness('first-eye'),
         onReady: (outcomes) => {
@@ -342,6 +351,7 @@ export function VrScene({ berths, vessels, model, onReadyChange }: VrSceneProps)
     return () => {
       cancelled = true;
       stopAnim();
+      for (const w of pendingWaits) w.cancel();
       for (const t of teardownFallback) t();
       for (const v of viewsRef.current) v.destroy();
       viewsRef.current = [];

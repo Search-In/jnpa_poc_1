@@ -199,3 +199,29 @@ describe('allDrawnCleanly', () => {
     expect(allDrawnCleanly([])).toBe(false);
   });
 });
+
+describe('cancellation', () => {
+  it('releases its watch and timer when the scene is torn down', async () => {
+    // A mode flip destroys the SceneView while this is still waiting. Without a
+    // cancel the watch and a timer of up to 25 s keep holding the layer views of
+    // a view that no longer exists — every single flip.
+    const view = new FakeView();
+    const p = whenAssetsDrawn(view, [YARD], 25_000, { watchSettled: view.watcher });
+    await settle();
+    expect(view.watcherCount).toBe(1);
+
+    p.cancel();
+    await expect(p).resolves.toBe('failed');
+    expect(view.watcherCount).toBe(0);
+  });
+
+  it('is a no-op once it has already settled', async () => {
+    const view = new FakeView();
+    const p = whenAssetsDrawn(view, [YARD], 5_000, { watchSettled: view.watcher });
+    await settle();
+    view.finishAll();
+    await expect(p).resolves.toBe('drawn');
+    p.cancel();
+    await expect(p).resolves.toBe('drawn');
+  });
+});

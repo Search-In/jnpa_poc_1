@@ -38,11 +38,13 @@ import Polygon from '@arcgis/core/geometry/Polygon';
 import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol';
 import TileLayer from '@arcgis/core/layers/TileLayer';
 import { PORT_CENTER } from '@/map/portGeometry';
-import { isOfflineRequested, makeOfflineBasemap } from '@/map/basemapFallback';
+import {
+  isOfflineRequested,
+  makeOfflineBasemap,
+  WORLD_IMAGERY_URL,
+} from '@/map/basemapFallback';
 
-/** Esri's public imagery service — the tile source `'satellite'` resolves to. */
-export const WORLD_IMAGERY_URL =
-  'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
+export { WORLD_IMAGERY_URL };
 
 /**
  * Half-width of the underlay, degrees. About 28 km each way from the port
