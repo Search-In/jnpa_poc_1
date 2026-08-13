@@ -26,6 +26,7 @@ import type { Berth } from '@/types/domain';
 import { tokens } from '@/theme/tokens';
 import { AuditedAnswer } from '../whatif/AuditedAnswer';
 import { VesselOmissionPanel } from '../whatif/VesselOmissionPanel';
+import { FogRestrictionPanel } from '../whatif/FogRestrictionPanel';
 
 /** A free-parameter lever control, either a scaled slider or a stepped counter. */
 interface LeverSpec {
@@ -220,6 +221,9 @@ export function Scenarios(_props: { onResult?: (r: unknown) => void }) {
 
       {/* ── UC-1 · Vessel omission (line skips JNPA) ─────────────────── */}
       <VesselOmissionPanel />
+
+      {/* ── UC-1 · Fog / night navigation restriction (< 1 km) ───────── */}
+      <FogRestrictionPanel />
 
       {/* ── Free-parameter mode ──────────────────────────────────────── */}
       <section
