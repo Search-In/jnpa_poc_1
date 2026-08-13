@@ -19,6 +19,7 @@ import GraphicsLayer from '@arcgis/core/layers/GraphicsLayer';
 import Graphic from '@arcgis/core/Graphic';
 import Extent from '@arcgis/core/geometry/Extent';
 import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol';
+import TileLayer from '@arcgis/core/layers/TileLayer';
 import type MapView from '@arcgis/core/views/MapView';
 import type SceneView from '@arcgis/core/views/SceneView';
 
@@ -58,33 +59,59 @@ export function makeOfflineBasemap(): Basemap {
 }
 
 /**
- * Keyless online basemap. Esri's imagery bases ('hybrid', 'satellite') fetch
- * from services.arcgisonline.com/World_Imagery, which returns EMPTY tiles
- * without a valid token — a basemap that reports `loaded` while rendering a
- * white void. The 'osm' base is the one built-in that carries no Esri service
- * URL at all (a plain OpenStreetMap tile layer), so it renders real streets,
- * coastline and port geometry with no API key and no sign-in.
+ * Esri's public imagery service — the one that answers anonymously.
  *
- * It is raster street cartography, NOT satellite imagery: the honest ceiling
- * for a keyless account. Set VITE_ARCGIS_API_KEY to get 'hybrid' imagery back.
+ * Verified with a live request: `…/World_Imagery/MapServer` and its tiles both
+ * return HTTP 200 with real bytes and no token.
  */
-export function makeKeylessBasemap(): string {
-  return 'osm';
+export const WORLD_IMAGERY_URL =
+  'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
+
+/**
+ * Satellite imagery with no API key.
+ *
+ * WHY THIS IS BUILT BY HAND rather than `basemap: 'hybrid'`. As of ArcGIS JS
+ * 4.29 the well-known basemap IDs ('hybrid', 'satellite', 'streets', …) no
+ * longer resolve to the old arcgisonline services — they resolve to the
+ * **basemap styles service**, `basemapstyles-api.arcgis.com`, which REQUIRES an
+ * API key. Without one it answers **401**, `Basemap.load()` rejects, and the
+ * console shows:
+ *
+ *   [esri.Basemap] #load() Failed to load basemap (title: 'Basemap', id: 'hybrid')
+ *
+ * Every map in the app then falls through to `installBasemapFallback` and
+ * renders the bundled flat grey. That is the real cause of "the map tiles take
+ * too long to load, or sometimes just don't load" — they were never going to
+ * load. Measured directly from the page:
+ *
+ *   basemapstyles-api.arcgis.com/…/styles/arcgis/imagery   401
+ *   services.arcgisonline.com/…/World_Imagery/MapServer     200
+ *   services.arcgisonline.com/…/World_Imagery/tile/10/…     200  image/jpeg
+ *
+ * So the tile layer is named explicitly. This is not a downgrade or a
+ * workaround for a missing key — it is the same imagery the old 'hybrid' ID
+ * used to serve, requested from the endpoint that still serves it anonymously.
+ *
+ * Setting `VITE_ARCGIS_API_KEY` does not change this and does not need to; if
+ * the org ever gets a key, `esriConfig.apiKey` plus the string IDs would work
+ * again, and this stays correct either way.
+ */
+export function makeKeylessBasemap(): Basemap {
+  return new Basemap({
+    baseLayers: [new TileLayer({ url: WORLD_IMAGERY_URL, title: 'World imagery' })],
+    title: 'Imagery',
+    id: 'jnpa-imagery',
+  });
 }
 
 /**
  * The basemap to start with:
- *   • `?offline=1`      → bundled local base (no tiles at all)
- *   • no ArcGIS API key → keyless 'osm' (real geography, no token)
- *   • key present       → 'hybrid' satellite imagery
- *
- * The no-key branch matters because ArcGIS Online TRIAL subscriptions cannot
- * issue API keys at all, so "no key" is the normal state for a PoC org, not an
- * error — and it previously produced a blank white world.
+ *   • `?offline=1` → bundled local base (no tiles at all)
+ *   • otherwise    → keyless Esri satellite imagery
  */
-export function initialBasemap(hasApiKey: boolean = true): string | Basemap {
+export function initialBasemap(): Basemap {
   if (isOfflineRequested()) return makeOfflineBasemap();
-  return hasApiKey ? 'hybrid' : makeKeylessBasemap();
+  return makeKeylessBasemap();
 }
 
 /**

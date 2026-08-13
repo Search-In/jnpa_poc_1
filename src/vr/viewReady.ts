@@ -81,21 +81,23 @@ export function whenAssetsDrawn(
   layers: readonly unknown[],
   timeoutMs: number,
   deps: WaitDeps = {}
-): Promise<DrawOutcome> {
+): Promise<DrawOutcome> & { cancel: () => void } {
   const watchSettled = deps.watchSettled ?? arcgisSettledWatcher;
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((id) => clearTimeout(id as ReturnType<typeof setTimeout>));
 
-  return new Promise<DrawOutcome>((resolve) => {
-    let settled = false;
-    let handle: { remove: () => void } | null = null;
-    let timer: unknown = null;
+  let settled = false;
+  let handle: { remove: () => void } | null = null;
+  let timer: unknown = null;
+  let finish!: (outcome: DrawOutcome) => void;
 
-    const finish = (outcome: DrawOutcome) => {
+  const promise = new Promise<DrawOutcome>((resolve) => {
+    finish = (outcome: DrawOutcome) => {
       if (settled) return;
       settled = true;
       if (timer != null) clearTimer(timer);
       handle?.remove();
+      handle = null;
       resolve(outcome);
     };
 
@@ -129,6 +131,18 @@ export function whenAssetsDrawn(
         });
       })
       .catch(() => finish('failed'));
+  });
+
+  /**
+   * Give up waiting and release everything.
+   *
+   * Without this an unmounted scene left a live `reactiveUtils` watch and a
+   * timer of up to 25 seconds holding references to the layer views of a
+   * SceneView that had already been destroyed — every time the operator flipped
+   * between 3D and VR, or left and re-entered.
+   */
+  return Object.assign(promise, {
+    cancel: () => finish('failed'),
   });
 }
 

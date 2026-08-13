@@ -148,7 +148,14 @@ export function warmModels(
         // `force-cache` because these are vendored, immutable meshes: there is
         // nothing to revalidate and a conditional request on a 200 ms link is a
         // round trip spent to be told nothing changed.
-        await doFetch(m.href, { cache: 'force-cache', signal: controller?.signal });
+        const res = await doFetch(m.href, { cache: 'force-cache', signal: controller?.signal });
+        // DRAIN THE BODY. A Response whose body is never read leaves the stream
+        // open and the bytes buffered — and with a service worker in the middle
+        // the SW has already `clone()`d it, so an unread branch pins the whole
+        // response in memory indefinitely. Reading it to completion is also what
+        // makes the entry actually land in the cache, which is the entire point
+        // of warming.
+        await res?.arrayBuffer?.().catch(() => undefined);
       } catch {
         /* offline, aborted, 404 — the renderer will try again itself */
       }
