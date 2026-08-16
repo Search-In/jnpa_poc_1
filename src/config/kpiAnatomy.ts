@@ -29,21 +29,21 @@ export const KPI_ANATOMY: Record<KpiKey, KpiAnatomy> = {
     definition: 'Share of arrivals within ±60 min of the recommended berthing slot',
     basis: 'ATA vs recommended slot (berthing-plan PLANNED_START)',
     baselineSource:
-      'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+      '',
   },
   preBerthingDelay: {
     name: 'Pre-Berthing Delay',
     definition: 'Mean hours between declared ETA and actual arrival (ATA − ETA)',
     basis: 'ATA = factual arrival; ETA = declared arrival in the call window',
     baselineSource:
-      'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+      '',
   },
   preSailingDelay: {
     name: 'Pre-Sailing Delay',
     definition: 'Mean hours between cargo-complete + clearance and actual sailing (ATD)',
     basis: 'ATD vs planned sailing / cargo-complete + standard clearance',
     baselineSource:
-      'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+      '',
   },
   avgTat: {
     name: 'Average Vessel TAT',
@@ -58,21 +58,21 @@ export const KPI_ANATOMY: Record<KpiKey, KpiAnatomy> = {
     definition: 'Mean utilisation across pilot, tug and mooring craft (% deployed)',
     basis: 'port-craft register status at the anchor instant',
     baselineSource:
-      'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+      '',
   },
   forecastAccuracy: {
     name: 'Accuracy of Prediction',
     definition: 'Share of arrivals within ±4 h of the declared ETA',
     basis: 'terminal berthing-report ETA vs ATA',
     baselineSource:
-      'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+      '',
   },
   berthOccupancy: {
     name: 'Berth Occupancy',
     definition: 'Occupied share of container-terminal berths at the anchor instant',
     basis: 'berth occupancy derived from the JNPA terminal berthing register',
     baselineSource:
-      'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+      '',
   },
   anchored: {
     name: 'Anchored / Approaching',
@@ -80,6 +80,6 @@ export const KPI_ANATOMY: Record<KpiKey, KpiAnatomy> = {
       'Count of vessels at anchorage plus inbound/expected at the anchor instant',
     basis: 'ledger-derived state (at_anchorage · inbound · expected)',
     baselineSource:
-      'no published JNPA baseline — count is ledger-derived at the anchor instant',
+      '',
   },
 };

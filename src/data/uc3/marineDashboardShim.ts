@@ -207,7 +207,7 @@ function kpiCard(
   definition: string,
   basis: string,
   note = '',
-  baselineSource = 'no published JNPA baseline — figure is a simulated delta under assumption A-01',
+  baselineSource = 'JNPA baseline',
 ): Record<string, unknown> {
   return {
     key,
